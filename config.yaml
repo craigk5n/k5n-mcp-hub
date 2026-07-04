@@ -37,7 +37,10 @@ storage:
 # Controls authentication and user registration.
 auth:
   # type: Authentication mechanism. Options: basic, none.
-  type: basic
+  # Set to "none" for local/LAN testing so the admin UI can register servers without
+  # credentials. Switch back to "basic" (and set basic_auth.register_pass) before any
+  # non-trusted deployment.
+  type: none
 
   # basic_auth: Basic authentication settings.
   basic_auth:
@@ -85,3 +88,8 @@ trace:
   # capture_sse: Whether to capture Server-Sent Events in traces.
   capture_sse: false
 
+
+# Security
+security:
+  # Allow registering/probing MCP servers on localhost/LAN (needed for a local-first hub).
+  allow_private_networks: true
