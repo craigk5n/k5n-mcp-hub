@@ -88,6 +88,11 @@ async def _register_server_impl(
     server_id = validated.id
     url = validated.url
 
+    allow_private = bool(
+        getattr(getattr(request.app.state, "settings", None), "security", None)
+        and request.app.state.settings.security.allow_private_networks
+    )
+
     existing = await registry.get(server_id)
     incoming_registration_type = validated.registration_type
     effective_registration_type = incoming_registration_type
@@ -98,7 +103,7 @@ async def _register_server_impl(
 
     require_reachability = effective_registration_type != "self"
 
-    is_safe, error_msg, resolved_ips = await is_url_safe_for_discovery(url, require_reachability)
+    is_safe, error_msg, resolved_ips = await is_url_safe_for_discovery(url, require_reachability, allow_private)
     if not is_safe:
         return JSONResponse(
             status_code=400,
@@ -107,7 +112,7 @@ async def _register_server_impl(
 
     oauth_discovery_url = validated.oauth_discovery_url
     if oauth_discovery_url:
-        is_safe, _, _ = await is_url_safe_for_discovery(oauth_discovery_url, require_reachability)
+        is_safe, _, _ = await is_url_safe_for_discovery(oauth_discovery_url, require_reachability, allow_private)
         if not is_safe:
             return JSONResponse(
                 status_code=400,
@@ -184,7 +189,7 @@ async def _register_server_impl(
             disc_url, issuer, metadata = await discover_oauth_metadata(
                 srv.url, discovery_url_for_call
             )
-            is_safe, _, _ = await is_url_safe_for_discovery(disc_url)
+            is_safe, _, _ = await is_url_safe_for_discovery(disc_url, allow_private=allow_private)
             if is_safe:
                 srv.oauth_discovery_url = disc_url
                 srv.oauth_issuer = issuer

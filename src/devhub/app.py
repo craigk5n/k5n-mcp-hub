@@ -187,6 +187,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.state.templates = _create_jinja2_environment()
     app.state.fixture_store = FixtureStore()
 
+    # Let outbound MCP/discovery connections reach localhost/LAN when the operator opts in
+    # (local-first mode). Applies to the SSRF-pinned transport used for the actual MCP calls.
+    from devhub.utils import set_allow_private_networks
+    set_allow_private_networks(settings.security.allow_private_networks)
+
     _mount_routers(app)
     _mount_static(app)
 

@@ -168,7 +168,13 @@ async def invoke_tool(
     if srv is None:
         raise HTTPException(status_code=404, detail="Server not found")
 
-    url_validation_result = await is_url_safe_for_discovery(srv.url, require_reachability=False)
+    _allow_private = bool(
+        getattr(getattr(request.app.state, "settings", None), "security", None)
+        and request.app.state.settings.security.allow_private_networks
+    )
+    url_validation_result = await is_url_safe_for_discovery(
+        srv.url, require_reachability=False, allow_private=_allow_private
+    )
     is_safe = url_validation_result[0]
     url_error = url_validation_result[1]
     if not is_safe:

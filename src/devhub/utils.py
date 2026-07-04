@@ -26,8 +26,22 @@ def _resolve_hostname_blocking(hostname: str) -> list[str]:
     return [str(sockaddr[0]) for _, _, _, _, sockaddr in resolved]
 
 
+# When True, the outbound SSRF pin also permits loopback/private/LAN targets. Set once at
+# startup from config.security.allow_private_networks — a local-first hub must reach the
+# localhost/LAN MCP servers it manages. Leave False if the hub is exposed to untrusted callers.
+_ALLOW_PRIVATE_NETWORKS = False
+
+
+def set_allow_private_networks(allow: bool) -> None:
+    global _ALLOW_PRIVATE_NETWORKS
+    _ALLOW_PRIVATE_NETWORKS = bool(allow)
+
+
 def _ip_allowed(ip: Any) -> bool:
-    """True only for a routable public address (rejects loopback/private/link-local/reserved)."""
+    """True for a routable public address; also allows loopback/private/link-local when
+    allow_private_networks is enabled (local-first mode)."""
+    if _ALLOW_PRIVATE_NETWORKS:
+        return True
     return not (ip.is_loopback or ip.is_private or ip.is_link_local or ip.is_reserved)
 
 
@@ -110,6 +124,7 @@ def safe_http_client_factory(
 async def is_url_safe_for_discovery(
     url: str,
     require_reachability: bool = True,
+    allow_private: bool = False,
 ) -> tuple[bool, str, list[str]]:
     try:
         parsed = urlparse(url)
@@ -122,12 +137,15 @@ async def is_url_safe_for_discovery(
 
         resolved_ips: list[str] = []
 
+        # allow_private lets a local-first hub target loopback/LAN MCP servers; the SSRF
+        # guard below is skipped for those ranges only when the operator opts in.
         try:
             ip = ipaddress.ip_address(hostname)
-            if ip.is_loopback:
-                return False, f"invalid URL: {hostname} is a loopback IP", []
-            if ip.is_private or ip.is_link_local or ip.is_reserved:
-                return False, f"invalid URL: {hostname} is a reserved/private IP", []
+            if not allow_private:
+                if ip.is_loopback:
+                    return False, f"invalid URL: {hostname} is a loopback IP", []
+                if ip.is_private or ip.is_link_local or ip.is_reserved:
+                    return False, f"invalid URL: {hostname} is a reserved/private IP", []
         except ValueError:
             pass
 
@@ -136,6 +154,8 @@ async def is_url_safe_for_discovery(
             resolved_ips = await loop.run_in_executor(None, _resolve_hostname_blocking, hostname)
             for ip_str in resolved_ips:
                 ip = ipaddress.ip_address(ip_str)
+                if allow_private:
+                    continue
                 if ip.is_loopback:
                     return False, f"invalid URL: {hostname} resolves to loopback IP", []
                 if ip.is_private or ip.is_link_local or ip.is_reserved:

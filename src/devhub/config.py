@@ -119,6 +119,14 @@ class TraceConfig(BaseModel):
     capture_sse: bool = False
 
 
+class SecurityConfig(BaseModel):
+    # allow_private_networks: permit registering/probing MCP servers on loopback/LAN/private
+    # IPs (127.0.0.1, 192.168.x, 10.x, 172.16-31.x, link-local). The SSRF guard blocks these
+    # by default; a local-first hub that manages localhost/LAN servers needs them enabled.
+    # Keep False if the hub is ever exposed to untrusted callers.
+    allow_private_networks: bool = False
+
+
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(
         env_prefix="DEVHUB_",
@@ -131,6 +139,7 @@ class Settings(BaseSettings):
     auth: AuthConfig = Field(default_factory=AuthConfig)
     healthcheck: HealthCheckConfig = Field(default_factory=HealthCheckConfig)
     trace: TraceConfig = Field(default_factory=TraceConfig)
+    security: SecurityConfig = Field(default_factory=SecurityConfig)
 
     @classmethod
     def from_defaults(cls) -> Settings:
@@ -140,6 +149,7 @@ class Settings(BaseSettings):
             auth=AuthConfig(),
             healthcheck=HealthCheckConfig(),
             trace=TraceConfig(),
+            security=SecurityConfig(),
         )
 
 
@@ -219,6 +229,11 @@ def load_settings(path: str | None = None) -> Settings:
         **yaml_config.get("trace", {}),
         **nested_env_vars.get("trace", {}),
     }
+    security_dict = {
+        **defaults.security.model_dump(),
+        **yaml_config.get("security", {}),
+        **nested_env_vars.get("security", {}),
+    }
 
     settings = Settings(
         server=ServerConfig(**server_dict),
@@ -226,6 +241,7 @@ def load_settings(path: str | None = None) -> Settings:
         auth=AuthConfig(**auth_dict),
         healthcheck=HealthCheckConfig(**healthcheck_dict),
         trace=TraceConfig(**trace_dict),
+        security=SecurityConfig(**security_dict),
     )
 
     bare_http_port = os.environ.get("SERVER_HTTP_PORT")
