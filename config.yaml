@@ -1,0 +1,87 @@
+# DevHub Configuration File
+# ==========================
+#
+# This file contains the default configuration for the DevHub MCP server.
+# All values in this file match the application's built-in defaults, so starting
+# the app with this file present behaves identically to running with no config
+# file at all. This file serves as documentation for all available options.
+#
+# To override any setting, uncomment and modify the relevant section(s).
+
+# =============================================================================
+# Server Configuration
+# =============================================================================
+# Controls the HTTP server binding and admin UI.
+server:
+  # http_port: The port number for the HTTP server to listen on.
+  http_port: 8080
+
+  # admin_ui: Whether to enable the admin web UI (servers page, etc.).
+  admin_ui: true
+
+# =============================================================================
+# Storage Configuration
+# =============================================================================
+# Controls how server registry data is persisted.
+storage:
+  # type: Storage backend. Options: inmemory, json, redis.
+  type: inmemory
+
+  # json: (Commented out) JSON file-based storage configuration.
+  # json:
+  #   path: "mcp_servers.json"
+
+# =============================================================================
+# Authentication Configuration
+# =============================================================================
+# Controls authentication and user registration.
+auth:
+  # type: Authentication mechanism. Options: basic, none.
+  type: basic
+
+  # basic_auth: Basic authentication settings.
+  basic_auth:
+    # register_user: Username for initial admin registration.
+    register_user: admin
+
+    # register_pass: (Commented out) Password for initial admin registration.
+    # WARNING: Default passwords shipped with applications are a security risk.
+    # Uncomment and set a strong password before deploying to production.
+    # register_pass: "YOUR_PASSWORD_HERE"
+
+# =============================================================================
+# Health Check Configuration
+# =============================================================================
+# Controls periodic health checks for registered MCP servers.
+healthcheck:
+  # enabled: Whether to enable automatic health checking.
+  enabled: false
+
+  # interval_seconds: How often (in seconds) to check server health.
+  interval_seconds: 30
+
+  # timeout_seconds: How long (in seconds) to wait for a health response.
+  timeout_seconds: 5
+
+  # failure_threshold: Number of consecutive failures before unregistering.
+  failure_threshold: 3
+
+  # auto_unregister: Whether to automatically remove failed servers.
+  auto_unregister: false
+
+  # response_fields: Fields to include in health check responses.
+  response_fields:
+    status: status
+    uptime_seconds: uptime_seconds
+
+# =============================================================================
+# Trace Configuration
+# =============================================================================
+# Controls request/response tracing for debugging.
+trace:
+  # body_limit: Maximum number of body bytes to capture per request/response.
+  body_limit: 10000
+
+  # capture_sse: Whether to capture Server-Sent Events in traces.
+  capture_sse: false
+

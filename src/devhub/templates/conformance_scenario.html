@@ -1,0 +1,14 @@
+{% if scenario.ok %}
+<div id="official-passed-{{ server_id }}-{{ scenario.key }}" hx-swap-oob="{{ swap_oob }}">
+    <span class="text-green-600 font-medium">{{ scenario.name }}</span>
+    <span class="text-green-500 text-sm ml-2">✓ {{ scenario.passed }}/{{ scenario.passed + scenario.failed }}</span>
+</div>
+{% else %}
+<div id="official-failed-{{ server_id }}-{{ scenario.key }}" hx-swap-oob="{{ swap_oob }}">
+    <span class="text-red-600 font-medium">{{ scenario.name }}</span>
+    <span class="text-red-500 text-sm ml-2">✗ {{ scenario.passed }}/{{ scenario.passed + scenario.failed }}</span>
+    <form method="post" action="/ui/server/{{ server_id }}/conformance/official/retest?scenario={{ scenario.name | urlencode }}" class="inline ml-2">
+        <button type="submit" class="bg-blue-500 hover:bg-blue-600 text-white text-xs px-2 py-1 rounded">Retest</button>
+    </form>
+</div>
+{% endif %}

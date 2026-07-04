@@ -1,0 +1,11 @@
+Collecting pytest-asyncio
+  Downloading pytest_asyncio-1.4.0-py3-none-any.whl.metadata (4.1 kB)
+Requirement already satisfied: pytest<10,>=8.4 in /usr/local/lib/python3.12/site-packages (from pytest-asyncio) (9.1.1)
+Requirement already satisfied: typing-extensions>=4.12 in /usr/local/lib/python3.12/site-packages (from pytest-asyncio) (4.15.0)
+Requirement already satisfied: iniconfig>=1.0.1 in /usr/local/lib/python3.12/site-packages (from pytest<10,>=8.4->pytest-asyncio) (2.3.0)
+Requirement already satisfied: packaging>=22 in /usr/local/lib/python3.12/site-packages (from pytest<10,>=8.4->pytest-asyncio) (26.2)
+Requirement already satisfied: pluggy<2,>=1.5 in /usr/local/lib/python3.12/site-packages (from pytest<10,>=8.4->pytest-asyncio) (1.6.0)
+Requirement already satisfied: pygments>=2.7.2 in /usr/local/lib/python3.12/site-packages (from pytest<10,>=8.4->pytest-asyncio) (2.20.0)
+Downloading pytest_asyncio-1.4.0-py3-none-any.whl (16 kB)
+Installing collected packages: pytest-asyncio
+Successfully installed pytest-asyncio-1.4.0

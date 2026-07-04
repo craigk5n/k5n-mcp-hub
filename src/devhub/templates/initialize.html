@@ -1,0 +1,98 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Initialize Inspection - DevHub</title>
+    <script src="/static/vendor/htmx.min.js"></script>
+    <script src="/static/vendor/tailwind.js"></script>
+</head>
+<body class="bg-gray-50 min-h-screen p-8">
+    {% if error %}
+    <div class="mb-6 bg-red-50 border border-red-200 rounded-lg p-4">
+        <div class="flex items-center gap-2">
+            <svg class="w-5 h-5 text-red-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+            </svg>
+            <span class="text-red-800 font-medium">Error</span>
+        </div>
+        <p class="mt-2 text-red-700">{{ error | escape }}</p>
+    </div>
+    {% endif %}
+
+    {% if auth_hint %}
+    <div class="mb-6 bg-amber-50 border border-amber-200 rounded-lg p-4">
+        <div class="flex items-center gap-2">
+            <svg class="w-5 h-5 text-amber-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"></path>
+            </svg>
+            <span class="text-amber-800 font-medium">Auth Challenge</span>
+        </div>
+        <p class="mt-2 text-amber-700">{{ auth_hint | escape }}</p>
+    </div>
+    {% endif %}
+
+    {% if server_id %}
+    <div class="mb-4 text-sm text-gray-600">
+        Server: <span class="font-mono">{{ server_id | escape }}</span> | 
+        URL: <span class="font-mono">{{ url | escape }}</span>
+    </div>
+    {% endif %}
+
+    <div class="mb-6 flex items-center gap-4">
+        <h1 class="text-2xl font-bold text-gray-800">Initialize Inspection</h1>
+        {% if protocol_version %}
+        <span class="px-3 py-1 bg-blue-100 text-blue-800 rounded-full text-sm font-medium">Protocol: {{ protocol_version | escape }}</span>
+        {% endif %}
+        {% if session_id %}
+        <span class="px-3 py-1 bg-purple-100 text-purple-800 rounded-full text-sm font-medium">Session: {{ session_id | escape }}</span>
+        {% endif %}
+        {% if duration_ms %}
+        <span class="px-3 py-1 bg-green-100 text-green-800 rounded-full text-sm font-medium">{{ duration_ms }}ms</span>
+        {% endif %}
+        {% if response_status %}
+        <span class="px-3 py-1 bg-gray-100 text-gray-800 rounded-full text-sm font-medium">Status: {{ response_status }}</span>
+        {% endif %}
+    </div>
+
+    {% if server_name or server_version %}
+    <div class="mb-4 text-sm text-gray-600">
+        {% if server_name %}<span>Server: {{ server_name | escape }}{% if server_version %} v{{ server_version | escape }}{% endif %}</span>{% endif %}
+    </div>
+    {% endif %}
+
+    <div class="grid grid-cols-2 gap-6">
+        <div class="bg-white rounded-lg shadow-md p-6">
+            <h2 class="text-lg font-semibold text-gray-700 mb-4">Request</h2>
+            {% if request_headers %}
+            <div class="mb-4">
+                <h3 class="text-sm font-medium text-gray-600 mb-2">Headers:</h3>
+                <pre class="bg-gray-100 p-4 rounded-lg overflow-x-auto text-xs font-mono">{{ request_headers | escape }}</pre>
+            </div>
+            {% endif %}
+            {% if request_body %}
+            <div>
+                <h3 class="text-sm font-medium text-gray-600 mb-2">Body:</h3>
+                <pre class="bg-gray-100 p-4 rounded-lg overflow-x-auto text-sm font-mono">{{ request_body | escape }}</pre>
+            </div>
+            {% endif %}
+        </div>
+
+        <div class="bg-white rounded-lg shadow-md p-6">
+            <h2 class="text-lg font-semibold text-gray-700 mb-4">Response</h2>
+            {% if response_headers %}
+            <div class="mb-4">
+                <h3 class="text-sm font-medium text-gray-600 mb-2">Headers:</h3>
+                <pre class="bg-gray-100 p-4 rounded-lg overflow-x-auto text-xs font-mono">{{ response_headers | escape }}</pre>
+            </div>
+            {% endif %}
+            {% if response_body %}
+            <div>
+                <h3 class="text-sm font-medium text-gray-600 mb-2">Body:</h3>
+                <pre class="bg-gray-100 p-4 rounded-lg overflow-x-auto text-sm font-mono">{{ response_body | escape }}</pre>
+            </div>
+            {% endif %}
+        </div>
+    </div>
+</body>
+</html>

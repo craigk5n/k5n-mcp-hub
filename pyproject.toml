@@ -1,0 +1,57 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "devhub"
+version = "0.1.0"
+requires-python = ">=3.11"
+dependencies = [
+    "mcp>=1.0",
+    "python-multipart>=0.0.9",
+    "pydantic>=2.0",
+    "pydantic-settings>=2.0",
+    "pyyaml>=6.0",
+    "uvicorn>=0.30.0",
+    "httpx>=0.27.0",
+    "pytest>=8.0",
+    "pytest-asyncio>=0.23.0",
+    "fastapi>=0.110.0",
+    "jinja2>=3.1.0",
+    "aiohttp>=3.9.0",
+]
+
+[project.scripts]
+devhub = "devhub.__main__:main"
+
+[tool.setuptools.packages.find]
+# Tolerate both flat (./pkg) and src (./src/pkg) layouts; never package tests.
+where = ["src", "."]
+exclude = ["tests*"]
+
+[tool.ruff]
+line-length = 100
+
+[tool.ruff.lint.per-file-ignores]
+# Tests may import a module just to assert it's importable (F401) or to set up
+# fixtures; don't let lint rules meant for app code fail the test suite.
+"tests/*" = ["F401", "F811"]
+# Package __init__.py files routinely re-export symbols for the public API.
+"__init__.py" = ["F401"]
+
+[tool.ruff.lint]
+exclude = ["src/devhub/static/", "src/devhub/templates/"]
+
+[tool.mypy]
+# Lenient static type-checking: resolve the src/ layout, tolerate third-party
+# packages without stubs, and don't type-check the test suite.
+ignore_missing_imports = true
+explicit_package_bases = true
+mypy_path = "src"
+exclude = "(^|/)(tests|build|dist)/"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src", "."]
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
