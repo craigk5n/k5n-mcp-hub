@@ -49,7 +49,13 @@ class RequestIdMetricsMiddleware:
             nonlocal status_code
             if message["type"] == "http.response.start":
                 status_code = message["status"]
-                MutableHeaders(scope=message)["X-Request-ID"] = request_id
+                hdrs = MutableHeaders(scope=message)
+                hdrs["X-Request-ID"] = request_id
+                # Never let browsers cache the admin HTML — otherwise iOS Safari (which
+                # caches aggressively and ignores a plain reload) keeps serving a stale
+                # page after an update. Static assets under /static still cache via ETag.
+                if "text/html" in hdrs.get("content-type", ""):
+                    hdrs["Cache-Control"] = "no-store, must-revalidate"
             await send(message)
 
         try:
