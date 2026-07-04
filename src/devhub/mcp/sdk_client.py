@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+from contextlib import AsyncExitStack
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Callable, Literal
 
@@ -53,6 +54,21 @@ class MCPClientError(Exception):
         self.kind = kind
 
 
+def _as_dicts(items: Any) -> list[dict]:
+    """Normalize SDK list results to plain dicts. Newer MCP SDKs return typed Pydantic
+    models (Tool/Prompt/Resource); older ones (and the rest of this codebase) use dicts.
+    Convert with by_alias so schema keys stay camelCase (e.g. ``inputSchema``)."""
+    out: list[dict] = []
+    for it in items or []:
+        if hasattr(it, "model_dump"):
+            out.append(it.model_dump(by_alias=True, mode="json"))
+        elif isinstance(it, dict):
+            out.append(it)
+        else:
+            out.append(dict(it))
+    return out
+
+
 class MCPClient:
     def __init__(
         self,
@@ -67,6 +83,7 @@ class MCPClient:
         self._get_session_id: Callable[[], str | None] | None = None
         self._transport_type: Literal["http", "sse"] = "http"
         self._headers: dict[str, str] = {}
+        self._exit_stack: AsyncExitStack | None = None
 
     @property
     def initialize_result(self) -> InitializeResult | None:
@@ -104,35 +121,42 @@ class MCPClient:
                     extra["httpx_client_factory"] = safe_http_client_factory
             except (TypeError, ValueError):
                 pass
+            # Keep the transport + session context managers open on an AsyncExitStack for
+            # the client's whole lifetime, entered and closed in the SAME task (via
+            # `async with MCPClient(...)`). The MCP SDK's streamable transport is an anyio
+            # task group — entering it inside a nested `async with` and exiting it here
+            # (while the session lives on) violates anyio's cancel-scope rules and raises
+            # "Attempted to exit a cancel scope that isn't the current task's".
+            self._exit_stack = AsyncExitStack()
             transport = streamable_http_client(self.base_url, headers=headers, **extra)
-            async with (
-                transport as (
-                    read_stream,
-                    write_stream,
-                    get_session_id,
-                )
-            ):
-                from mcp.client.session import ClientSession
+            read_stream, write_stream, get_session_id = (
+                await self._exit_stack.enter_async_context(transport)
+            )
 
-                self._session = ClientSession(
-                    read_stream=read_stream,
-                    write_stream=write_stream,
-                )
-                await self._session.__aenter__()
+            from mcp.client.session import ClientSession
 
-                if callable(get_session_id):
-                    self._get_session_id = get_session_id
+            self._session = await self._exit_stack.enter_async_context(
+                ClientSession(read_stream=read_stream, write_stream=write_stream)
+            )
+
+            if callable(get_session_id):
+                self._get_session_id = get_session_id
 
         except Exception as e:
+            if self._exit_stack is not None:
+                await self._exit_stack.aclose()
+                self._exit_stack = None
+            self._session = None
             raise MCPClientError(
                 f"Failed to open transport: {e}",
                 kind="transport",
             ) from e
 
     async def _close_transport(self) -> None:
-        if self._session:
-            await self._session.__aexit__(None, None, None)
-            self._session = None
+        if self._exit_stack is not None:
+            await self._exit_stack.aclose()
+            self._exit_stack = None
+        self._session = None
 
     async def handshake(self, timeout: float = 30.0) -> InitializeResult:
         if not self._session:
@@ -196,19 +220,19 @@ class MCPClient:
                     self._session.list_tools(),
                     timeout=timeout,
                 )
-                return result.tools if hasattr(result, "tools") else result
+                return _as_dicts(result.tools if hasattr(result, "tools") else result)
             if method == "prompts/list":
                 result = await asyncio.wait_for(
                     self._session.list_prompts(),
                     timeout=timeout,
                 )
-                return result.prompts if hasattr(result, "prompts") else result
+                return _as_dicts(result.prompts if hasattr(result, "prompts") else result)
             if method == "resources/list":
                 result = await asyncio.wait_for(
                     self._session.list_resources(),
                     timeout=timeout,
                 )
-                return result.resources if hasattr(result, "resources") else result
+                return _as_dicts(result.resources if hasattr(result, "resources") else result)
             raise MCPClientError(
                 f"Unknown method: {method}. Must be one of: tools/list, prompts/list, resources/list",
                 kind="list",

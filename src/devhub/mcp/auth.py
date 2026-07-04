@@ -111,7 +111,13 @@ async def apply_server_auth(
     """
     token = server.bearer_token
     if token and token.strip():
-        headers["Authorization"] = f"Bearer {token.strip()}"
+        tok = token.strip()
+        headers["Authorization"] = f"Bearer {tok}"
+        # Also send X-MCP-Token: many MCP servers run behind Apache/PHP, which strips the
+        # Authorization header unless specially configured. This fallback header (a common
+        # MCP-server convention) reaches those servers; a server that only reads
+        # Authorization simply ignores the extra header.
+        headers["X-MCP-Token"] = tok
         server.oauth_token_status = ""
         server.oauth_token_error = ""
         return
