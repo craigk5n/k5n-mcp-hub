@@ -1,7 +1,7 @@
 from pathlib import Path
 
 from fastapi import APIRouter
-from fastapi.responses import HTMLResponse, PlainTextResponse
+from fastapi.responses import HTMLResponse, PlainTextResponse, RedirectResponse
 
 from devhub.metrics import metrics
 
@@ -10,11 +10,13 @@ BASE_DIR = Path(__file__).parent.parent
 router = APIRouter(tags=["system"])
 
 
-@router.get("/", response_class=HTMLResponse)
-async def root() -> HTMLResponse:
-    index_path = BASE_DIR / "static" / "index.html"
-    content = index_path.read_text(encoding="utf-8")
-    return HTMLResponse(content=content, media_type="text/html; charset=utf-8")
+@router.get("/")
+async def root() -> RedirectResponse:
+    # Send users to the fully-wired server page. The old landing page nested the whole
+    # /ui/servers document inside a <div> via hx-swap, which broke htmx processing of the
+    # card buttons; /ui/servers now carries the Add Server form itself, so it's the single
+    # coherent page.
+    return RedirectResponse(url="/ui/servers", status_code=307)
 
 
 @router.get("/healthz")

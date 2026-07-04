@@ -5,13 +5,44 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Servers - DevHub</title>
     <script src="/static/vendor/htmx.min.js"></script>
+    <script src="/static/vendor/json-enc.js"></script>
     <script src="/static/vendor/hyperscript.min.js"></script>
     <script src="/static/vendor/tailwind.js"></script>
 </head>
 <body class="bg-gray-50 min-h-screen">
     <div class="container mx-auto px-4 py-8">
         <h1 class="text-3xl font-bold mb-8 text-gray-800">Servers</h1>
-        
+
+        <div class="mb-8 bg-white shadow rounded-lg p-6">
+            <h2 class="text-xl font-semibold mb-4">Add Server</h2>
+            <form hx-post="/v1/register" hx-ext="json-enc" hx-swap="none"
+                  hx-on::after-request="if (event.detail.successful) { window.location.reload(); } else { alert('Add server failed (HTTP ' + event.detail.xhr.status + '): ' + event.detail.xhr.responseText); }">
+                <div class="grid gap-4 mb-4 md:grid-cols-3">
+                    <div>
+                        <label class="block mb-2 text-sm font-medium text-gray-900">Server ID</label>
+                        <input type="text" name="id" required placeholder="my-server"
+                               class="bg-gray-50 border border-gray-300 text-gray-900 text-sm rounded-lg block w-full p-2.5">
+                    </div>
+                    <div>
+                        <label class="block mb-2 text-sm font-medium text-gray-900">Server Name</label>
+                        <input type="text" name="name" placeholder="My Server"
+                               class="bg-gray-50 border border-gray-300 text-gray-900 text-sm rounded-lg block w-full p-2.5">
+                    </div>
+                    <div>
+                        <label class="block mb-2 text-sm font-medium text-gray-900">Server URL</label>
+                        <input type="url" name="url" required placeholder="http://localhost:8000/mcp"
+                               class="bg-gray-50 border border-gray-300 text-gray-900 text-sm rounded-lg block w-full p-2.5">
+                    </div>
+                </div>
+                <div class="mb-4">
+                    <label class="block mb-2 text-sm font-medium text-gray-900">Bearer token <span class="text-gray-400 font-normal">(optional — required for auth-protected MCP servers)</span></label>
+                    <input type="password" name="bearer_token" autocomplete="off" placeholder="paste the server's API token"
+                           class="bg-gray-50 border border-gray-300 text-gray-900 text-sm rounded-lg block w-full p-2.5">
+                </div>
+                <button type="submit" class="text-white bg-blue-700 hover:bg-blue-800 font-medium rounded-lg text-sm px-5 py-2.5">Add Server</button>
+            </form>
+        </div>
+
         {% if not servers %}
         <div class="bg-white rounded-lg shadow p-6">
             <p class="text-gray-500">No servers registered</p>
@@ -68,14 +99,7 @@
                         </p>
                         
                         <div class="flex flex-wrap gap-2 lg:justify-end">
-                            <button 
-                                class="px-3 py-1.5 text-sm bg-gray-100 hover:bg-gray-200 rounded transition-colors"
-                                hx-get="/ui/server/{{ server.id }}/inspect"
-                                hx-target="#inspect-{{ server.id }}"
-                                hx-swap="innerHTML"
-                            >Inspect</button>
-                            
-                            <button 
+                            <button
                                 class="px-3 py-1.5 text-sm bg-gray-100 hover:bg-gray-200 rounded transition-colors"
                                 hx-get="/ui/server/{{ server.id }}/initialize"
                                 hx-target="#initialize-{{ server.id }}"
