@@ -3,62 +3,72 @@ from __future__ import annotations
 import logging
 import secrets
 import time
-from typing import Callable, TYPE_CHECKING
+from typing import TYPE_CHECKING
 
-from fastapi import Request, Response
-from starlette.middleware.base import BaseHTTPMiddleware
+from starlette.datastructures import MutableHeaders
 
 from devhub.metrics import Metrics
 
 if TYPE_CHECKING:
-    from fastapi import FastAPI
+    from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 logger = logging.getLogger(__name__)
 
 
-class RequestIdMetricsMiddleware(BaseHTTPMiddleware):
-    def __init__(self, app: FastAPI, metrics: Metrics) -> None:  # type: ignore[valid-type]
-        super().__init__(app)
+class RequestIdMetricsMiddleware:
+    """Pure-ASGI request-ID + metrics middleware.
+
+    Implemented at the raw ASGI layer rather than Starlette's BaseHTTPMiddleware:
+    BaseHTTPMiddleware wraps the receive channel in a task group, which deadlocks /
+    raises "No response returned" + cancel-scope errors when a downstream endpoint reads
+    the request body (``await request.body()``) — as the /v1/register handler does. A
+    plain ASGI middleware only wraps ``send``, so body reads work normally.
+    """
+
+    def __init__(self, app: "ASGIApp", metrics: Metrics) -> None:
+        self.app = app
         self._metrics = metrics
 
-    async def dispatch(self, request: Request, call_next: Callable) -> Response:
-        request_id = request.headers.get("X-Request-ID")
-        if not request_id:
-            request_id = secrets.token_hex(16)
+    async def __call__(self, scope: "Scope", receive: "Receive", send: "Send") -> None:
+        if scope["type"] != "http":
+            await self.app(scope, receive, send)
+            return
 
-        request.state.request_id = request_id
+        headers = {k.decode("latin-1").lower(): v.decode("latin-1") for k, v in scope.get("headers", [])}
+        request_id = headers.get("x-request-id") or secrets.token_hex(16)
+        # expose as request.state.request_id for downstream handlers
+        scope.setdefault("state", {})["request_id"] = request_id
 
         self._metrics.inc_in_flight()
         self._metrics.inc_requests_total()
-
         start_time = time.perf_counter()
-        status_code = 200
+        status_code = 500
         error_counted = False
 
+        async def send_wrapper(message: "Message") -> None:
+            nonlocal status_code
+            if message["type"] == "http.response.start":
+                status_code = message["status"]
+                MutableHeaders(scope=message)["X-Request-ID"] = request_id
+            await send(message)
+
         try:
-            response = await call_next(request)
-            status_code = response.status_code
-            response.headers["X-Request-ID"] = request_id
-            return response
+            await self.app(scope, receive, send_wrapper)
         except Exception:
-            status_code = 500
             self._metrics.inc_errors_total()
             error_counted = True
             raise
         finally:
-            end_time = time.perf_counter()
-            duration_ms = (end_time - start_time) * 1000
+            duration_ms = (time.perf_counter() - start_time) * 1000
             self._metrics.add_duration_ms_sum(duration_ms)
             self._metrics.dec_in_flight()
-
             if status_code >= 500 and not error_counted:
                 self._metrics.inc_errors_total()
-
             logger.debug(
                 "request_complete",
                 extra={
-                    "method": request.method,
-                    "path": request.url.path,
+                    "method": scope.get("method"),
+                    "path": scope.get("path"),
                     "status": status_code,
                     "duration_ms": round(duration_ms, 2),
                     "request_id": request_id,
@@ -68,7 +78,7 @@ class RequestIdMetricsMiddleware(BaseHTTPMiddleware):
 
 def create_request_id_metrics_middleware(metrics: Metrics) -> type[RequestIdMetricsMiddleware]:
     class ConfiguredMiddleware(RequestIdMetricsMiddleware):
-        def __init__(self, app: FastAPI) -> None:  # type: ignore[valid-type]
+        def __init__(self, app: "ASGIApp") -> None:
             super().__init__(app, metrics)
 
     return ConfiguredMiddleware
