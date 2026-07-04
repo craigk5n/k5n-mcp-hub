@@ -120,7 +120,8 @@
                     {% endif %}
 
                     <form hx-post="/ui/invoke/{{ server_id }}/{{ tool.name }}"
-                          hx-swap="outerHTML"
+                          hx-target="#result-{{ server_id }}-{{ tool.name }}"
+                          hx-swap="innerHTML"
                           class="space-y-3">
                         {% if tool.inputSchema and tool.inputSchema.properties %}
                         <div class="space-y-2">
@@ -170,6 +171,8 @@
                             </button>
                         </div>
                     </form>
+                    <!-- Invoke results render here so the form stays put and can be reused. -->
+                    <div id="result-{{ server_id }}-{{ tool.name }}" class="mt-3"></div>
                 </div>
                 {% endfor %}
             </div>
