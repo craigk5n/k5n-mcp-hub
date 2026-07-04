@@ -343,7 +343,16 @@ async def invoke_tool(
 
     output_message = ""
     if not is_error:
-        output_message = content[0].get("text", "") if content else "No output"
+        if content:
+            # Standard MCP: join the text content blocks; fall back to the raw blocks.
+            parts = [c.get("text", "") for c in content if isinstance(c, dict) and c.get("text")]
+            output_message = "\n".join(parts) if parts else json.dumps(content, indent=2)
+        elif isinstance(tool_result, (dict, list)) and tool_result:
+            # Non-conformant server: the result has no content[] array (it returned raw
+            # data). Show the result payload rather than a misleading "No output".
+            output_message = json.dumps(tool_result, indent=2)
+        else:
+            output_message = "No output"
 
     response_status = call_response_status
     call_response_headers_dict = call_response_headers
