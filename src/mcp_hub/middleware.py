@@ -34,7 +34,9 @@ class RequestIdMetricsMiddleware:
             await self.app(scope, receive, send)
             return
 
-        headers = {k.decode("latin-1").lower(): v.decode("latin-1") for k, v in scope.get("headers", [])}
+        headers = {
+            k.decode("latin-1").lower(): v.decode("latin-1") for k, v in scope.get("headers", [])
+        }
         request_id = headers.get("x-request-id") or secrets.token_hex(16)
         # expose as request.state.request_id for downstream handlers
         scope.setdefault("state", {})["request_id"] = request_id

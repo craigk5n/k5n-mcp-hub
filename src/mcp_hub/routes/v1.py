@@ -103,7 +103,9 @@ async def _register_server_impl(
 
     require_reachability = effective_registration_type != "self"
 
-    is_safe, error_msg, resolved_ips = await is_url_safe_for_discovery(url, require_reachability, allow_private)
+    is_safe, error_msg, resolved_ips = await is_url_safe_for_discovery(
+        url, require_reachability, allow_private
+    )
     if not is_safe:
         return JSONResponse(
             status_code=400,
@@ -112,7 +114,9 @@ async def _register_server_impl(
 
     oauth_discovery_url = validated.oauth_discovery_url
     if oauth_discovery_url:
-        is_safe, _, _ = await is_url_safe_for_discovery(oauth_discovery_url, require_reachability, allow_private)
+        is_safe, _, _ = await is_url_safe_for_discovery(
+            oauth_discovery_url, require_reachability, allow_private
+        )
         if not is_safe:
             return JSONResponse(
                 status_code=400,

@@ -190,6 +190,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     # Let outbound MCP/discovery connections reach localhost/LAN when the operator opts in
     # (local-first mode). Applies to the SSRF-pinned transport used for the actual MCP calls.
     from mcp_hub.utils import set_allow_private_networks
+
     set_allow_private_networks(settings.security.allow_private_networks)
 
     _mount_routers(app)

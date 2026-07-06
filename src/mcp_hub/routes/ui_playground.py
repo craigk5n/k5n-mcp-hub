@@ -98,9 +98,7 @@ async def post_playground(request: Request, server_id: str) -> HTMLResponse:
         await registry.register(server)
 
     try:
-        async with httpx.AsyncClient(
-            transport=SafePinnedTransport(), timeout=30.0
-        ) as client:
+        async with httpx.AsyncClient(transport=SafePinnedTransport(), timeout=30.0) as client:
             resp = await client.post(
                 server.url,
                 content=request_body.encode(),

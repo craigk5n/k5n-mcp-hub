@@ -129,8 +129,8 @@ class MCPClient:
             # "Attempted to exit a cancel scope that isn't the current task's".
             self._exit_stack = AsyncExitStack()
             transport = streamable_http_client(self.base_url, headers=headers, **extra)
-            read_stream, write_stream, get_session_id = (
-                await self._exit_stack.enter_async_context(transport)
+            read_stream, write_stream, get_session_id = await self._exit_stack.enter_async_context(
+                transport
             )
 
             from mcp.client.session import ClientSession
