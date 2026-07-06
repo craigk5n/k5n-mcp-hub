@@ -1,8 +1,8 @@
 import pytest
 from fastapi.testclient import TestClient
 
-from devhub.app import create_app
-from devhub.models.server import FaultInjection, RegisteredServer
+from mcp_hub.app import create_app
+from mcp_hub.models.server import FaultInjection, RegisteredServer
 
 
 class TestFaultsTemplate:

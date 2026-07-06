@@ -8,7 +8,7 @@ import pytest
 class TestToolScriptTemplate:
     @pytest.fixture
     def jinja_env(self) -> Environment:
-        loader = FileSystemLoader("src/devhub/templates")
+        loader = FileSystemLoader("src/mcp_hub/templates")
         env = Environment(loader=loader, autoescape=select_autoescape())
         return env
 
@@ -179,12 +179,12 @@ class TestToolScriptTemplate:
         result = template.render(**sample_context)
         assert "Authorization: Bearer $AUTH_HEADER_VALUE" in result
 
-    def test_has_devhub_auth_logic(self, jinja_env: Environment, sample_context: dict) -> None:
+    def test_has_mcp_hub_auth_logic(self, jinja_env: Environment, sample_context: dict) -> None:
         template = jinja_env.get_template("tool_script.sh.j2")
         result = template.render(**sample_context)
-        assert "DEVHUB_USER" in result
-        assert "DEVHUB_PASS" in result
-        assert "prompt_devhub_auth" in result
+        assert "MCPHUB_USER" in result
+        assert "MCPHUB_PASS" in result
+        assert "prompt_mcp_hub_auth" in result
 
     def test_has_sse_handling(self, jinja_env: Environment, sample_context: dict) -> None:
         template = jinja_env.get_template("tool_script.sh.j2")
@@ -218,7 +218,7 @@ class TestToolScriptTemplate:
 class TestToolScriptPythonTemplate:
     @pytest.fixture
     def jinja_env(self) -> Environment:
-        loader = FileSystemLoader("src/devhub/templates")
+        loader = FileSystemLoader("src/mcp_hub/templates")
         env = Environment(loader=loader, autoescape=select_autoescape())
         return env
 
@@ -370,12 +370,12 @@ class TestToolScriptPythonTemplate:
         assert "from typing import Optional" in result
         assert "import httpx" in result
 
-    def test_has_prompt_devhub_basic_auth_function(
+    def test_has_prompt_mcp_hub_basic_auth_function(
         self, jinja_env: Environment, sample_context: dict
     ) -> None:
         template = jinja_env.get_template("tool_script.py.j2")
         result = template.render(**sample_context)
-        assert "def prompt_devhub_basic_auth() -> Optional[str]:" in result
+        assert "def prompt_mcp_hub_basic_auth() -> Optional[str]:" in result
 
     def test_has_build_headers_function(self, jinja_env: Environment, sample_context: dict) -> None:
         template = jinja_env.get_template("tool_script.py.j2")

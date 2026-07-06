@@ -2,9 +2,9 @@ import asyncio
 
 import pytest
 
-from devhub.models import RegisteredServer
-from devhub.registry import Registry
-from devhub.storage.memory import InMemoryStorage
+from mcp_hub.models import RegisteredServer
+from mcp_hub.registry import Registry
+from mcp_hub.storage.memory import InMemoryStorage
 
 
 @pytest.fixture

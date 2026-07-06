@@ -3,8 +3,8 @@ import asyncio
 from unittest.mock import AsyncMock, MagicMock, patch
 from typing import Any
 
-from devhub.mcp.sdk_client import MCPClient, MCPClientError, InitializeResult
-from devhub.models.server import RegisteredServer
+from mcp_hub.mcp.sdk_client import MCPClient, MCPClientError, InitializeResult
+from mcp_hub.models.server import RegisteredServer
 
 
 def make_server(
@@ -70,7 +70,7 @@ class MockClientSession:
 async def test_handshake_returns_initialize_result_with_protocol_version() -> None:
     mock_session = MockClientSession()
 
-    with patch("devhub.mcp.sdk_client._get_streamable_http_client") as mock_get:
+    with patch("mcp_hub.mcp.sdk_client._get_streamable_http_client") as mock_get:
         mock_get.return_value = lambda url, **kwargs: mock_context_manager()
 
         with patch("mcp.client.session.ClientSession", return_value=mock_session):
@@ -219,7 +219,7 @@ async def test_initialize_result_properties() -> None:
 async def test_client_context_manager() -> None:
     mock_session = MockClientSession()
 
-    with patch("devhub.mcp.sdk_client._get_streamable_http_client") as mock_get:
+    with patch("mcp_hub.mcp.sdk_client._get_streamable_http_client") as mock_get:
         mock_get.return_value = lambda url, **kwargs: mock_context_manager()
 
         with patch("mcp.client.session.ClientSession", return_value=mock_session):
@@ -233,7 +233,7 @@ async def test_client_context_manager() -> None:
 async def test_bearer_token_in_headers() -> None:
     server = make_server(bearer_token="test-token-123")
 
-    from devhub.mcp.auth import apply_server_auth
+    from mcp_hub.mcp.auth import apply_server_auth
 
     test_headers: dict[str, str] = {}
     await apply_server_auth(test_headers, server)

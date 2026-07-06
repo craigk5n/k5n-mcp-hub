@@ -3,8 +3,8 @@ from typing import Literal
 from unittest.mock import AsyncMock
 import httpx
 
-from devhub.mcp.auth import TokenCache, DEFAULT_TOKEN_CACHE, apply_server_auth
-from devhub.models.server import RegisteredServer
+from mcp_hub.mcp.auth import TokenCache, DEFAULT_TOKEN_CACHE, apply_server_auth
+from mcp_hub.models.server import RegisteredServer
 
 
 def make_server(

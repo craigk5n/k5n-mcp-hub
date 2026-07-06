@@ -3,7 +3,7 @@ requires = ["setuptools>=61"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "devhub"
+name = "k5n-mcp-hub"
 version = "0.1.0"
 requires-python = ">=3.11"
 dependencies = [
@@ -22,7 +22,7 @@ dependencies = [
 ]
 
 [project.scripts]
-devhub = "devhub.__main__:main"
+k5n-mcp-hub = "mcp_hub.__main__:main"
 
 [tool.setuptools.packages.find]
 # Tolerate both flat (./pkg) and src (./src/pkg) layouts; never package tests.
@@ -40,7 +40,7 @@ line-length = 100
 "__init__.py" = ["F401"]
 
 [tool.ruff.lint]
-exclude = ["src/devhub/static/", "src/devhub/templates/"]
+exclude = ["src/mcp_hub/static/", "src/mcp_hub/templates/"]
 
 [tool.mypy]
 # Lenient static type-checking: resolve the src/ layout, tolerate third-party

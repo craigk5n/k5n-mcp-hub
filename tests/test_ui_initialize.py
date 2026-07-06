@@ -5,7 +5,7 @@ from pathlib import Path
 
 @pytest.fixture
 def jinja_env() -> Environment:
-    templates_dir = Path(__file__).parent.parent / "src" / "devhub" / "templates"
+    templates_dir = Path(__file__).parent.parent / "src" / "mcp_hub" / "templates"
     return Environment(loader=FileSystemLoader(str(templates_dir)))
 
 
@@ -193,7 +193,7 @@ class TestInitializeRoute:
     def test_initialize_route_404_when_server_not_found(self) -> None:
         from fastapi.testclient import TestClient
 
-        from devhub.app import create_app
+        from mcp_hub.app import create_app
 
         app = create_app()
         client = TestClient(app, raise_server_exceptions=False)

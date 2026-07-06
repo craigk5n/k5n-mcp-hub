@@ -5,7 +5,7 @@ import base64
 import httpx
 import pytest
 
-from devhub.config import AuthConfig, BasicAuthConfig, Settings, StorageConfig
+from mcp_hub.config import AuthConfig, BasicAuthConfig, Settings, StorageConfig
 
 from tests.conftest import FakeMCPServer
 

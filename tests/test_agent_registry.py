@@ -3,9 +3,9 @@ from datetime import datetime, timezone
 
 import pytest
 
-from devhub.models import AgentCard, RegisteredAgent
-from devhub.registry import AgentRegistry
-from devhub.storage.memory import InMemoryStorage
+from mcp_hub.models import AgentCard, RegisteredAgent
+from mcp_hub.registry import AgentRegistry
+from mcp_hub.storage.memory import InMemoryStorage
 
 
 @pytest.fixture

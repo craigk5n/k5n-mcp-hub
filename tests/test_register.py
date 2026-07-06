@@ -4,8 +4,8 @@ from unittest.mock import patch
 import pytest
 from fastapi.testclient import TestClient
 
-from devhub.app import create_app
-from devhub.config import Settings, AuthConfig, BasicAuthConfig
+from mcp_hub.app import create_app
+from mcp_hub.config import Settings, AuthConfig, BasicAuthConfig
 
 
 def make_basic_auth_header(user: str, password: str) -> dict[str, str]:
@@ -97,7 +97,7 @@ class TestRegisterServer:
         assert response.status_code == 201
 
     def test_manual_registration_with_unreachable_url_returns_400(self, client_with_basic_auth):
-        with patch("devhub.mcp.discovery.DiscoveryService.discover_immediately") as mock_discover:
+        with patch("mcp_hub.mcp.discovery.DiscoveryService.discover_immediately") as mock_discover:
             mock_discover.side_effect = Exception("connection refused")
 
             response = client_with_basic_auth.post(
@@ -177,7 +177,7 @@ class TestRegisterServer:
         data = response.json()
         assert data["registration_type"] == "self"
 
-        with patch("devhub.mcp.discovery.DiscoveryService.discover_immediately") as mock_discover:
+        with patch("mcp_hub.mcp.discovery.DiscoveryService.discover_immediately") as mock_discover:
             mock_discover.side_effect = Exception("connection refused")
 
             response2 = client_with_basic_auth.post(
@@ -302,7 +302,7 @@ class TestRegisterServer:
         assert data["oauth_client_id"] == "client-123"
 
     def test_oauth_discovery_failure_rolls_back_new_registration(self, client_with_basic_auth):
-        with patch("devhub.mcp.oauth.discover_oauth_metadata") as mock_discover:
+        with patch("mcp_hub.mcp.oauth.discover_oauth_metadata") as mock_discover:
             mock_discover.side_effect = Exception("discovery failed")
 
             response = client_with_basic_auth.post(
@@ -335,7 +335,7 @@ class TestRegisterServer:
             headers=make_basic_auth_header("admin", "secret123"),
         )
 
-        with patch("devhub.mcp.oauth.discover_oauth_metadata") as mock_discover:
+        with patch("mcp_hub.mcp.oauth.discover_oauth_metadata") as mock_discover:
             mock_discover.side_effect = Exception("discovery failed")
 
             response = client_with_basic_auth.post(
@@ -357,7 +357,7 @@ class TestRegisterServer:
             assert any(s["id"] == "oauth-fail-existing" for s in servers["servers"])
 
     def test_oauth_discovery_failure_with_auth_type_oauth_rolls_back(self, client_with_basic_auth):
-        with patch("devhub.mcp.oauth.discover_oauth_metadata") as mock_discover:
+        with patch("mcp_hub.mcp.oauth.discover_oauth_metadata") as mock_discover:
             mock_discover.side_effect = Exception("discovery failed")
 
             response = client_with_basic_auth.post(

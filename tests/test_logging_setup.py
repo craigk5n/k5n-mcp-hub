@@ -4,7 +4,7 @@ import logging
 
 class TestConfigureLogging:
     def test_idempotent_no_duplicate_handlers(self):
-        from devhub.logging_setup import configure_logging
+        from mcp_hub.logging_setup import configure_logging
 
         configure_logging()
         configure_logging()
@@ -14,7 +14,7 @@ class TestConfigureLogging:
         assert len(handlers) == 1
 
     def test_json_output_valid_parseable(self):
-        from devhub.logging_setup import configure_logging
+        from mcp_hub.logging_setup import configure_logging
         from io import StringIO
 
         stream = StringIO()
@@ -34,7 +34,7 @@ class TestConfigureLogging:
         assert "logger" in log_data
 
     def test_json_output_contains_standard_fields(self):
-        from devhub.logging_setup import configure_logging
+        from mcp_hub.logging_setup import configure_logging
         from io import StringIO
 
         stream = StringIO()
@@ -53,7 +53,7 @@ class TestConfigureLogging:
         assert log_data["request_id"] == "abc123"
 
     def test_default_level_info(self):
-        from devhub.logging_setup import configure_logging
+        from mcp_hub.logging_setup import configure_logging
         from io import StringIO
 
         stream = StringIO()
@@ -65,7 +65,7 @@ class TestConfigureLogging:
         assert output.strip() == ""
 
     def test_custom_level(self):
-        from devhub.logging_setup import configure_logging
+        from mcp_hub.logging_setup import configure_logging
         from io import StringIO
 
         stream = StringIO()

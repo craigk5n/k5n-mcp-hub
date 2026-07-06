@@ -5,10 +5,10 @@ import pytest
 from fastapi.testclient import TestClient
 from httpx import Response
 
-from devhub.app import create_app
-from devhub.config import Settings, AuthConfig, BasicAuthConfig
-from devhub.proxy.handler import proxy_request
-from devhub.routes import proxy as proxy_module
+from mcp_hub.app import create_app
+from mcp_hub.config import Settings, AuthConfig, BasicAuthConfig
+from mcp_hub.proxy.handler import proxy_request
+from mcp_hub.routes import proxy as proxy_module
 
 
 def make_basic_auth_header(user: str, password: str) -> dict[str, str]:
@@ -121,7 +121,7 @@ class TestProxyRoutesNoAuth:
     def test_proxy_post_mcp_reachable_without_credentials(self, client_with_no_auth):
         mock_response = Response(200, content=b"ok", headers={"content-type": "text/plain"})
 
-        with patch("devhub.routes.proxy.proxy_request", new_callable=AsyncMock) as mock_proxy:
+        with patch("mcp_hub.routes.proxy.proxy_request", new_callable=AsyncMock) as mock_proxy:
             mock_proxy.return_value = mock_response
 
             response = client_with_no_auth.post("/mcp", json={})
@@ -131,7 +131,7 @@ class TestProxyRoutesNoAuth:
     def test_proxy_post_mcp_with_session_reachable_without_credentials(self, client_with_no_auth):
         mock_response = Response(200, content=b"ok", headers={"content-type": "text/plain"})
 
-        with patch("devhub.routes.proxy.proxy_request", new_callable=AsyncMock) as mock_proxy:
+        with patch("mcp_hub.routes.proxy.proxy_request", new_callable=AsyncMock) as mock_proxy:
             mock_proxy.return_value = mock_response
 
             response = client_with_no_auth.post("/mcp/test-session", json={})
@@ -141,7 +141,7 @@ class TestProxyRoutesNoAuth:
     def test_proxy_get_mcp_with_session_reachable_without_credentials(self, client_with_no_auth):
         mock_response = Response(200, content=b"ok", headers={"content-type": "text/plain"})
 
-        with patch("devhub.routes.proxy.proxy_request", new_callable=AsyncMock) as mock_proxy:
+        with patch("mcp_hub.routes.proxy.proxy_request", new_callable=AsyncMock) as mock_proxy:
             mock_proxy.return_value = mock_response
 
             response = client_with_no_auth.get("/mcp/test-session")

@@ -3,8 +3,8 @@ from datetime import datetime, timezone, timedelta
 from unittest.mock import AsyncMock, patch
 import httpx
 
-from devhub.mcp.auth import TokenCache, DEFAULT_TOKEN_CACHE
-from devhub.models.server import RegisteredServer
+from mcp_hub.mcp.auth import TokenCache, DEFAULT_TOKEN_CACHE
+from mcp_hub.models.server import RegisteredServer
 
 
 def make_server(

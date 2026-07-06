@@ -2,10 +2,10 @@ import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 from typing import Any
 
-from devhub.mcp.discovery import DiscoveryService, extract_list_payload
-from devhub.mcp.sdk_client import InitializeResult
-from devhub.models.server import RegisteredServer
-from devhub.registry.service import Registry
+from mcp_hub.mcp.discovery import DiscoveryService, extract_list_payload
+from mcp_hub.mcp.sdk_client import InitializeResult
+from mcp_hub.models.server import RegisteredServer
+from mcp_hub.registry.service import Registry
 
 
 def make_server(
@@ -172,7 +172,7 @@ class TestDiscoveryService:
 
         server = make_server(id="server-1", url="https://test.example.com/mcp")
 
-        with patch("devhub.mcp.discovery.MCPClient", TestMockMCPClient):
+        with patch("mcp_hub.mcp.discovery.MCPClient", TestMockMCPClient):
             await service.discover_immediately(server)
 
         assert server.tools == tools_response
@@ -190,7 +190,7 @@ class TestDiscoveryService:
 
         server = make_server(id="server-2", url="https://test.example.com/mcp")
 
-        with patch("devhub.mcp.discovery.MCPClient", EmptyMockMCPClient):
+        with patch("mcp_hub.mcp.discovery.MCPClient", EmptyMockMCPClient):
             with pytest.raises(
                 RuntimeError, match="discovery completed but no capabilities were found"
             ):
@@ -210,7 +210,7 @@ class TestDiscoveryService:
 
         server = make_server(id="server-3", url="https://test.example.com/mcp")
 
-        with patch("devhub.mcp.discovery.MCPClient", ErrorMockMCPClient):
+        with patch("mcp_hub.mcp.discovery.MCPClient", ErrorMockMCPClient):
             with pytest.raises(
                 RuntimeError, match="discovery completed but no capabilities were found"
             ):
@@ -240,7 +240,7 @@ class TestDiscoveryService:
         registry = FailingRegistry()
         service = DiscoveryService(registry)  # type: ignore[arg-type]
 
-        with patch("devhub.mcp.discovery.MCPClient", FailingClient):
+        with patch("mcp_hub.mcp.discovery.MCPClient", FailingClient):
             await service.poll_once()
 
     @pytest.mark.asyncio
@@ -258,7 +258,7 @@ class TestDiscoveryService:
 
         server = make_server(id="server-4", url="https://test.example.com/mcp")
 
-        with patch("devhub.mcp.discovery.MCPClient", TestMockMCPClient):
+        with patch("mcp_hub.mcp.discovery.MCPClient", TestMockMCPClient):
             await service.discover_immediately(server)
 
         assert server.mcp_protocol_version == "2025-11-25"

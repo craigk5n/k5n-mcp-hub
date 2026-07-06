@@ -2,14 +2,14 @@ import pytest
 from unittest.mock import AsyncMock, patch
 import httpx
 
-from devhub.mcp.oauth import (
+from mcp_hub.mcp.oauth import (
     AuthChallenge,
     discover_oauth_metadata,
     format_auth_challenge,
     parse_www_authenticate,
     token_endpoint_from_metadata,
 )
-from devhub.utils import SafePinnedTransport, resolve_pinned_ip, safe_http_client_factory
+from mcp_hub.utils import SafePinnedTransport, resolve_pinned_ip, safe_http_client_factory
 
 
 class TestSafeHttpClientFactory:
@@ -46,20 +46,20 @@ class TestResolvePinnedIp:
 
     @pytest.mark.asyncio
     async def test_hostname_resolving_public_is_pinned(self) -> None:
-        with patch("devhub.utils.socket.getaddrinfo", return_value=_addrinfo("93.184.216.34")):
+        with patch("mcp_hub.utils.socket.getaddrinfo", return_value=_addrinfo("93.184.216.34")):
             assert await resolve_pinned_ip("example.com") == "93.184.216.34"
 
     @pytest.mark.asyncio
     async def test_hostname_resolving_private_rejected(self) -> None:
         # Classic rebinding payload: a name that resolves to an internal address.
-        with patch("devhub.utils.socket.getaddrinfo", return_value=_addrinfo("127.0.0.1")):
+        with patch("mcp_hub.utils.socket.getaddrinfo", return_value=_addrinfo("127.0.0.1")):
             assert await resolve_pinned_ip("rebind.attacker.test") is None
 
     @pytest.mark.asyncio
     async def test_any_private_answer_rejects_whole_host(self) -> None:
         # If a host resolves to a mix, reject rather than pin to the public one.
         with patch(
-            "devhub.utils.socket.getaddrinfo", return_value=_addrinfo("93.184.216.34", "10.1.2.3")
+            "mcp_hub.utils.socket.getaddrinfo", return_value=_addrinfo("93.184.216.34", "10.1.2.3")
         ):
             assert await resolve_pinned_ip("mixed.attacker.test") is None
 
@@ -67,7 +67,7 @@ class TestResolvePinnedIp:
     async def test_unresolvable_host_returns_none(self) -> None:
         import socket as _socket
 
-        with patch("devhub.utils.socket.getaddrinfo", side_effect=_socket.gaierror):
+        with patch("mcp_hub.utils.socket.getaddrinfo", side_effect=_socket.gaierror):
             assert await resolve_pinned_ip("nope.invalid") is None
 
 
@@ -302,7 +302,7 @@ class TestDiscoverOAuthMetadata:
         mock_response.status_code = 200
         mock_response.json.return_value = {"issuer": "https://idp.example.com"}
 
-        with patch("devhub.mcp.oauth.httpx.AsyncClient") as mock_client_class:
+        with patch("mcp_hub.mcp.oauth.httpx.AsyncClient") as mock_client_class:
             mock_client_instance = AsyncMock()
             mock_client_instance.get = AsyncMock(return_value=mock_response)
             mock_client_instance.aclose = AsyncMock()

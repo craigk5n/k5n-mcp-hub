@@ -4,8 +4,8 @@ import pytest
 from datetime import datetime, timezone
 from unittest.mock import patch
 
-from devhub.models import AgentCard, RegisteredAgent, RegisteredServer
-from devhub.storage import InMemoryStorage, JSONFileStorage, StorageStrategy
+from mcp_hub.models import AgentCard, RegisteredAgent, RegisteredServer
+from mcp_hub.storage import InMemoryStorage, JSONFileStorage, StorageStrategy
 
 
 def test_storage_strategy_is_runtime_checkable_protocol() -> None:

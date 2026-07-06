@@ -1,5 +1,5 @@
 import pytest
-from devhub.proxy import compose_backend_url
+from mcp_hub.proxy import compose_backend_url
 
 
 class TestComposeBackendUrl:

@@ -3,13 +3,13 @@ from __future__ import annotations
 import pytest
 from jinja2 import Environment, FileSystemLoader
 
-from devhub.trace import sanitize_headers, truncate_body
-from devhub.trace.recorder import sanitize_trace_headers
+from mcp_hub.trace import sanitize_headers, truncate_body
+from mcp_hub.trace.recorder import sanitize_trace_headers
 
 
 @pytest.fixture
 def jinja_env() -> Environment:
-    templates_dir = "src/devhub/templates"
+    templates_dir = "src/mcp_hub/templates"
     env = Environment(
         loader=FileSystemLoader(templates_dir),
         autoescape=True,

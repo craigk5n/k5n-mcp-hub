@@ -5,8 +5,8 @@ import pytest
 from fastapi.testclient import TestClient
 from httpx import Response
 
-from devhub.app import create_app
-from devhub.config import Settings, AuthConfig, BasicAuthConfig
+from mcp_hub.app import create_app
+from mcp_hub.config import Settings, AuthConfig, BasicAuthConfig
 
 
 def make_basic_auth_header(user: str, password: str) -> dict[str, str]:
@@ -114,7 +114,7 @@ class TestBasicAuthConfiguration:
     def test_protected_post_mcp_succeeds_with_valid_credentials(self, client_with_basic_auth):
         mock_response = Response(200, content=b"{}", headers={"content-type": "application/json"})
 
-        with patch("devhub.routes.proxy.proxy_request", new_callable=AsyncMock) as mock_proxy:
+        with patch("mcp_hub.routes.proxy.proxy_request", new_callable=AsyncMock) as mock_proxy:
             mock_proxy.return_value = mock_response
 
             response = client_with_basic_auth.post(
@@ -182,7 +182,7 @@ class TestNoAuthConfiguration:
     def test_protected_post_mcp_reachable_without_credentials(self, client_with_no_auth):
         mock_response = Response(200, content=b"{}", headers={"content-type": "application/json"})
 
-        with patch("devhub.routes.proxy.proxy_request", new_callable=AsyncMock) as mock_proxy:
+        with patch("mcp_hub.routes.proxy.proxy_request", new_callable=AsyncMock) as mock_proxy:
             mock_proxy.return_value = mock_response
 
             response = client_with_no_auth.post("/mcp", json={})
@@ -247,7 +247,7 @@ class TestEmptyBasicCredentialsConfiguration:
     def test_all_endpoints_reachable_without_credentials(self, client_with_empty_basic_auth):
         mock_response = Response(200, content=b"{}", headers={"content-type": "application/json"})
 
-        with patch("devhub.routes.proxy.proxy_request", new_callable=AsyncMock) as mock_proxy:
+        with patch("mcp_hub.routes.proxy.proxy_request", new_callable=AsyncMock) as mock_proxy:
             mock_proxy.return_value = mock_response
 
             response = client_with_empty_basic_auth.post(

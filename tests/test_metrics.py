@@ -1,7 +1,7 @@
 import re
 import threading
 
-from devhub.metrics import metrics
+from mcp_hub.metrics import metrics
 
 
 def test_concurrent_increment_requests_total() -> None:
@@ -27,7 +27,7 @@ def test_render_prometheus_format() -> None:
     metrics.add_duration_ms_sum(42)
 
     output = metrics.render_prometheus()
-    pattern = r"^devhub_requests_in_flight \d+\ndevhub_requests_total \d+\ndevhub_request_errors_total \d+\ndevhub_request_duration_ms_sum [\d.]+\n$"
+    pattern = r"^mcp_hub_requests_in_flight \d+\nmcp_hub_requests_total \d+\nmcp_hub_request_errors_total \d+\nmcp_hub_request_duration_ms_sum [\d.]+\n$"
     assert re.match(pattern, output) is not None
 
 
@@ -39,7 +39,7 @@ def test_render_prometheus_values() -> None:
     metrics.add_duration_ms_sum(100)
 
     output = metrics.render_prometheus()
-    expected = "devhub_requests_in_flight 1\ndevhub_requests_total 1\ndevhub_request_errors_total 1\ndevhub_request_duration_ms_sum 100.0\n"
+    expected = "mcp_hub_requests_in_flight 1\nmcp_hub_requests_total 1\nmcp_hub_request_errors_total 1\nmcp_hub_request_duration_ms_sum 100.0\n"
     assert output == expected
 
 

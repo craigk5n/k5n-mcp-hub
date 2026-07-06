@@ -4,9 +4,9 @@ import base64
 import pytest
 from fastapi.testclient import TestClient
 
-from devhub.app import create_app
-from devhub.routes.ui_downloads import sanitize_filename
-from devhub.models.server import RegisteredServer
+from mcp_hub.app import create_app
+from mcp_hub.routes.ui_downloads import sanitize_filename
+from mcp_hub.models.server import RegisteredServer
 
 
 def make_basic_auth_header(user: str = "admin", password: str = "admin123") -> dict[str, str]:
@@ -143,7 +143,7 @@ class TestDownloadEndpoint:
         assert 'IS_HUB="true"' in content
         assert "X-MCP-Target-Server: srv-123" in content or "TARGET_SERVER_ID='srv-123'" in content
 
-    def test_download_hub_mode_prompts_for_devhub_auth(self) -> None:
+    def test_download_hub_mode_prompts_for_mcp_hub_auth(self) -> None:
         server = RegisteredServer(
             id="srv-123",
             url="http://example.com/mcp",
@@ -170,8 +170,8 @@ class TestDownloadEndpoint:
         assert response.status_code == 200
         content = response.text
 
-        assert "prompt_devhub_auth" in content
-        assert "DevHub Username" in content or "DEVHUB_USER" in content
+        assert "prompt_mcp_hub_auth" in content
+        assert "k5n-mcp-hub Username" in content or "MCPHUB_USER" in content
 
     def test_download_invalid_mode_returns_400(self) -> None:
         server = RegisteredServer(
@@ -288,7 +288,7 @@ class TestDownloadEndpoint:
         assert response.status_code == 200
         content = response.text
         assert "initialize" in content
-        assert "dev-hub-ui" in content
+        assert "k5n-mcp-hub-ui" in content
         assert "0.1.0" in content
 
     def test_download_includes_tool_call_request(self) -> None:

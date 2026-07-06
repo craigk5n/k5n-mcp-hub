@@ -1,9 +1,9 @@
 import pytest
 from fastapi.testclient import TestClient
 
-from devhub.app import create_app
-from devhub.models import RegisteredServer
-from devhub.registry.service import Registry
+from mcp_hub.app import create_app
+from mcp_hub.models import RegisteredServer
+from mcp_hub.registry.service import Registry
 
 
 def test_ui_servers_empty_registry_returns_200() -> None:
@@ -59,7 +59,7 @@ def test_ui_servers_background_probe_does_not_block_response(
         nonlocal probe_called
         probe_called = True
 
-    import devhub.routes.ui_servers as ui_servers_module
+    import mcp_hub.routes.ui_servers as ui_servers_module
 
     monkeypatch.setattr(ui_servers_module, "_probe_all_servers_task", mock_probe)
 

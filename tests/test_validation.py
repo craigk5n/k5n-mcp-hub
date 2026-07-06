@@ -1,6 +1,6 @@
 import pytest
 
-from devhub.mcp.validation import validate_tool_name, validate_tool_schemas
+from mcp_hub.mcp.validation import validate_tool_name, validate_tool_schemas
 
 
 class TestValidateToolName:

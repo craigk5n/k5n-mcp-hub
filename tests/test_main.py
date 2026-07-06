@@ -13,8 +13,8 @@ import httpx
 import pytest
 import yaml
 
-from devhub.__main__ import main, parse_args, resolve_settings
-from devhub.app import create_app, register_background_task
+from mcp_hub.__main__ import main, parse_args, resolve_settings
+from mcp_hub.app import create_app, register_background_task
 
 
 class TestParseArgs:
@@ -118,7 +118,7 @@ class TestServerStartup:
     def test_server_starts_on_specified_port(self) -> None:
         port = find_free_port()
 
-        main_module = pytest.importorskip("devhub.__main__")
+        main_module = pytest.importorskip("mcp_hub.__main__")
         with mock.patch.object(main_module, "uvicorn") as mock_uvicorn:
             mock_uvicorn.run = mock.MagicMock(side_effect=KeyboardInterrupt())
             thread = threading.Thread(
@@ -135,7 +135,7 @@ class TestGracefulShutdown:
     def test_graceful_shutdown_no_traceback(self) -> None:
         import sys
 
-        main_module = pytest.importorskip("devhub.__main__")
+        main_module = pytest.importorskip("mcp_hub.__main__")
 
         with mock.patch.object(main_module, "uvicorn") as mock_uvicorn:
             mock_uvicorn.run = mock.MagicMock(side_effect=KeyboardInterrupt())
@@ -161,7 +161,7 @@ class TestBackgroundTaskCancellation:
 
         app = create_app()
 
-        from devhub.app import AppContext, lifespan
+        from mcp_hub.app import AppContext, lifespan
 
         app.state.context = AppContext(background_tasks=[])
 
@@ -181,7 +181,7 @@ class TestBackgroundTaskCancellation:
 
 class TestUvicornIntegration:
     def test_uvicorn_receives_correct_arguments(self) -> None:
-        main_module = pytest.importorskip("devhub.__main__")
+        main_module = pytest.importorskip("mcp_hub.__main__")
 
         with mock.patch.object(main_module, "uvicorn") as mock_uvicorn:
             mock_uvicorn.run = mock.MagicMock(side_effect=KeyboardInterrupt())
@@ -192,14 +192,14 @@ class TestUvicornIntegration:
 
             mock_uvicorn.run.assert_called_once()
             call_args = mock_uvicorn.run.call_args
-            assert call_args.args[0] == "devhub.app:create_app"
+            assert call_args.args[0] == "mcp_hub.app:create_app"
             assert call_args.kwargs["host"] == "127.0.0.1"
             assert call_args.kwargs["port"] == 8765
             assert call_args.kwargs["factory"] is True
             assert call_args.kwargs["lifespan"] == "on"
 
     def test_uvicorn_receives_host_override(self) -> None:
-        main_module = pytest.importorskip("devhub.__main__")
+        main_module = pytest.importorskip("mcp_hub.__main__")
 
         with mock.patch.object(main_module, "uvicorn") as mock_uvicorn:
             mock_uvicorn.run = mock.MagicMock(side_effect=KeyboardInterrupt())

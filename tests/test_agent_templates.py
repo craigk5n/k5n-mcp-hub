@@ -6,7 +6,7 @@ from pathlib import Path
 
 
 def _create_test_environment() -> Environment:
-    templates_dir = Path(__file__).parent.parent / "src" / "devhub" / "templates"
+    templates_dir = Path(__file__).parent.parent / "src" / "mcp_hub" / "templates"
     env = Environment(
         loader=FileSystemLoader(str(templates_dir)),
         autoescape=select_autoescape(["html", "xml"]),

@@ -1,7 +1,7 @@
 from datetime import datetime, timezone
 
 import pytest
-from devhub.models import AgentCard, RegisteredAgent
+from mcp_hub.models import AgentCard, RegisteredAgent
 
 
 class TestAgentCard:

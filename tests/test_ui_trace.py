@@ -1,10 +1,10 @@
 import pytest
 from fastapi.testclient import TestClient
 
-from devhub.app import create_app
-from devhub.models import RegisteredServer
-from devhub.registry.service import Registry
-from devhub.trace.recorder import TraceEntry, TraceRecorder
+from mcp_hub.app import create_app
+from mcp_hub.models import RegisteredServer
+from mcp_hub.registry.service import Registry
+from mcp_hub.trace.recorder import TraceEntry, TraceRecorder
 
 
 def test_ui_trace_empty_id_returns_400() -> None:

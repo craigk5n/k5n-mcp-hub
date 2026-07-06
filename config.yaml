@@ -1,7 +1,7 @@
-# DevHub Configuration File
+# k5n-mcp-hub Configuration File
 # ==========================
 #
-# This file contains the default configuration for the DevHub MCP server.
+# This file contains the default configuration for the k5n-mcp-hub MCP server.
 # All values in this file match the application's built-in defaults, so starting
 # the app with this file present behaves identically to running with no config
 # file at all. This file serves as documentation for all available options.

@@ -4,8 +4,8 @@ import re
 from datetime import datetime, timezone
 from fastapi.testclient import TestClient
 
-from devhub.app import create_app
-from devhub.models import RegisteredServer
+from mcp_hub.app import create_app
+from mcp_hub.models import RegisteredServer
 
 
 from typing import Literal

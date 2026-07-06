@@ -3,8 +3,8 @@ import base64
 import pytest
 from fastapi.testclient import TestClient
 
-from devhub.app import create_app
-from devhub.config import Settings, AuthConfig, BasicAuthConfig
+from mcp_hub.app import create_app
+from mcp_hub.config import Settings, AuthConfig, BasicAuthConfig
 
 
 def make_basic_auth_header(user: str, password: str) -> dict[str, str]:

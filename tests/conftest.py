@@ -12,8 +12,8 @@ import httpx
 import pytest
 from fastapi import FastAPI
 
-from devhub.app import create_app
-from devhub.config import Settings, StorageConfig, AuthConfig, BasicAuthConfig
+from mcp_hub.app import create_app
+from mcp_hub.config import Settings, StorageConfig, AuthConfig, BasicAuthConfig
 
 
 @pytest.fixture

@@ -2,10 +2,10 @@ import pytest
 import httpx
 from unittest.mock import AsyncMock, MagicMock, patch
 
-from devhub.proxy import build_outbound_headers, proxy_request
-from devhub.models.server import RegisteredServer, FaultInjection
-from devhub.mcp.constants import PROTOCOL_VERSION
-from devhub.config import TraceConfig
+from mcp_hub.proxy import build_outbound_headers, proxy_request
+from mcp_hub.models.server import RegisteredServer, FaultInjection
+from mcp_hub.mcp.constants import PROTOCOL_VERSION
+from mcp_hub.config import TraceConfig
 
 
 def make_server(
@@ -241,7 +241,7 @@ class TestProxyRequest:
             async def __aexit__(self, exc_type, exc_val, exc_tb):
                 pass
 
-        with patch("devhub.proxy.handler.httpx.AsyncClient", return_value=MockClient()):
+        with patch("mcp_hub.proxy.handler.httpx.AsyncClient", return_value=MockClient()):
             response = await proxy_request(
                 mock_request, mock_registry, trace_recorder, trace_config
             )
@@ -266,7 +266,7 @@ class TestProxyRequest:
         server = RegisteredServer(id="test-server", url="http://unreachable.example.com")
         mock_registry.get = AsyncMock(return_value=server)
 
-        with patch("devhub.proxy.handler.httpx.AsyncClient") as mock_client_class:
+        with patch("mcp_hub.proxy.handler.httpx.AsyncClient") as mock_client_class:
             mock_client = MagicMock()
             mock_client.stream = MagicMock(side_effect=httpx.ConnectError("Connection failed"))
             mock_client.__aenter__ = AsyncMock(return_value=mock_client)
@@ -384,7 +384,7 @@ class TestTraceRecording:
             async def __aexit__(self, exc_type, exc_val, exc_tb):
                 pass
 
-        with patch("devhub.proxy.handler.httpx.AsyncClient", return_value=MockClient()):
+        with patch("mcp_hub.proxy.handler.httpx.AsyncClient", return_value=MockClient()):
             response = await proxy_request(
                 mock_request, mock_registry, trace_recorder, trace_config
             )
@@ -407,7 +407,7 @@ class TestTraceRecording:
         server = RegisteredServer(id="test-server", url="http://unreachable.example.com")
         mock_registry.get = AsyncMock(return_value=server)
 
-        with patch("devhub.proxy.handler.httpx.AsyncClient") as mock_client_class:
+        with patch("mcp_hub.proxy.handler.httpx.AsyncClient") as mock_client_class:
             mock_client = MagicMock()
             mock_client.stream = MagicMock(side_effect=httpx.ConnectError("Connection failed"))
             mock_client.__aenter__ = AsyncMock(return_value=mock_client)
@@ -491,7 +491,7 @@ class TestTraceRecording:
             async def __aexit__(self, exc_type, exc_val, exc_tb):
                 pass
 
-        with patch("devhub.proxy.handler.httpx.AsyncClient", return_value=MockClient()):
+        with patch("mcp_hub.proxy.handler.httpx.AsyncClient", return_value=MockClient()):
             await proxy_request(mock_request, mock_registry, trace_recorder, trace_config)
 
         entry = trace_recorder.add.call_args[0][0]
@@ -554,7 +554,7 @@ class TestTraceRecording:
             async def __aexit__(self, exc_type, exc_val, exc_tb):
                 pass
 
-        with patch("devhub.proxy.handler.httpx.AsyncClient", return_value=MockClient()):
+        with patch("mcp_hub.proxy.handler.httpx.AsyncClient", return_value=MockClient()):
             await proxy_request(mock_request, mock_registry, trace_recorder, trace_config)
 
         entry = trace_recorder.add.call_args[0][0]
@@ -624,7 +624,7 @@ class TestTraceRecording:
             async def __aexit__(self, exc_type, exc_val, exc_tb):
                 pass
 
-        with patch("devhub.proxy.handler.httpx.AsyncClient", return_value=MockClient()):
+        with patch("mcp_hub.proxy.handler.httpx.AsyncClient", return_value=MockClient()):
             await proxy_request(mock_request, mock_registry, trace_recorder, trace_config)
 
         entry = trace_recorder.add.call_args[0][0]

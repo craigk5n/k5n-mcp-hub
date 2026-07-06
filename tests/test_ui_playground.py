@@ -4,9 +4,9 @@ from unittest.mock import AsyncMock, patch
 import pytest
 from fastapi.testclient import TestClient
 
-from devhub.app import create_app
-from devhub.models import RegisteredServer
-from devhub.registry.service import Registry
+from mcp_hub.app import create_app
+from mcp_hub.models import RegisteredServer
+from mcp_hub.registry.service import Registry
 
 
 def test_playground_returns_200_with_form() -> None:

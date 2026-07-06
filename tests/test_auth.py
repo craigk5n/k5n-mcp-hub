@@ -3,14 +3,14 @@ import pytest
 from fastapi import HTTPException, Request
 from unittest.mock import AsyncMock, MagicMock
 
-from devhub.auth import (
+from mcp_hub.auth import (
     Authenticator,
     auth_required,
     BasicAuthStrategy,
     NoAuthStrategy,
     build_authenticator,
 )
-from devhub.config import AuthConfig, BasicAuthConfig
+from mcp_hub.config import AuthConfig, BasicAuthConfig
 
 
 class FakeAuthenticatorReturningFalse:

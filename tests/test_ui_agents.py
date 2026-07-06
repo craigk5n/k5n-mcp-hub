@@ -4,8 +4,8 @@ from unittest.mock import patch
 import pytest
 from fastapi.testclient import TestClient
 
-from devhub.app import create_app
-from devhub.config import Settings, AuthConfig, BasicAuthConfig
+from mcp_hub.app import create_app
+from mcp_hub.config import Settings, AuthConfig, BasicAuthConfig
 
 
 def make_basic_auth_header(user: str, password: str) -> dict[str, str]:
@@ -132,7 +132,7 @@ class TestRegisterAgent:
         assert response.json()["error"] == "id and url required"
 
     def test_valid_registration_returns_201(self, client_with_basic_auth):
-        with patch("devhub.routes.ui_agents.refresh_agent_card") as mock_refresh:
+        with patch("mcp_hub.routes.ui_agents.refresh_agent_card") as mock_refresh:
             mock_refresh.return_value = None
             response = client_with_basic_auth.post(
                 "/v1/agents/register",
@@ -155,7 +155,7 @@ class TestRegisterAgent:
         assert data["tags"] == ["test", "demo"]
 
     def test_response_body_has_bearer_token_redacted(self, client_with_basic_auth):
-        with patch("devhub.routes.ui_agents.refresh_agent_card") as mock_refresh:
+        with patch("mcp_hub.routes.ui_agents.refresh_agent_card") as mock_refresh:
             mock_refresh.return_value = None
             response = client_with_basic_auth.post(
                 "/v1/agents/register",
@@ -172,7 +172,7 @@ class TestRegisterAgent:
         assert data["bearer_token"] == ""
 
     def test_card_refresh_failure_does_not_fail_registration(self, client_with_basic_auth):
-        with patch("devhub.routes.ui_agents.refresh_agent_card") as mock_refresh:
+        with patch("mcp_hub.routes.ui_agents.refresh_agent_card") as mock_refresh:
             mock_refresh.side_effect = Exception("Network error")
             response = client_with_basic_auth.post(
                 "/v1/agents/register",

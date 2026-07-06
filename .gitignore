@@ -13,3 +13,6 @@ htmlcov/
 .pytest_cache/
 .ruff_cache/
 .mypy_cache/
+
+# Runtime agent-fixture store written by the app/tests at repo root
+/.mcp_hub/

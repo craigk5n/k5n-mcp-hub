@@ -1,6 +1,6 @@
 import pytest
 
-from devhub.mcp.constants import (
+from mcp_hub.mcp.constants import (
     BACKWARD_COMPAT_PROTOCOL_VERSION,
     PROTOCOL_VERSION,
     SUPPORTED_PROTOCOL_VERSIONS,
@@ -97,7 +97,7 @@ class TestJsonRpcErrorCodes:
 class TestClientIdentity:
     def test_mcp_client_name(self) -> None:
         assert isinstance(MCP_CLIENT_NAME, str)
-        assert MCP_CLIENT_NAME == "devhub"
+        assert MCP_CLIENT_NAME == "mcp_hub"
 
     def test_mcp_client_version(self) -> None:
         assert isinstance(MCP_CLIENT_VERSION, str)

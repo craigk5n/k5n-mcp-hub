@@ -5,7 +5,7 @@ from xml.etree import ElementTree
 import pytest
 
 
-STATIC_DIR = Path(__file__).parent.parent / "src" / "devhub" / "static"
+STATIC_DIR = Path(__file__).parent.parent / "src" / "mcp_hub" / "static"
 IMAGES_DIR = STATIC_DIR / "images"
 
 

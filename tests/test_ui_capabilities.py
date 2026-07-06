@@ -4,12 +4,12 @@ from datetime import datetime
 
 from fastapi.testclient import TestClient
 
-from devhub.app import create_app
-from devhub.mcp.discovery import DiscoveryService
-from devhub.mcp.sdk_client import InitializeResult
-from devhub.models.server import RegisteredServer
-from devhub.registry.service import Registry
-from devhub.utils import utcnow
+from mcp_hub.app import create_app
+from mcp_hub.mcp.discovery import DiscoveryService
+from mcp_hub.mcp.sdk_client import InitializeResult
+from mcp_hub.models.server import RegisteredServer
+from mcp_hub.registry.service import Registry
+from mcp_hub.utils import utcnow
 
 
 def make_server(
@@ -169,7 +169,7 @@ async def test_server_tools_first_call_populates_cache_fields() -> None:
 
     tools_response = [{"name": "test-tool", "inputSchema": {"type": "object", "properties": {}}}]
 
-    with patch("devhub.routes.ui_capabilities.MCPClient") as mock_client_class:
+    with patch("mcp_hub.routes.ui_capabilities.MCPClient") as mock_client_class:
         mock_client = AsyncMock()
         mock_client.__aenter__ = AsyncMock(return_value=mock_client)
         mock_client.__aexit__ = AsyncMock(return_value=None)
@@ -221,7 +221,7 @@ async def test_server_tools_second_call_returns_from_cache() -> None:
     )
     await app.state.registry.register(server)
 
-    with patch("devhub.routes.ui_capabilities.MCPClient") as mock_client_class:
+    with patch("mcp_hub.routes.ui_capabilities.MCPClient") as mock_client_class:
         mock_client = AsyncMock()
         mock_client.__aenter__ = AsyncMock(return_value=mock_client)
         mock_client.__aexit__ = AsyncMock(return_value=None)
@@ -286,7 +286,7 @@ async def test_server_tools_schema_conformance_not_recomputed_when_set() -> None
     )
     await app.state.registry.register(server)
 
-    with patch("devhub.routes.ui_capabilities.validate_tool_schemas") as mock_validate:
+    with patch("mcp_hub.routes.ui_capabilities.validate_tool_schemas") as mock_validate:
         mock_validate.return_value = (True, [])
         response = client.get("/ui/server/server-schema-set/tools")
 
@@ -312,7 +312,7 @@ async def test_server_tools_live_fetch_persists_on_success() -> None:
         {"name": "live-resource", "uri": "test://live", "description": "A live resource"}
     ]
 
-    with patch("devhub.routes.ui_capabilities.MCPClient") as mock_client_class:
+    with patch("mcp_hub.routes.ui_capabilities.MCPClient") as mock_client_class:
         mock_client = AsyncMock()
         mock_client.__aenter__ = AsyncMock(return_value=mock_client)
         mock_client.__aexit__ = AsyncMock(return_value=None)
@@ -364,7 +364,7 @@ async def test_server_tools_fallback_to_discovery_on_failure() -> None:
 
     app.state.discovery_service.discover_immediately = mock_discover_immediately  # type: ignore[method-assign]
 
-    with patch("devhub.routes.ui_capabilities.MCPClient") as mock_client_class:
+    with patch("mcp_hub.routes.ui_capabilities.MCPClient") as mock_client_class:
         mock_client = AsyncMock()
         mock_client.__aenter__ = AsyncMock(return_value=mock_client)
         mock_client.__aexit__ = AsyncMock(return_value=None)
@@ -399,7 +399,7 @@ async def test_get_server_tools_returns_empty_list_when_no_tools() -> None:
     )
     await app.state.registry.register(server)
 
-    with patch("devhub.routes.ui_capabilities.MCPClient") as mock_client_class:
+    with patch("mcp_hub.routes.ui_capabilities.MCPClient") as mock_client_class:
         mock_client = AsyncMock()
         mock_client.__aenter__ = AsyncMock(return_value=mock_client)
         mock_client.__aexit__ = AsyncMock(return_value=None)
@@ -584,7 +584,7 @@ async def test_capabilities_cached_path_does_not_contact_mcp_client() -> None:
     )
     await app.state.registry.register(server)
 
-    with patch("devhub.routes.ui_capabilities.MCPClient") as mock_client_class:
+    with patch("mcp_hub.routes.ui_capabilities.MCPClient") as mock_client_class:
         mock_client = mock_client_class.return_value.__aenter__.return_value
         mock_client.handshake.side_effect = RuntimeError("MCPClient should not be called!")
 
@@ -611,7 +611,7 @@ async def test_capabilities_live_fetch_handshake_failure() -> None:
     )
     await app.state.registry.register(server)
 
-    with patch("devhub.routes.ui_capabilities.MCPClient") as mock_client_class:
+    with patch("mcp_hub.routes.ui_capabilities.MCPClient") as mock_client_class:
         mock_client = mock_client_class.return_value.__aenter__.return_value
         mock_client.handshake.side_effect = RuntimeError("Connection refused")
 

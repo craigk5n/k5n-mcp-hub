@@ -4,7 +4,7 @@ import pathlib
 import pytest
 import yaml
 
-from devhub.config import (
+from mcp_hub.config import (
     HealthCheckConfig,
     Settings,
     load_settings,
@@ -21,7 +21,7 @@ class TestEnvExampleDocumentation:
         content = env_example_path.read_text()
 
         assert "SERVER_HTTP_PORT" in content, ".env.example must document SERVER_HTTP_PORT override"
-        assert "DEVHUB_" in content, ".env.example must document DEVHUB_ nested-prefix pattern"
+        assert "MCPHUB_" in content, ".env.example must document MCPHUB_ nested-prefix pattern"
 
 
 class TestDefaults:
@@ -30,7 +30,7 @@ class TestDefaults:
     ):
         monkeypatch.chdir(tmp_path)
         for key in list(os.environ.keys()):
-            if key.startswith("DEVHUB_") or key == "SERVER_HTTP_PORT":
+            if key.startswith("MCPHUB_") or key == "SERVER_HTTP_PORT":
                 monkeypatch.delenv(key, raising=False)
 
         result = load_settings()
@@ -45,7 +45,7 @@ class TestDefaults:
 class TestYAMLLoading:
     def test_yaml_overrides_defaults(self, monkeypatch: pytest.MonkeyPatch, tmp_path: pathlib.Path):
         for key in list(os.environ.keys()):
-            if key.startswith("DEVHUB_") or key == "SERVER_HTTP_PORT":
+            if key.startswith("MCPHUB_") or key == "SERVER_HTTP_PORT":
                 monkeypatch.delenv(key, raising=False)
 
         config_file = tmp_path / "config.yaml"
@@ -57,13 +57,13 @@ class TestYAMLLoading:
 
 
 class TestEnvVarOverrides:
-    def test_devhub_env_overrides_yaml(
+    def test_mcp_hub_env_overrides_yaml(
         self, monkeypatch: pytest.MonkeyPatch, tmp_path: pathlib.Path
     ):
         config_file = tmp_path / "config.yaml"
         config_file.write_text(yaml.dump({"server": {"http_port": 9000}}))
 
-        monkeypatch.setenv("DEVHUB_SERVER__HTTP_PORT", "9100")
+        monkeypatch.setenv("MCPHUB_SERVER__HTTP_PORT", "9100")
 
         result = load_settings(path=str(config_file))
 
@@ -75,7 +75,7 @@ class TestEnvVarOverrides:
         config_file = tmp_path / "config.yaml"
         config_file.write_text(yaml.dump({"server": {"http_port": 9000}}))
 
-        monkeypatch.setenv("DEVHUB_SERVER__HTTP_PORT", "9100")
+        monkeypatch.setenv("MCPHUB_SERVER__HTTP_PORT", "9100")
         monkeypatch.setenv("SERVER_HTTP_PORT", "9200")
 
         result = load_settings(path=str(config_file))
@@ -98,7 +98,7 @@ class TestEnvVarOverrides:
 class TestStorageTypeAliases:
     def test_json_alias(self, monkeypatch: pytest.MonkeyPatch, tmp_path: pathlib.Path):
         for key in list(os.environ.keys()):
-            if key.startswith("DEVHUB_") or key == "SERVER_HTTP_PORT":
+            if key.startswith("MCPHUB_") or key == "SERVER_HTTP_PORT":
                 monkeypatch.delenv(key, raising=False)
 
         config_file = tmp_path / "config.yaml"
@@ -110,7 +110,7 @@ class TestStorageTypeAliases:
 
     def test_jsonfile_alias(self, monkeypatch: pytest.MonkeyPatch, tmp_path: pathlib.Path):
         for key in list(os.environ.keys()):
-            if key.startswith("DEVHUB_") or key == "SERVER_HTTP_PORT":
+            if key.startswith("MCPHUB_") or key == "SERVER_HTTP_PORT":
                 monkeypatch.delenv(key, raising=False)
 
         config_file = tmp_path / "config.yaml"
@@ -122,7 +122,7 @@ class TestStorageTypeAliases:
 
     def test_file_alias(self, monkeypatch: pytest.MonkeyPatch, tmp_path: pathlib.Path):
         for key in list(os.environ.keys()):
-            if key.startswith("DEVHUB_") or key == "SERVER_HTTP_PORT":
+            if key.startswith("MCPHUB_") or key == "SERVER_HTTP_PORT":
                 monkeypatch.delenv(key, raising=False)
 
         config_file = tmp_path / "config.yaml"
@@ -136,7 +136,7 @@ class TestStorageTypeAliases:
 class TestRedisAccepted:
     def test_redis_type_accepted(self, monkeypatch: pytest.MonkeyPatch, tmp_path: pathlib.Path):
         for key in list(os.environ.keys()):
-            if key.startswith("DEVHUB_") or key == "SERVER_HTTP_PORT":
+            if key.startswith("MCPHUB_") or key == "SERVER_HTTP_PORT":
                 monkeypatch.delenv(key, raising=False)
 
         config_file = tmp_path / "config.yaml"
@@ -185,7 +185,7 @@ class TestShippedDefaultConfig:
 
         monkeypatch.chdir(tmp_path)
         for key in list(os.environ.keys()):
-            if key.startswith("DEVHUB_") or key == "SERVER_HTTP_PORT":
+            if key.startswith("MCPHUB_") or key == "SERVER_HTTP_PORT":
                 monkeypatch.delenv(key, raising=False)
 
         defaults = Settings.from_defaults()

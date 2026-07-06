@@ -1,0 +1,74 @@
+# CLAUDE.md
+
+This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+
+## What this is
+
+k5n-mcp-hub is a registry and management hub for MCP (Model Context Protocol) servers, built with Python + FastAPI — discovery, health monitoring, request tracing, fault injection, a reverse proxy, and an admin UI. It was ported from a Go implementation and kept **wire-compatible** with it: routes, headers, and on-disk storage formats are drop-in compatible so existing clients work unchanged.
+
+> **Wire compatibility is a hard constraint.** Before changing any route path, response header, JSON field name, or on-disk storage shape, assume an existing client depends on it. `tests/test_readme.py` even asserts the README's documented commands stay accurate.
+
+## Naming
+
+The Python import package is `mcp_hub` (`from mcp_hub.app import create_app`). The installed CLI command is `k5n-mcp-hub`. The env-override prefix is `MCPHUB_`. Do not reintroduce the old `devhub`/`dev-hub`/`DEVHUB_` names.
+
+## Commands
+
+Canonical local check sequence (run all before considering work complete):
+
+```bash
+pip install -e .[dev]          # one-time dev setup
+ruff check .
+ruff format --check .
+mypy --explicit-package-bases --ignore-missing-imports src
+pytest -v
+```
+
+Run the app:
+
+```bash
+k5n-mcp-hub                     # serves on http://localhost:8080
+k5n-mcp-hub --port 9000 --host 0.0.0.0 --config path/to/config.yaml
+```
+
+Single test / focused runs:
+
+```bash
+pytest tests/test_proxy_handler.py
+pytest tests/test_proxy_handler.py::test_name
+pytest -k discovery
+pytest --cov=src --cov-report=term-missing
+```
+
+CI (`.forgejo/workflows/ci.yml`) additionally runs the suite in a **fresh isolated venv holding only declared dependencies** plus `pip-audit`. If a test passes locally but fails CI's clean-install gate, a module is imported but missing from `pyproject.toml` `dependencies`.
+
+## Configuration
+
+Loaded from `config.yaml` at repo root (all values there mirror the built-in defaults). Two env-override patterns:
+
+- **Bare var** (highest priority): `SERVER_HTTP_PORT=8080`.
+- **`MCPHUB_` prefix, `__` as nesting separator**: `MCPHUB_AUTH__BASIC_AUTH__REGISTER_PASS=x` → `auth.basic_auth.register_pass`, `MCPHUB_STORAGE__TYPE=json`.
+
+Settings are Pydantic models in `config.py`. Note the storage-type validator normalizes `json`/`jsonfile`/`file` → `json`; `redis` is accepted by config but raises `NotImplementedError` at app creation. The `json` storage config field is aliased (`json_` ↔ `json`) because `json` is reserved.
+
+## Architecture
+
+**Entry flow:** `k5n-mcp-hub` script → `__main__.py:main` → `uvicorn.run("mcp_hub.app:create_app", factory=True)`. `create_app()` in `app.py` is the composition root — it wires every subsystem into `app.state` (`registry`, `agent_registry`, `storage`, `authenticator`, `trace_recorder`, `metrics`, `discovery_service`, the Jinja2 `templates` env, `fixture_store`) and mounts all routers. Routes read dependencies off `app.state`, not module globals.
+
+**Subsystems** (each is its own package under `src/mcp_hub/`):
+
+- `registry/` — `Registry` (MCP servers) and `AgentRegistry`, thin async services over a storage strategy. Register merges: re-registering a server with empty tools/prompts/resources preserves the previously discovered ones.
+- `storage/` — `StorageStrategy` protocol with `InMemoryStorage` (default), a JSON-file backend, plus fixture/memory helpers. Swap backend via config, not code.
+- `mcp/` — the MCP protocol layer: `discovery.py` (periodic tool/prompt/resource discovery via `sdk_client.MCPClient`), `jsonrpc.py`, `sse.py`, `oauth.py`, `auth.py` (per-server auth application), `validation.py`, `schema_refs.py`, `constants.py` (protocol version).
+- `proxy/` — reverse-proxies MCP calls to registered backends: `handler.py` streams responses (incl. SSE), `url.py` composes backend URLs, `fault_injection.py` injects latency/errors for testing.
+- `health/` — background health checker with configurable interval, timeout, failure threshold, and optional auto-unregister.
+- `trace/` — `TraceRecorder` captures request/response entries with header sanitization and body truncation (`trace.body_limit`).
+- `agents/` — A2A-style agent cards and fixtures (`card.py`, `fixtures.py`); `FixtureStore` reads/writes agent JSON under a repo-root data dir (`.mcp_hub/fixtures/` by default, gitignored — the app creates it at runtime).
+- `middleware.py` / `metrics.py` — request-id + Prometheus-style `/metrics`.
+
+**Routing convention:** JSON/API routers (`registry_api.py`, `api.py`, `v1.py`, `mcp.py`, `proxy.py`, `system.py`) carry the wire-compatible surface. HTML admin-UI routers are the `ui_*.py` files, rendered through the **async** Jinja2 environment built in `app.py` (custom filters: `has`, `icon_src`, `schema_summary`, `pretty_json`, `path_encode`, `sanitize_headers`). Templates live in `templates/`, static assets in `static/`.
+
+## Security notes specific to this codebase
+
+- Outbound MCP/discovery/proxy requests use an **SSRF-pinned transport** (`utils.set_allow_private_networks`). Because this is a *local-first* hub, `config.yaml` ships with `security.allow_private_networks: true` so it can reach localhost/LAN servers. Keep that in mind before "hardening" it — it is intentional for the local use case, but should be false for any untrusted deployment.
+- `auth.type` ships as `none` for local convenience; `basic` auth exists for real deployments and needs `register_pass` set.

@@ -1,0 +1,161 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+BASE_URL='{{ base_url | replace("'", "'\\''") }}'
+INIT_BODY='{{ init_body | replace("'", "'\\''") }}'
+CALL_BODY='{{ call_body | replace("'", "'\\''") }}'
+INITED_BODY='{"jsonrpc":"2.0","method":"notifications/initialized","params":{}}'
+AUTH_HEADER_VALUE='{{ auth_header_value | replace("'", "'\\''") }}'
+PROTOCOL_VERSION='{{ protocol_version | replace("'", "'\\''") }}'
+TOOL_NAME='{{ tool_name | replace("'", "'\\''") }}'
+IS_HUB="{{ is_hub }}"
+TARGET_SERVER_ID='{{ target_server_id | replace("'", "'\\''") }}'
+CA_BUNDLE_PATH='{{ ca_bundle | replace("'", "'\\''") }}'
+
+if [[ -n "$MCPHUB_USER" && -n "$MCPHUB_PASS" ]]; then
+    MCPHUB_AUTH="Authorization: Basic $(echo -n "$MCPHUB_USER:$MCPHUB_PASS" | base64)"
+fi
+
+prompt_mcp_hub_auth() {
+    echo -n "k5n-mcp-hub Username: "
+    read -r username
+    read -s -p "k5n-mcp-hub Password: " password
+    echo
+    MCPHUB_AUTH="Authorization: Basic $(echo -n "$username:$password" | base64)"
+}
+
+curl_with_status() {
+    local body="$1"
+    local headers_file
+    local body_file
+    local status_file
+    
+    headers_file=$(mktemp)
+    body_file=$(mktemp)
+    status_file=$(mktemp)
+    
+    local curl_args=(-sS -D "$headers_file" -o "$body_file" -w "%{http_code}" -o "$status_file")
+    curl_args+=(-X POST)
+    curl_args+=(-H "Content-Type: application/json")
+    curl_args+=(-H "Accept: application/json, text/event-stream")
+    curl_args+=(-H "MCP-Protocol-Version: $PROTOCOL_VERSION")
+    
+    if [[ -n "$AUTH_HEADER_VALUE" ]]; then
+        curl_args+=(-H "Authorization: Bearer $AUTH_HEADER_VALUE")
+    elif [[ -n "${MCPHUB_AUTH:-}" ]]; then
+        curl_args+=(-H "$MCPHUB_AUTH")
+    fi
+    
+    if [[ -n "$MCP_SESSION_ID" ]]; then
+        curl_args+=(-H "Mcp-Session-Id: $MCP_SESSION_ID")
+    fi
+{% if is_hub and (is_hub == 'True' or is_hub == 'true' or is_hub == '1') %}
+    curl_args+=(-H "X-MCP-Target-Server: $TARGET_SERVER_ID")
+{% endif %}
+    curl_args+=(-d "$body")
+{% if ca_bundle %}
+    curl_args+=(--cacert "$CA_BUNDLE_PATH")
+{% endif %}
+    
+    curl "${curl_args[@]}" "$BASE_URL"
+    
+    local status
+    status=$(cat "$status_file")
+    
+    local content_type
+    content_type=$(grep -i "^content-type:" "$headers_file" | head -1 | tr -d '\r' | cut -d' ' -f2-)
+    
+    if [[ "$content_type" == "text/event-stream"* ]]; then
+        local data_line
+        data_line=$(grep "^data:" "$body_file" | head -1 | sed 's/^data: //' | sed 's/\r$//')
+        if [[ -n "$data_line" && "$data_line" != "[DONE]" ]]; then
+            echo "$data_line" > "$body_file"
+        fi
+    fi
+    
+    cat "$body_file"
+    echo "---STATUS:$status---"
+}
+
+cleanup() {
+    rm -f /tmp/curl_headers_*.tmp /tmp/curl_body_*.tmp /tmp/curl_status_*.tmp 2>/dev/null || true
+}
+trap cleanup EXIT
+
+MCP_SESSION_ID=""
+
+echo "Initializing MCP session..."
+response=$(curl_with_status "$INIT_BODY")
+body=$(echo "$response" | sed 's/---STATUS:[0-9]*---$//')
+status=$(echo "$response" | sed 's/.*---STATUS:\([0-9]*\)---.*/\1/')
+
+if [[ "$status" == "401" ]]; then
+    if [[ -z "${MCPHUB_AUTH:-}" ]]; then
+        prompt_mcp_hub_auth
+    else
+        echo "Unauthorized" >&2
+        echo "$body"
+        exit 1
+    fi
+    response=$(curl_with_status "$INIT_BODY")
+    body=$(echo "$response" | sed 's/---STATUS:[0-9]*---$//')
+    status=$(echo "$response" | sed 's/.*---STATUS:\([0-9]*\)---.*/\1/')
+    if [[ "$status" == "401" ]]; then
+        echo "Unauthorized" >&2
+        echo "$body"
+        exit 1
+    fi
+fi
+
+session_id=$(echo "$body" | grep -io '"sessionId"[[:space:]]*:[[:space:]]*"[^"]*"' | sed 's/.*"sessionId"[[:space:]]*:[[:space:]]*"\([^"]*\)"/\1/')
+if [[ -n "$session_id" ]]; then
+    MCP_SESSION_ID="$session_id"
+fi
+
+echo "Sending MCP initialized notification..."
+response=$(curl_with_status "$INITED_BODY")
+body=$(echo "$response" | sed 's/---STATUS:[0-9]*---$//')
+status=$(echo "$response" | sed 's/.*---STATUS:\([0-9]*\)---.*/\1/')
+
+if [[ "$status" == "401" ]]; then
+    if [[ -z "${MCPHUB_AUTH:-}" ]]; then
+        prompt_mcp_hub_auth
+    else
+        echo "Unauthorized" >&2
+        echo "$body"
+        exit 1
+    fi
+    response=$(curl_with_status "$INITED_BODY")
+    body=$(echo "$response" | sed 's/---STATUS:[0-9]*---$//')
+    status=$(echo "$response" | sed 's/.*---STATUS:\([0-9]*\)---.*/\1/')
+    if [[ "$status" == "401" ]]; then
+        echo "Unauthorized" >&2
+        echo "$body"
+        exit 1
+    fi
+fi
+
+echo "Calling tool: $TOOL_NAME..."
+response=$(curl_with_status "$CALL_BODY")
+body=$(echo "$response" | sed 's/---STATUS:[0-9]*---$//')
+status=$(echo "$response" | sed 's/.*---STATUS:\([0-9]*\)---.*/\1/')
+
+if [[ "$status" == "401" ]]; then
+    if [[ -z "${MCPHUB_AUTH:-}" ]]; then
+        prompt_mcp_hub_auth
+    else
+        echo "Unauthorized" >&2
+        echo "$body"
+        exit 1
+    fi
+    response=$(curl_with_status "$CALL_BODY")
+    body=$(echo "$response" | sed 's/---STATUS:[0-9]*---$//')
+    status=$(echo "$response" | sed 's/.*---STATUS:\([0-9]*\)---.*/\1/')
+    if [[ "$status" == "401" ]]; then
+        echo "Unauthorized" >&2
+        echo "$body"
+        exit 1
+    fi
+fi
+
+echo "$body"

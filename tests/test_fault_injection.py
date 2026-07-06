@@ -4,8 +4,8 @@ from typing import Any, cast
 
 import pytest
 
-from devhub.proxy.fault_injection import apply_fault_injection, DEFAULT_FAULT_TIMEOUT_MS
-from devhub.models.server import RegisteredServer, FaultInjection
+from mcp_hub.proxy.fault_injection import apply_fault_injection, DEFAULT_FAULT_TIMEOUT_MS
+from mcp_hub.models.server import RegisteredServer, FaultInjection
 
 
 def make_server(**kwargs: Any) -> RegisteredServer:

@@ -1,12 +1,12 @@
 from datetime import datetime, timezone
 
 import pytest
-from devhub.trace.recorder import (
+from mcp_hub.trace.recorder import (
     redact_auth_header,
     sanitize_trace_headers,
     trim_trace_body,
 )
-from devhub.trace import TraceEntry, TraceRecorder
+from mcp_hub.trace import TraceEntry, TraceRecorder
 
 
 class TestRedactAuthHeader:

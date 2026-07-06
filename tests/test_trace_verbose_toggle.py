@@ -1,8 +1,8 @@
 import httpx
 import pytest
 
-from devhub.app import create_app
-from devhub.models.server import RegisteredServer
+from mcp_hub.app import create_app
+from mcp_hub.models.server import RegisteredServer
 
 
 @pytest.fixture

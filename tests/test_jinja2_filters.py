@@ -1,7 +1,7 @@
 import pytest
 from fastapi.testclient import TestClient
 
-from devhub.app import create_app
+from mcp_hub.app import create_app
 
 
 class TestJinja2Environment:

@@ -1,7 +1,7 @@
 from datetime import datetime, timezone
 
 import pytest
-from devhub.models import FaultInjection, RegisteredServer
+from mcp_hub.models import FaultInjection, RegisteredServer
 
 
 class TestRegisteredServer:

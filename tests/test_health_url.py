@@ -1,5 +1,5 @@
 import pytest
-from devhub.health import build_health_url
+from mcp_hub.health import build_health_url
 
 
 class TestBuildHealthUrl:

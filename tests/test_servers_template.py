@@ -4,7 +4,7 @@ from pathlib import Path
 
 
 def _create_test_environment() -> Environment:
-    templates_dir = Path(__file__).parent.parent / "src" / "devhub" / "templates"
+    templates_dir = Path(__file__).parent.parent / "src" / "mcp_hub" / "templates"
     env = Environment(
         loader=FileSystemLoader(str(templates_dir)),
         autoescape=select_autoescape(["html", "xml"]),
@@ -100,7 +100,6 @@ def test_all_hidden_panel_containers() -> None:
 
         assert f'id="initialize-{server_id}"' in html
         assert f'id="trace-{server_id}"' in html
-        assert f'id="conformance-{server_id}"' in html
         assert f'id="faults-{server_id}"' in html
         assert f'id="playground-{server_id}"' in html
 
@@ -160,7 +159,6 @@ def test_action_buttons_present() -> None:
     assert "Inspect" in html
     assert "Initialize" in html
     assert "View Trace" in html
-    assert "Conformance" in html
     assert "Faults" in html
     assert "Playground" in html
     assert "Refresh Capabilities" in html

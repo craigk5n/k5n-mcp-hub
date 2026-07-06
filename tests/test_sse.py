@@ -1,6 +1,6 @@
 import pytest
 
-from devhub.mcp.sse import extract_sse_data
+from mcp_hub.mcp.sse import extract_sse_data
 
 
 class TestExtractSseData:

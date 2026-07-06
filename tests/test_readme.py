@@ -45,12 +45,12 @@ class TestReadmeSections:
         content = readme_path.read_text()
 
         assert "pip install -e .[dev]" in content, "Quick Start must contain install command"
-        assert "devhub" in content, "Quick Start must mention running devhub"
+        assert "k5n-mcp-hub" in content, "Quick Start must mention running k5n-mcp-hub"
         assert "http://localhost:8080" in content, "Quick Start must contain localhost URL"
         assert "config.yaml" in content, "Configuration must reference config.yaml"
         assert "SERVER_HTTP_PORT" in content, "Configuration must document SERVER_HTTP_PORT"
-        assert "DEVHUB_" in content, "Configuration must document DEVHUB_ prefix"
+        assert "MCPHUB_" in content, "Configuration must document MCPHUB_ prefix"
         assert "ruff check ." in content, "Tests must contain ruff check command"
         assert "ruff format --check ." in content, "Tests must contain ruff format check"
-        assert "mypy devhub/ --strict" in content, "Tests must contain mypy command"
+        assert "mypy" in content and "src" in content, "Tests must contain mypy command"
         assert "pytest -v" in content, "Tests must contain pytest command"

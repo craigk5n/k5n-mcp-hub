@@ -3,13 +3,13 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import httpx
 import pytest
 
-from devhub.agents.card import (
+from mcp_hub.agents.card import (
     AgentRegistry,
     fetch_agent_card,
     refresh_agent_card,
     validate_agent_card,
 )
-from devhub.models import AgentCard, RegisteredAgent
+from mcp_hub.models import AgentCard, RegisteredAgent
 
 
 class TestValidateAgentCard:
@@ -334,7 +334,7 @@ class TestRefreshAgentCard:
         mock_client.get = AsyncMock(return_value=mock_response)
         mock_client.aclose = AsyncMock()
 
-        with patch("devhub.agents.card.httpx.AsyncClient", return_value=mock_client):
+        with patch("mcp_hub.agents.card.httpx.AsyncClient", return_value=mock_client):
             await refresh_agent_card(agent, registry)
 
         assert agent.last_card is not None
@@ -352,7 +352,7 @@ class TestRefreshAgentCard:
         mock_client.get = AsyncMock(side_effect=Exception("Network error"))
         mock_client.aclose = AsyncMock()
 
-        with patch("devhub.agents.card.httpx.AsyncClient", return_value=mock_client):
+        with patch("mcp_hub.agents.card.httpx.AsyncClient", return_value=mock_client):
             await refresh_agent_card(agent, registry)
 
         assert agent.last_card is None
@@ -379,7 +379,7 @@ class TestRefreshAgentCard:
         mock_client.get = AsyncMock(return_value=mock_response)
         mock_client.aclose = AsyncMock()
 
-        with patch("devhub.agents.card.httpx.AsyncClient", return_value=mock_client):
+        with patch("mcp_hub.agents.card.httpx.AsyncClient", return_value=mock_client):
             await refresh_agent_card(agent, registry)
 
         assert agent.last_card is None
@@ -406,7 +406,7 @@ class TestRefreshAgentCard:
         mock_client.get = AsyncMock(return_value=mock_response)
         mock_client.aclose = AsyncMock()
 
-        with patch("devhub.agents.card.httpx.AsyncClient", return_value=mock_client):
+        with patch("mcp_hub.agents.card.httpx.AsyncClient", return_value=mock_client):
             await refresh_agent_card(agent, registry)
 
         stored = await registry.get("test")

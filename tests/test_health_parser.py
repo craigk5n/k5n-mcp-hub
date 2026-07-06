@@ -1,6 +1,6 @@
 import pytest
-from devhub.health import HealthParser, HealthResponse
-from devhub.health.parser import format_uptime
+from mcp_hub.health import HealthParser, HealthResponse
+from mcp_hub.health.parser import format_uptime
 
 
 class TestFormatUptime:

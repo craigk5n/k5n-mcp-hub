@@ -1,6 +1,6 @@
 import pytest
 
-from devhub.routes.ui_invoke import build_tool_args, coerce_form_value
+from mcp_hub.routes.ui_invoke import build_tool_args, coerce_form_value
 
 
 class TestCoerceFormValue:
@@ -126,7 +126,7 @@ class TestBuildToolArgs:
 
 class TestInvokeFragment:
     def test_build_success_fragment(self) -> None:
-        from devhub.routes.ui_invoke import _build_success_fragment
+        from mcp_hub.routes.ui_invoke import _build_success_fragment
 
         result = _build_success_fragment("Hello World")
 
@@ -135,7 +135,7 @@ class TestInvokeFragment:
         assert "data-tool-output-raw" in result
 
     def test_build_error_fragment(self) -> None:
-        from devhub.routes.ui_invoke import _build_error_fragment
+        from mcp_hub.routes.ui_invoke import _build_error_fragment
 
         result = _build_error_fragment("Something went wrong")
 
@@ -144,7 +144,7 @@ class TestInvokeFragment:
         assert "data-tool-output-raw" in result
 
     def test_escape_html_in_message(self) -> None:
-        from devhub.routes.ui_invoke import _build_success_fragment
+        from mcp_hub.routes.ui_invoke import _build_success_fragment
 
         result = _build_success_fragment("<script>alert('xss')</script>")
 
@@ -163,7 +163,7 @@ class TestInvokeRoute:
     def test_invoke_route_404_when_server_not_found(self) -> None:
         from fastapi.testclient import TestClient
 
-        from devhub.app import create_app
+        from mcp_hub.app import create_app
 
         app = create_app()
         client = TestClient(app, raise_server_exceptions=False)

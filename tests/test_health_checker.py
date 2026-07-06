@@ -3,11 +3,11 @@ from unittest.mock import AsyncMock, patch, MagicMock
 import httpx
 import asyncio
 
-from devhub.config import HealthCheckConfig, TraceConfig
-from devhub.health import HealthCheckResult, HealthChecker, HealthParser, check_service_health
-from devhub.models.server import RegisteredServer
-from devhub.registry.service import Registry
-from devhub.trace import TraceRecorder
+from mcp_hub.config import HealthCheckConfig, TraceConfig
+from mcp_hub.health import HealthCheckResult, HealthChecker, HealthParser, check_service_health
+from mcp_hub.models.server import RegisteredServer
+from mcp_hub.registry.service import Registry
+from mcp_hub.trace import TraceRecorder
 
 
 def make_server(
@@ -319,7 +319,7 @@ class TestHealthChecker:
         mock_client.__aenter__ = AsyncMock(return_value=mock_client)
         mock_client.__aexit__ = AsyncMock(return_value=None)
 
-        with patch("devhub.health.checker.httpx.AsyncClient", return_value=mock_client):
+        with patch("mcp_hub.health.checker.httpx.AsyncClient", return_value=mock_client):
             await checker.check_all_once()
 
         updated = await storage.get("test-1")
@@ -348,7 +348,7 @@ class TestHealthChecker:
         mock_client.__aenter__ = AsyncMock(return_value=mock_client)
         mock_client.__aexit__ = AsyncMock(return_value=None)
 
-        with patch("devhub.health.checker.httpx.AsyncClient", return_value=mock_client):
+        with patch("mcp_hub.health.checker.httpx.AsyncClient", return_value=mock_client):
             await checker.check_all_once()
 
         updated = await storage.get("test-2")
@@ -370,7 +370,7 @@ class TestHealthChecker:
         mock_client.__aenter__ = AsyncMock(return_value=mock_client)
         mock_client.__aexit__ = AsyncMock(return_value=None)
 
-        with patch("devhub.health.checker.httpx.AsyncClient", return_value=mock_client):
+        with patch("mcp_hub.health.checker.httpx.AsyncClient", return_value=mock_client):
             await checker.check_all_once()
 
         mock_client.get.assert_not_called()
@@ -397,7 +397,7 @@ class TestHealthChecker:
         mock_client.__aenter__ = AsyncMock(return_value=mock_client)
         mock_client.__aexit__ = AsyncMock(return_value=None)
 
-        with patch("devhub.health.checker.httpx.AsyncClient", return_value=mock_client):
+        with patch("mcp_hub.health.checker.httpx.AsyncClient", return_value=mock_client):
             await checker.check_all_once()
 
         updated = await storage.get("test-4")
@@ -426,7 +426,7 @@ class TestHealthChecker:
 
         start_time = asyncio.get_event_loop().time()
 
-        with patch("devhub.health.checker.httpx.AsyncClient", return_value=mock_client):
+        with patch("mcp_hub.health.checker.httpx.AsyncClient", return_value=mock_client):
             task = asyncio.create_task(checker.run_forever())
             await asyncio.sleep(0.1)
             task.cancel()

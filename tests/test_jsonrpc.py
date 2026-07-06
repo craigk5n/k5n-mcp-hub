@@ -1,7 +1,7 @@
 import pytest
 
-from devhub.mcp.constants import PROTOCOL_VERSION
-from devhub.mcp.jsonrpc import (
+from mcp_hub.mcp.constants import PROTOCOL_VERSION
+from mcp_hub.mcp.jsonrpc import (
     build_call_tool_request,
     build_initialize_request,
     build_initialized_notification,

@@ -2,7 +2,7 @@ import json
 import os
 import pytest
 
-from devhub.agents.fixtures import FixtureStore
+from mcp_hub.agents.fixtures import FixtureStore
 
 
 @pytest.mark.asyncio

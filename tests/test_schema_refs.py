@@ -3,7 +3,7 @@ from typing import Any
 
 import pytest
 
-from devhub.mcp.schema_refs import resolve_tool_schema_refs
+from mcp_hub.mcp.schema_refs import resolve_tool_schema_refs
 
 
 class TestResolveToolSchemaRefs:

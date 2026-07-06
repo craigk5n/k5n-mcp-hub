@@ -1,7 +1,7 @@
 import pytest
 
-from devhub.agents.card import compare_card_to_expected
-from devhub.models.agent import AgentCard
+from mcp_hub.agents.card import compare_card_to_expected
+from mcp_hub.models.agent import AgentCard
 
 
 class TestCompareCardToExpected:

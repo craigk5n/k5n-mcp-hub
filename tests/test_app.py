@@ -4,9 +4,9 @@ import httpx
 import pytest
 from fastapi.testclient import TestClient
 
-from devhub.app import create_app
-from devhub.config import Settings, StorageConfig
-from devhub.metrics import metrics
+from mcp_hub.app import create_app
+from mcp_hub.config import Settings, StorageConfig
+from mcp_hub.metrics import metrics
 
 
 def test_create_app_returns_fastapi_with_state() -> None:
@@ -105,7 +105,7 @@ def test_metrics_returns_plain_text_prometheus() -> None:
     assert response.headers.get("content-type") == "text/plain; charset=utf-8"
     assert (
         re.match(
-            r"^devhub_requests_in_flight \d+\ndevhub_requests_total \d+\ndevhub_request_errors_total \d+\ndevhub_request_duration_ms_sum [\d.]+\n$",
+            r"^mcp_hub_requests_in_flight \d+\nmcp_hub_requests_total \d+\nmcp_hub_request_errors_total \d+\nmcp_hub_request_duration_ms_sum [\d.]+\n$",
             response.text,
         )
         is not None
