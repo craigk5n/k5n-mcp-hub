@@ -474,8 +474,8 @@ async def test_get_capabilities_renders_tool_with_schema_properties() -> None:
     assert 'name="__json__param_array"' in html
     assert "JSON" in html
 
-    assert "/ui/invoke/server-tools/test_tool/download/bash" in html
-    assert "/ui/invoke/server-tools/test_tool/download/python" in html
+    assert "/ui/server/server-tools/tool/test_tool/download'" in html
+    assert "/ui/server/server-tools/tool/test_tool/download-python'" in html
 
 
 @pytest.mark.asyncio

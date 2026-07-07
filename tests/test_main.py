@@ -168,6 +168,11 @@ class TestBackgroundTaskCancellation:
         bg_task = asyncio.create_task(background_task())
         register_background_task(app, bg_task)
 
+        # Yield control so background_task() actually starts and reaches its
+        # `await asyncio.sleep(100)` before lifespan shutdown cancels it;
+        # otherwise the task can be cancelled before its body ever runs.
+        await asyncio.sleep(0)
+
         async with httpx.AsyncClient(
             transport=httpx.ASGITransport(app=app), base_url="http://test"
         ) as client:

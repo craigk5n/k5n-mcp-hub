@@ -16,3 +16,6 @@ htmlcov/
 
 # Runtime agent-fixture store written by the app/tests at repo root
 /.mcp_hub/
+
+# Local-only audit (not tracked)
+AUDIT_local.md

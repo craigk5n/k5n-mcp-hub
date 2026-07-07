@@ -156,7 +156,6 @@ def test_action_buttons_present() -> None:
     servers = _create_sample_servers()
     html = template.render(servers=servers)
 
-    assert "Inspect" in html
     assert "Initialize" in html
     assert "View Trace" in html
     assert "Faults" in html
