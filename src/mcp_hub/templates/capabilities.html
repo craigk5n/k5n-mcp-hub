@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+{% from "_panel_controls.html" import collapse_button %}<!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
@@ -16,15 +16,18 @@
                 <h1 class="text-3xl font-bold text-gray-900">Capabilities</h1>
                 <p class="text-gray-600 mt-1">{{ server_name }}</p>
             </div>
-            <form hx-post="/ui/server/{{ server_id }}/refresh-capabilities"
-                  hx-swap="outerHTML"
-                  hx-indicator=".refresh-indicator">
-                <button type="submit"
-                        class="bg-blue-600 hover:bg-blue-700 text-white font-medium py-2 px-4 rounded-md transition-colors">
-                    <span class="refresh-indicator htmx-indicator">Refreshing...</span>
-                    <span class="refresh-btn">Refresh capabilities</span>
-                </button>
-            </form>
+            <div class="flex items-center gap-2">
+                <form hx-post="/ui/server/{{ server_id }}/refresh-capabilities"
+                      hx-swap="outerHTML"
+                      hx-indicator=".refresh-indicator">
+                    <button type="submit"
+                            class="bg-blue-600 hover:bg-blue-700 text-white font-medium py-2 px-4 rounded-md transition-colors">
+                        <span class="refresh-indicator htmx-indicator">Refreshing...</span>
+                        <span class="refresh-btn">Refresh capabilities</span>
+                    </button>
+                </form>
+                {{ collapse_button("tools-" ~ server_id) }}
+            </div>
         </div>
 
         {% if error %}

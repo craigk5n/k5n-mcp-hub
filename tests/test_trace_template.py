@@ -106,7 +106,7 @@ class TestTraceTemplate:
         )
         assert "Refresh" in html, "Refresh button should be present"
         assert "Clear" in html, "Clear button should be present"
-        assert "Close" in html, "Close button should be present"
+        assert "Collapse" in html, "Collapse button should be present"
 
     def test_verbose_mode_shows_details(
         self, jinja_env: Environment, sample_entries: list[dict]

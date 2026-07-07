@@ -1,0 +1,19 @@
+{#
+  Shared UI controls for the expandable server panels (initialize, trace,
+  faults, playground, capabilities). Each panel is rendered as a fragment into
+  a `#{name}-{server_id}` container on the servers page and shown by removing
+  `.hidden`; the collapse button simply re-adds `.hidden` to that container, so
+  the panel stays loaded and can be re-opened from the toolbar. Uses hyperscript
+  (loaded globally by servers.html) to stay consistent with the rest of the UI.
+#}
+{% macro collapse_button(container_id) -%}
+<button type="button"
+        class="px-3 py-1 text-sm bg-gray-200 hover:bg-gray-300 text-gray-700 rounded transition-colors inline-flex items-center gap-1 shrink-0"
+        title="Collapse panel" aria-label="Collapse panel"
+        _="on click add .hidden to #{{ container_id }}">
+    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 15l7-7 7 7"></path>
+    </svg>
+    Collapse
+</button>
+{%- endmacro %}

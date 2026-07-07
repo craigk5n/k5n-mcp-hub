@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+{% from "_panel_controls.html" import collapse_button %}<!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
@@ -43,12 +43,7 @@
                 >
                     Clear
                 </button>
-                <button 
-                    _="on click history.back()"
-                    class="px-3 py-1 bg-red-500 hover:bg-red-600 text-white rounded text-sm"
-                >
-                    Close
-                </button>
+                {{ collapse_button("trace-" ~ server_id) }}
             </div>
         </div>
 

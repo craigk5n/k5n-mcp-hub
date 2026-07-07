@@ -21,7 +21,7 @@ class TestFaultsTemplate:
             sse_interrupt=False,
         )
 
-        assert 'action="/ui/server/test-server-123/faults"' in html
+        assert 'hx-post="/ui/server/test-server-123/faults"' in html
 
     def test_faults_form_checkbox_enabled_checked_when_true(self) -> None:
         app = create_app()
@@ -184,7 +184,8 @@ class TestFaultsEndpoint:
         response = client.get("/ui/server/test-server-456/faults")
 
         assert response.status_code == 200
-        assert 'action="/ui/server/test-server-456/faults"' in response.text
+        assert 'hx-post="/ui/server/test-server-456/faults"' in response.text
+        assert 'hx-target="#faults-test-server-456"' in response.text
         assert 'name="enabled"' in response.text
         assert "checked" in response.text
         assert 'name="timeout_enabled"' in response.text

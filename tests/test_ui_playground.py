@@ -27,7 +27,8 @@ def test_playground_returns_200_with_form() -> None:
     assert response.status_code == 200
     assert response.headers.get("content-type") == "text/html; charset=utf-8"
     assert 'hx-post="/ui/server/test-server-playground/playground"' in response.text
-    assert 'hx-swap="outerHTML"' in response.text
+    assert 'hx-target="#playground-test-server-playground"' in response.text
+    assert 'hx-swap="innerHTML"' in response.text
     assert 'name="request_body"' in response.text
     assert 'name="session_id"' in response.text
     assert 'name="protocol_version"' in response.text
@@ -49,7 +50,8 @@ def test_playground_form_has_htmx_attributes() -> None:
     response = client.get("/ui/server/test-server-htmx/playground")
 
     assert 'hx-post="/ui/server/test-server-htmx/playground"' in response.text
-    assert 'hx-swap="outerHTML"' in response.text
+    assert 'hx-target="#playground-test-server-htmx"' in response.text
+    assert 'hx-swap="innerHTML"' in response.text
 
 
 def test_playground_has_all_named_inputs() -> None:
