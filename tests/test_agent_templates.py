@@ -189,15 +189,15 @@ class TestAgentsTemplate:
 
         assert "No agents registered" in html
 
-    def test_htmx_and_hyperscript_cdn_included(self) -> None:
+    def test_vendored_scripts_included(self) -> None:
         env = _create_test_environment()
         template = env.get_template("agents.html")
 
         html = template.render(agents=[])
 
-        assert "unpkg.com/htmx.org" in html
-        assert "unpkg.com/hyperscript.org" in html
-        assert "cdn.tailwindcss.com" in html
+        assert "/static/vendor/htmx.min.js" in html
+        assert "/static/vendor/hyperscript.min.js" in html
+        assert "/static/vendor/tailwind.js" in html
 
 
 class TestAgentWorkbenchTemplate:

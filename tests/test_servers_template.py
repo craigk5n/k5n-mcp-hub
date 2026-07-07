@@ -138,15 +138,15 @@ def test_empty_servers_shows_message() -> None:
     assert "No servers registered" in html
 
 
-def test_htmx_and_hyperscript_cdn_included() -> None:
+def test_vendored_scripts_included() -> None:
     env = _create_test_environment()
     template = env.get_template("servers.html")
 
     html = template.render(servers=[])
 
-    assert "unpkg.com/htmx.org" in html
-    assert "unpkg.com/hyperscript.org" in html
-    assert "cdn.tailwindcss.com" in html
+    assert "/static/vendor/htmx.min.js" in html
+    assert "/static/vendor/hyperscript.min.js" in html
+    assert "/static/vendor/tailwind.js" in html
 
 
 def test_action_buttons_present() -> None:
