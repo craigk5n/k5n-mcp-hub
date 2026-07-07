@@ -103,7 +103,9 @@ class MCPClient:
 
         headers: dict[str, str] = {}
         if self.server:
-            await apply_server_auth(headers, self.server)
+            await apply_server_auth(
+                headers, self.server, allow_private_networks=self._allow_private_networks
+            )
 
         if "MCP-Protocol-Version" not in headers:
             headers["MCP-Protocol-Version"] = PROTOCOL_VERSION

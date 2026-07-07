@@ -4,11 +4,14 @@ import httpx
 
 from mcp_hub.models.agent import AgentCard
 from mcp_hub.models import RegisteredAgent
-from mcp_hub.utils import utcnow
+from mcp_hub.utils import SafePinnedTransport, utcnow
 
 
 async def fetch_agent_card(
-    agent: RegisteredAgent, *, client: httpx.AsyncClient | None = None
+    agent: RegisteredAgent,
+    *,
+    client: httpx.AsyncClient | None = None,
+    allow_private_networks: bool = False,
 ) -> dict[str, Any]:
     url = f"{agent.url.rstrip('/')}/.well-known/agent.json"
     headers: dict[str, str] = {"Accept": "application/json"}
@@ -17,7 +20,14 @@ async def fetch_agent_card(
 
     should_close = client is None
     if client is None:
-        client = httpx.AsyncClient(timeout=10.0)
+        # agent.url is user-supplied and we attach a bearer token, so this fetch must be
+        # SSRF-safe: pin to a validated IP and never follow redirects (a 3xx to an internal
+        # URL would both bypass the pin and leak the token).
+        client = httpx.AsyncClient(
+            timeout=10.0,
+            follow_redirects=False,
+            transport=SafePinnedTransport(allow_private_networks=allow_private_networks),
+        )
 
     try:
         response = await client.get(url, headers=headers)
@@ -125,9 +135,14 @@ class AgentRegistry:
         return self._agents.get(agent_id)
 
 
-async def refresh_agent_card(agent: RegisteredAgent, registry: AgentRegistry) -> None:
+async def refresh_agent_card(
+    agent: RegisteredAgent,
+    registry: AgentRegistry,
+    *,
+    allow_private_networks: bool = False,
+) -> None:
     try:
-        payload = await fetch_agent_card(agent)
+        payload = await fetch_agent_card(agent, allow_private_networks=allow_private_networks)
         card, issues = validate_agent_card(payload)
         now = utcnow()
         agent.last_card = card

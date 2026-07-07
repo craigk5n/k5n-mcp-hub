@@ -4,7 +4,7 @@ import logging
 from datetime import datetime
 from typing import Any
 
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import HTMLResponse, PlainTextResponse, Response
 
 from mcp_hub.mcp.discovery import DiscoveryService
@@ -17,6 +17,12 @@ from mcp_hub.utils import utcnow
 
 router = APIRouter(prefix="/ui", tags=["ui"])
 
+
+async def auth_dependency(request: Request) -> None:
+    auth_required_dep = request.app.state.auth_required_dependency
+    await auth_required_dep(request)
+
+
 CapabilitiesContext = dict[str, Any]
 
 
@@ -25,7 +31,9 @@ def _has_cached_capabilities(server: RegisteredServer) -> bool:
 
 
 @router.get("/server/{server_id}/tools")
-async def get_server_tools(request: Request, server_id: str) -> HTMLResponse:
+async def get_server_tools(
+    request: Request, server_id: str, _: None = Depends(auth_dependency)
+) -> HTMLResponse:
     registry: Registry = request.app.state.registry
     templates = request.app.state.templates
 
@@ -113,7 +121,9 @@ async def get_server_tools(request: Request, server_id: str) -> HTMLResponse:
 
 
 @router.post("/server/{server_id}/refresh-capabilities")
-async def refresh_server_capabilities(request: Request, server_id: str) -> Response:
+async def refresh_server_capabilities(
+    request: Request, server_id: str, _: None = Depends(auth_dependency)
+) -> Response:
     registry: Registry = request.app.state.registry
     discovery_service: DiscoveryService = request.app.state.discovery_service
 
@@ -130,7 +140,9 @@ async def refresh_server_capabilities(request: Request, server_id: str) -> Respo
 
 
 @router.get("/server/{server_id}/capabilities")
-async def get_server_capabilities(request: Request, server_id: str) -> HTMLResponse:
+async def get_server_capabilities(
+    request: Request, server_id: str, _: None = Depends(auth_dependency)
+) -> HTMLResponse:
     registry: Registry = request.app.state.registry
     templates = request.app.state.templates
 

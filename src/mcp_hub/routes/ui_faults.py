@@ -1,6 +1,6 @@
 import logging
 
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import HTMLResponse
 
 from mcp_hub.models.server import FaultInjection
@@ -10,11 +10,19 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/ui", tags=["ui"])
 
+
+async def auth_dependency(request: Request) -> None:
+    auth_required_dep = request.app.state.auth_required_dependency
+    await auth_required_dep(request)
+
+
 MAX_FAULT_TIMEOUT_MS = 60000
 
 
 @router.get("/server/{server_id}/faults", response_class=HTMLResponse)
-async def get_server_faults(request: Request, server_id: str) -> HTMLResponse:
+async def get_server_faults(
+    request: Request, server_id: str, _: None = Depends(auth_dependency)
+) -> HTMLResponse:
     registry: Registry = request.app.state.registry
     templates = request.app.state.templates
 
@@ -62,7 +70,9 @@ def _parse_timeout_millis(raw: str | None) -> int:
 
 
 @router.post("/server/{server_id}/faults", response_class=HTMLResponse)
-async def post_server_faults(request: Request, server_id: str) -> HTMLResponse:
+async def post_server_faults(
+    request: Request, server_id: str, _: None = Depends(auth_dependency)
+) -> HTMLResponse:
     registry: Registry = request.app.state.registry
     templates = request.app.state.templates
 

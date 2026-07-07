@@ -15,6 +15,7 @@ from mcp_hub.mcp.sdk_client import MCPClient, MCPClientError
 from mcp_hub.models.server import RegisteredServer
 from mcp_hub.registry.service import Registry
 from mcp_hub.trace import TraceEntry, TraceRecorder, utcnow
+from mcp_hub.utils import SafePinnedTransport
 
 logger = logging.getLogger(__name__)
 
@@ -36,10 +37,11 @@ async def check_service_health(
     trace_recorder: TraceRecorder,
     trace_capture_sse: bool,
     trace_body_limit: int,
+    allow_private_networks: bool = False,
 ) -> HealthCheckResult:
     health_url = build_health_url(server.url)
     headers: dict[str, str] = {}
-    await apply_server_auth(headers, server)
+    await apply_server_auth(headers, server, allow_private_networks=allow_private_networks)
 
     start_time = time.perf_counter()
     error_message = ""
@@ -137,7 +139,12 @@ class HealthChecker:
 
     async def check_all_once(self) -> None:
         servers = await self._registry.list()
-        async with httpx.AsyncClient() as client:
+        # Pin every health probe to a validated IP (SSRF/DNS-rebinding defense) and never
+        # follow redirects; local-first deployments opt into loopback/LAN via the flag.
+        async with httpx.AsyncClient(
+            follow_redirects=False,
+            transport=SafePinnedTransport(allow_private_networks=self._allow_private_networks),
+        ) as client:
             for srv in servers:
                 await self._check_single_server(srv, client)
 
@@ -154,6 +161,7 @@ class HealthChecker:
                 trace_recorder=self._trace_recorder,
                 trace_capture_sse=self._trace_settings.capture_sse,
                 trace_body_limit=self._trace_settings.body_limit,
+                allow_private_networks=self._allow_private_networks,
             )
 
             if result.got_404:

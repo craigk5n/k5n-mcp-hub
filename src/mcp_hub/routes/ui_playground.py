@@ -1,7 +1,7 @@
 import httpx
 import logging
 
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import HTMLResponse
 
 from mcp_hub.mcp.auth import apply_server_auth
@@ -13,8 +13,15 @@ from mcp_hub.utils import SafePinnedTransport, pretty_json
 router = APIRouter(prefix="/ui", tags=["ui"])
 
 
+async def auth_dependency(request: Request) -> None:
+    auth_required_dep = request.app.state.auth_required_dependency
+    await auth_required_dep(request)
+
+
 @router.get("/server/{server_id}/playground", response_class=HTMLResponse)
-async def get_playground(request: Request, server_id: str) -> HTMLResponse:
+async def get_playground(
+    request: Request, server_id: str, _: None = Depends(auth_dependency)
+) -> HTMLResponse:
     registry: Registry = request.app.state.registry
     templates = request.app.state.templates
 
@@ -37,7 +44,9 @@ async def get_playground(request: Request, server_id: str) -> HTMLResponse:
 
 
 @router.post("/server/{server_id}/playground", response_class=HTMLResponse)
-async def post_playground(request: Request, server_id: str) -> HTMLResponse:
+async def post_playground(
+    request: Request, server_id: str, _: None = Depends(auth_dependency)
+) -> HTMLResponse:
     registry: Registry = request.app.state.registry
     templates = request.app.state.templates
 
@@ -90,14 +99,15 @@ async def post_playground(request: Request, server_id: str) -> HTMLResponse:
     # Capture headers for display BEFORE auth credentials are injected.
     request_headers = "\n".join(f"{k}: {v}" for k, v in headers.items())
 
+    allow_private = bool(request.app.state.settings.security.allow_private_networks)
+
     # Track oauth_token_status before auth so we only persist when a new token is acquired.
     prev_oauth_token_status = server.oauth_token_status
-    await apply_server_auth(headers, server)
+    await apply_server_auth(headers, server, allow_private_networks=allow_private)
     # Only persist the server if a new OAuth token was successfully acquired.
     if server.oauth_token_status == "ok" and prev_oauth_token_status != "ok":
         await registry.register(server)
 
-    allow_private = bool(request.app.state.settings.security.allow_private_networks)
     try:
         async with httpx.AsyncClient(
             transport=SafePinnedTransport(allow_private_networks=allow_private), timeout=30.0

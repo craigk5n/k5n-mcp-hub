@@ -197,7 +197,7 @@ async def invoke_tool(
     }
 
     original_oauth_status = srv.oauth_token_status
-    await apply_server_auth(headers, srv)
+    await apply_server_auth(headers, srv, allow_private_networks=_allow_private)
 
     if srv.oauth_token_status != original_oauth_status:
         await registry.register(srv)

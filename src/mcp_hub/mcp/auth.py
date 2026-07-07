@@ -7,6 +7,7 @@ import httpx
 
 from mcp_hub.models.server import RegisteredServer
 from mcp_hub.mcp.oauth import token_endpoint_from_metadata
+from mcp_hub.utils import SafePinnedTransport
 
 
 @dataclass
@@ -21,7 +22,11 @@ class TokenCache:
         self._tokens: dict[str, _CachedToken] = {}
 
     async def token(
-        self, server: RegisteredServer, *, client: httpx.AsyncClient | None = None
+        self,
+        server: RegisteredServer,
+        *,
+        client: httpx.AsyncClient | None = None,
+        allow_private_networks: bool = False,
     ) -> str:
         cache_key = server.id if server.id else server.url
 
@@ -52,7 +57,13 @@ class TokenCache:
 
         own_client = client is None
         if own_client:
-            client = httpx.AsyncClient()
+            # Credentials go out on this request, so it must be SSRF-safe: pin the
+            # connection to a validated IP and never follow redirects (a 3xx to an
+            # internal URL would leak the client_secret / access_token).
+            client = httpx.AsyncClient(
+                follow_redirects=False,
+                transport=SafePinnedTransport(allow_private_networks=allow_private_networks),
+            )
 
         http_client = cast(httpx.AsyncClient, client)
 
@@ -92,6 +103,7 @@ async def apply_server_auth(
     *,
     token_cache: TokenCache = DEFAULT_TOKEN_CACHE,
     client: httpx.AsyncClient | None = None,
+    allow_private_networks: bool = False,
 ) -> None:
     """Apply server authentication to the given headers.
 
@@ -124,7 +136,9 @@ async def apply_server_auth(
 
     if server.auth_type == "oauth" or server.oauth_token_url or server.oauth_metadata:
         try:
-            token = await token_cache.token(server, client=client)
+            token = await token_cache.token(
+                server, client=client, allow_private_networks=allow_private_networks
+            )
             if token:
                 headers["Authorization"] = f"Bearer {token}"
                 server.oauth_token_status = "ok"

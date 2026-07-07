@@ -40,14 +40,23 @@ Once the image is published, document several ways to run it, e.g.:
 ## Security follow-ups (from AUDIT_local.md)
 
 Two CRITICALs are fixed (safe auth defaults + no hardcoded password; SSRF flag no longer a
-process-global). Remaining items before any exposed/multi-tenant deployment — see
-`AUDIT_local.md` §2 for detail:
+process-global). The three audit follow-ups below are now done — see `AUDIT_local.md` §2:
 
-- [ ] Apply the SSRF-pinned transport to the reverse proxy, health checker, and the OAuth
-      token-endpoint flow (they still use bare httpx clients).
-- [ ] Add auth (`Depends(auth_dependency)`) to the powerful UI routes (playground, faults,
-      capabilities, trace, initialize) so `auth.type: basic` actually protects them.
-- [ ] Redact sensitive headers/bodies (not just `Authorization`) in trace capture.
+- [x] Apply the SSRF-pinned transport to the reverse proxy, health checker, and the OAuth
+      token-endpoint flow (previously bare httpx clients). Also pinned the agent-card fetch
+      (`agents/card.py`) and the `ui_initialize` probe, which were the same SSRF class.
+      `allow_private_networks` is threaded explicitly to every outbound path (default False =
+      fail safe); `follow_redirects=False` everywhere so a 3xx can't bypass the pin.
+- [x] Add auth (`Depends(auth_dependency)`) to the powerful UI routes (playground, faults,
+      capabilities, trace, initialize) so `auth.type: basic` actually protects them. No-op
+      under the default `auth.type: none`, so local use is unchanged.
+- [x] Redact sensitive headers (not just `Authorization`) in trace capture — now also
+      `X-MCP-Token` (which this hub forwards tokens in), `Cookie`/`Set-Cookie`, `X-Api-Key`,
+      `Api-Key`, `X-Auth-Token`, `X-Access-Token`, `X-Amz-Security-Token`, `Proxy-Authorization`.
+
+Still open for an exposed/multi-tenant deployment:
+
+- [ ] Redact sensitive fields inside trace *bodies* (only headers are redacted today).
 
 ## Product / usefulness follow-ups (from AUDIT_local.md §3)
 

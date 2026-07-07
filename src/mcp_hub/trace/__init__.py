@@ -1,7 +1,7 @@
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 
-from mcp_hub.trace.recorder import TraceEntry, TraceRecorder
+from mcp_hub.trace.recorder import SENSITIVE_HEADERS, TraceEntry, TraceRecorder
 
 
 def utcnow() -> datetime:
@@ -29,9 +29,9 @@ def sanitize_headers(
     headers: dict[str, str],
 ) -> dict[str, str]:
     sanitized = dict(headers)
-    auth_keys = [k for k in sanitized.keys() if k.lower() == "authorization"]
-    for key in auth_keys:
-        sanitized[key] = "[REDACTED]"
+    for key in list(sanitized.keys()):
+        if key.lower() in SENSITIVE_HEADERS:
+            sanitized[key] = "[REDACTED]"
     return sanitized
 
 
@@ -49,6 +49,7 @@ def is_sse_content_type(content_type: str | None) -> bool:
 
 __all__ = [
     "Entry",
+    "SENSITIVE_HEADERS",
     "TraceEntry",
     "TraceRecorder",
     "is_sse_content_type",

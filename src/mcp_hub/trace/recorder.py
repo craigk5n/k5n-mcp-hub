@@ -5,6 +5,26 @@ from threading import Lock
 from typing import Mapping
 
 
+# Header names whose values may carry credentials or session material and must never be
+# persisted in a captured trace. Compared case-insensitively. Note X-MCP-Token: this hub
+# itself forwards bearer tokens in that header (see mcp.auth.apply_server_auth), so a trace
+# would leak the raw token if it weren't redacted here.
+SENSITIVE_HEADERS = frozenset(
+    {
+        "authorization",
+        "proxy-authorization",
+        "cookie",
+        "set-cookie",
+        "x-mcp-token",
+        "x-api-key",
+        "api-key",
+        "x-auth-token",
+        "x-access-token",
+        "x-amz-security-token",
+    }
+)
+
+
 def redact_auth_header(value: str) -> str:
     if not value:
         return ""
@@ -19,8 +39,12 @@ def redact_auth_header(value: str) -> str:
 def sanitize_trace_headers(headers: Mapping[str, str]) -> dict[str, str]:
     result: dict[str, str] = {}
     for key, value in headers.items():
-        if key.lower() == "authorization":
+        lower_key = key.lower()
+        if lower_key == "authorization":
+            # Preserve the scheme (Bearer/Basic) for debuggability; hide the credential.
             result[key] = redact_auth_header(value)
+        elif lower_key in SENSITIVE_HEADERS:
+            result[key] = "****"
         else:
             result[key] = value
     return result

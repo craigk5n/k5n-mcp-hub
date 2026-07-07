@@ -1,7 +1,7 @@
 import asyncio
 import logging
 
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import HTMLResponse
 
 from mcp_hub.registry.service import Registry
@@ -12,8 +12,15 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/ui", tags=["ui"])
 
 
+async def auth_dependency(request: Request) -> None:
+    auth_required_dep = request.app.state.auth_required_dependency
+    await auth_required_dep(request)
+
+
 @router.get("/server/{server_id:path}/trace", response_class=HTMLResponse)
-async def get_trace(request: Request, server_id: str) -> HTMLResponse:
+async def get_trace(
+    request: Request, server_id: str, _: None = Depends(auth_dependency)
+) -> HTMLResponse:
     if not server_id:
         raise HTTPException(status_code=400, detail="Server ID is required")
 
@@ -36,7 +43,9 @@ async def get_trace(request: Request, server_id: str) -> HTMLResponse:
 
 
 @router.post("/server/{server_id:path}/trace/verbose", response_class=HTMLResponse)
-async def toggle_verbose_trace(request: Request, server_id: str) -> HTMLResponse:
+async def toggle_verbose_trace(
+    request: Request, server_id: str, _: None = Depends(auth_dependency)
+) -> HTMLResponse:
     registry: Registry = request.app.state.registry
     trace_recorder: TraceRecorder = request.app.state.trace_recorder
     templates = request.app.state.templates
@@ -70,7 +79,9 @@ async def toggle_verbose_trace(request: Request, server_id: str) -> HTMLResponse
 
 
 @router.post("/server/{server_id:path}/trace/clear", response_class=HTMLResponse)
-async def clear_trace(request: Request, server_id: str) -> HTMLResponse:
+async def clear_trace(
+    request: Request, server_id: str, _: None = Depends(auth_dependency)
+) -> HTMLResponse:
     if not server_id:
         raise HTTPException(status_code=400, detail="Server ID is required")
 

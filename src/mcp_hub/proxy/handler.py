@@ -13,6 +13,7 @@ from mcp_hub.models.server import RegisteredServer
 from mcp_hub.proxy.fault_injection import apply_fault_injection
 from mcp_hub.proxy.url import compose_backend_url
 from mcp_hub.registry.service import Registry
+from mcp_hub.utils import SafePinnedTransport
 from mcp_hub.trace import (
     Entry,
     is_sse_content_type,
@@ -38,6 +39,8 @@ def _has_header(headers: dict[str, str], key: str) -> bool:
 async def build_outbound_headers(
     incoming_headers: httpx.Headers | dict[str, str],
     server: RegisteredServer,
+    *,
+    allow_private_networks: bool = False,
 ) -> dict[str, str]:
     """Build outbound headers for the MCP reverse proxy from incoming request headers.
 
@@ -76,7 +79,7 @@ async def build_outbound_headers(
     if not _has_header(outbound, "MCP-Protocol-Version"):
         outbound["MCP-Protocol-Version"] = PROTOCOL_VERSION
 
-    await apply_server_auth(outbound, server)
+    await apply_server_auth(outbound, server, allow_private_networks=allow_private_networks)
 
     return outbound
 
@@ -86,6 +89,8 @@ async def proxy_request(
     registry: Registry,
     trace_recorder: TraceRecorder,
     settings: TraceConfig,
+    *,
+    allow_private_networks: bool = False,
 ) -> Response:
     target_id = request.headers.get("X-MCP-Target-Server")
 
@@ -159,11 +164,18 @@ async def proxy_request(
         incoming_query=request.url.query or None,
     )
 
-    outbound_headers = await build_outbound_headers(dict(request.headers), srv)
+    outbound_headers = await build_outbound_headers(
+        dict(request.headers), srv, allow_private_networks=allow_private_networks
+    )
 
     try:
+        # Pin the backend connection to a validated IP (SSRF/DNS-rebinding defense) and
+        # never follow redirects (a 3xx to an internal URL would bypass the pin). A
+        # local-first hub opts into loopback/LAN backends via allow_private_networks.
         async with httpx.AsyncClient(
-            timeout=httpx.Timeout(connect=10.0, read=None, write=None, pool=None)
+            timeout=httpx.Timeout(connect=10.0, read=None, write=None, pool=None),
+            follow_redirects=False,
+            transport=SafePinnedTransport(allow_private_networks=allow_private_networks),
         ) as client:
             async with client.stream(
                 method=request.method,

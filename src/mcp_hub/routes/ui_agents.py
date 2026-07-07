@@ -154,8 +154,11 @@ async def _register_agent_impl(
 
     registered = await agent_registry.register_agent(agent)
 
+    allow_private = bool(request.app.state.settings.security.allow_private_networks)
     try:
-        await refresh_agent_card(registered, card_agent_registry)
+        await refresh_agent_card(
+            registered, card_agent_registry, allow_private_networks=allow_private
+        )
     except Exception:
         logger.warning(
             "Agent card refresh failed for %s, registration still successful",

@@ -4,7 +4,7 @@ from datetime import datetime, timezone
 from typing import Any, Literal
 
 import httpx
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import HTMLResponse
 
 from mcp_hub.mcp.auth import apply_server_auth
@@ -17,10 +17,16 @@ from mcp_hub.trace.recorder import (
     sanitize_trace_headers,
     trim_trace_body,
 )
+from mcp_hub.utils import SafePinnedTransport
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/ui", tags=["ui"])
+
+
+async def auth_dependency(request: Request) -> None:
+    auth_required_dep = request.app.state.auth_required_dependency
+    await auth_required_dep(request)
 
 
 async def _get_server_or_404(server_id: str, registry: Registry) -> RegisteredServer | None:
@@ -117,11 +123,19 @@ def _parse_response_body(response: httpx.Response) -> tuple[dict[str, Any], str]
 
 
 @router.get("/server/{server_id}/initialize", response_class=HTMLResponse)
-async def get_initialize(request: Request, server_id: str) -> HTMLResponse:
+async def get_initialize(
+    request: Request, server_id: str, _: None = Depends(auth_dependency)
+) -> HTMLResponse:
     registry: Registry = request.app.state.registry
     templates = request.app.state.templates
     trace_recorder = request.app.state.trace_recorder
-    client = httpx.AsyncClient()
+    allow_private = bool(request.app.state.settings.security.allow_private_networks)
+    # Pin the outbound connection to a validated IP (SSRF/DNS-rebinding defense);
+    # follow_redirects=False so a 3xx to an internal URL can't bypass the pin.
+    client = httpx.AsyncClient(
+        follow_redirects=False,
+        transport=SafePinnedTransport(allow_private_networks=allow_private),
+    )
 
     srv = await registry.get(server_id)
     if srv is None:
@@ -136,7 +150,7 @@ async def get_initialize(request: Request, server_id: str) -> HTMLResponse:
 
     original_oauth_status = srv.oauth_token_status
 
-    await apply_server_auth(headers, srv)
+    await apply_server_auth(headers, srv, allow_private_networks=allow_private)
 
     if srv.oauth_token_status != original_oauth_status:
         await registry.register(srv)
