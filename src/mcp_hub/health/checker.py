@@ -117,11 +117,14 @@ class HealthChecker:
         settings: HealthCheckConfig,
         trace_recorder: TraceRecorder,
         trace_settings: TraceConfig,
+        *,
+        allow_private_networks: bool = False,
     ) -> None:
         self._registry = registry
         self._settings = settings
         self._trace_recorder = trace_recorder
         self._trace_settings = trace_settings
+        self._allow_private_networks = allow_private_networks
         self._parser = HealthParser()
 
     async def run_forever(self) -> None:
@@ -167,7 +170,9 @@ class HealthChecker:
 
         if not healthy:
             try:
-                mcp_client = MCPClient(srv.url, server=srv)
+                mcp_client = MCPClient(
+                    srv.url, server=srv, allow_private_networks=self._allow_private_networks
+                )
                 await mcp_client.ping(timeout=10)
                 healthy = True
                 uptime = 0

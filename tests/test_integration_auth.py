@@ -227,50 +227,15 @@ class TestNoAuthAliasConfiguration:
 
 
 class TestEmptyBasicCredentialsConfiguration:
-    @pytest.fixture
-    def settings_with_empty_basic_auth(self) -> Settings:
-        return Settings(
+    def test_basic_auth_without_password_fails_closed(self) -> None:
+        # Basic auth with no password must NOT silently fall back to open access — that
+        # would leave a deployment the operator believes is protected wide open. Building
+        # the app must fail loudly instead.
+        settings = Settings(
             auth=AuthConfig(
                 type="basic",
                 basic_auth=BasicAuthConfig(register_user="", register_pass=""),
             )
         )
-
-    @pytest.fixture
-    def app_with_empty_basic_auth(self, settings_with_empty_basic_auth):
-        return create_app(settings_with_empty_basic_auth)
-
-    @pytest.fixture
-    def client_with_empty_basic_auth(self, app_with_empty_basic_auth):
-        return TestClient(app_with_empty_basic_auth, raise_server_exceptions=False)
-
-    def test_all_endpoints_reachable_without_credentials(self, client_with_empty_basic_auth):
-        mock_response = Response(200, content=b"{}", headers={"content-type": "application/json"})
-
-        with patch("mcp_hub.routes.proxy.proxy_request", new_callable=AsyncMock) as mock_proxy:
-            mock_proxy.return_value = mock_response
-
-            response = client_with_empty_basic_auth.post(
-                "/v1/register",
-                json={
-                    "id": "test-server",
-                    "url": "http://unreachable-host-for-test:9999",
-                    "registration_type": "self",
-                },
-            )
-            assert response.status_code == 201
-
-            response = client_with_empty_basic_auth.delete("/v1/register/test-server")
-            assert response.status_code == 204
-
-            response = client_with_empty_basic_auth.get("/mcp")
-            assert response.status_code == 200
-
-            response = client_with_empty_basic_auth.post("/mcp", json={})
-            assert response.status_code == 200
-
-            response = client_with_empty_basic_auth.get("/v1/servers")
-            assert response.status_code == 200
-
-            response = client_with_empty_basic_auth.get("/api/servers")
-            assert response.status_code == 200
+        with pytest.raises(ValueError, match="no password is set"):
+            create_app(settings)

@@ -26,9 +26,11 @@ def format_uptime(seconds: float) -> str:
     return f"{hours}h {minutes}m"
 
 
-async def _probe_server_mcp_info(server_id: str, url: str, registry: Registry) -> None:
+async def _probe_server_mcp_info(
+    server_id: str, url: str, registry: Registry, *, allow_private_networks: bool = False
+) -> None:
     try:
-        async with MCPClient(url) as client:
+        async with MCPClient(url, allow_private_networks=allow_private_networks) as client:
             await client.handshake()
             if client.initialize_result is not None:
                 result = client.initialize_result
@@ -58,19 +60,24 @@ async def _probe_server_mcp_info(server_id: str, url: str, registry: Registry) -
         logger.exception("Failed to probe MCP info for server %s", server_id)
 
 
-async def _probe_all_servers_task(registry: Registry) -> None:
+async def _probe_all_servers_task(
+    registry: Registry, *, allow_private_networks: bool = False
+) -> None:
     servers = await registry.list()
     for server in servers:
         if server.mcp_transport == "":
-            await _probe_server_mcp_info(server.id, server.url, registry)
+            await _probe_server_mcp_info(
+                server.id, server.url, registry, allow_private_networks=allow_private_networks
+            )
 
 
 def _schedule_background_probe(request: Request) -> None:
     registry: Registry = request.app.state.registry
+    allow_private_networks = bool(request.app.state.settings.security.allow_private_networks)
 
     async def guarded_probe() -> None:
         try:
-            await _probe_all_servers_task(registry)
+            await _probe_all_servers_task(registry, allow_private_networks=allow_private_networks)
         except Exception:
             logger.exception("Background probe task failed")
 

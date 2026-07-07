@@ -37,9 +37,10 @@ class TestDefaults:
 
         assert result.server.http_port == 8080
         assert result.storage.type == "inmemory"
-        assert result.auth.type == "basic"
+        # Safe-by-default: no auth and no built-in password unless the operator opts in.
+        assert result.auth.type == "none"
         assert result.auth.basic_auth.register_user == "admin"
-        assert result.auth.basic_auth.register_pass == "admin123"
+        assert result.auth.basic_auth.register_pass == ""
 
 
 class TestYAMLLoading:

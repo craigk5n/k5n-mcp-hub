@@ -191,6 +191,7 @@ async def discover_oauth_metadata(
     discovery_url: str = "",
     *,
     client: httpx.AsyncClient | None = None,
+    allow_private_networks: bool = False,
 ) -> tuple[str, str, dict[str, Any]]:
     if not _is_url_safe(server_url):
         raise ValueError("server_url is not a valid safe URL")
@@ -215,7 +216,7 @@ async def discover_oauth_metadata(
         # Both live in mcp_hub.utils as the single SSRF-safe HTTP layer.
         client = httpx.AsyncClient(
             follow_redirects=False,
-            transport=SafePinnedTransport(),
+            transport=SafePinnedTransport(allow_private_networks=allow_private_networks),
         )
 
     http_client = cast(httpx.AsyncClient, client)

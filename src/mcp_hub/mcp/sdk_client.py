@@ -75,8 +75,10 @@ class MCPClient:
         base_url: str,
         *,
         server: RegisteredServer | None = None,
+        allow_private_networks: bool = False,
     ) -> None:
         self.base_url = base_url
+        self._allow_private_networks = allow_private_networks
         self.server = server
         self._session: ClientSession | None = None
         self._initialize_result: InitializeResult | None = None
@@ -113,12 +115,18 @@ class MCPClient:
             # defense) when the installed MCP SDK supports a custom httpx client factory.
             import inspect
 
+            import functools
+
             from mcp_hub.utils import safe_http_client_factory
 
+            pinned_factory = functools.partial(
+                safe_http_client_factory,
+                allow_private_networks=self._allow_private_networks,
+            )
             extra: dict[str, Any] = {}
             try:
                 if "httpx_client_factory" in inspect.signature(streamable_http_client).parameters:
-                    extra["httpx_client_factory"] = safe_http_client_factory
+                    extra["httpx_client_factory"] = pinned_factory
             except (TypeError, ValueError):
                 pass
             # Keep the transport + session context managers open on an AsyncExitStack for

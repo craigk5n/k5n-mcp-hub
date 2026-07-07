@@ -26,26 +26,22 @@ def _resolve_hostname_blocking(hostname: str) -> list[str]:
     return [str(sockaddr[0]) for _, _, _, _, sockaddr in resolved]
 
 
-# When True, the outbound SSRF pin also permits loopback/private/LAN targets. Set once at
-# startup from config.security.allow_private_networks — a local-first hub must reach the
-# localhost/LAN MCP servers it manages. Leave False if the hub is exposed to untrusted callers.
-_ALLOW_PRIVATE_NETWORKS = False
+# The SSRF pin permits loopback/private/LAN targets only when the caller passes
+# allow_private_networks=True (from config.security.allow_private_networks) — a local-first
+# hub must reach the localhost/LAN MCP servers it manages. It defaults to False everywhere,
+# so any path that forgets to opt in fails safe. The value is threaded explicitly through the
+# transport/client rather than held in a module global, so it can't leak across app instances.
 
 
-def set_allow_private_networks(allow: bool) -> None:
-    global _ALLOW_PRIVATE_NETWORKS
-    _ALLOW_PRIVATE_NETWORKS = bool(allow)
-
-
-def _ip_allowed(ip: Any) -> bool:
+def _ip_allowed(ip: Any, allow_private_networks: bool) -> bool:
     """True for a routable public address; also allows loopback/private/link-local when
     allow_private_networks is enabled (local-first mode)."""
-    if _ALLOW_PRIVATE_NETWORKS:
+    if allow_private_networks:
         return True
     return not (ip.is_loopback or ip.is_private or ip.is_link_local or ip.is_reserved)
 
 
-async def resolve_pinned_ip(host: str) -> Optional[str]:
+async def resolve_pinned_ip(host: str, *, allow_private_networks: bool = False) -> Optional[str]:
     """
     Resolve ``host`` once (off the event loop) and return a single validated public IP
     to connect to, or ``None`` if it can't be resolved or resolves to any disallowed
@@ -53,7 +49,8 @@ async def resolve_pinned_ip(host: str) -> Optional[str]:
     time — is what closes the DNS-rebinding window between the safety check and the fetch.
     """
     try:
-        return host if _ip_allowed(ipaddress.ip_address(host)) else None
+        ip_literal = ipaddress.ip_address(host)
+        return host if _ip_allowed(ip_literal, allow_private_networks) else None
     except ValueError:
         pass  # not a literal IP — resolve it
 
@@ -69,7 +66,7 @@ async def resolve_pinned_ip(host: str) -> Optional[str]:
             ip = ipaddress.ip_address(ip_str)
         except ValueError:
             continue
-        if not _ip_allowed(ip):
+        if not _ip_allowed(ip, allow_private_networks):
             return None  # reject the whole host if ANY answer is disallowed
         if pinned is None:
             pinned = ip_str
@@ -87,9 +84,15 @@ class SafePinnedTransport(httpx.AsyncHTTPTransport):
     resolution that a rebind could influence.
     """
 
+    def __init__(self, *args: Any, allow_private_networks: bool = False, **kwargs: Any) -> None:
+        super().__init__(*args, **kwargs)
+        self._allow_private_networks = allow_private_networks
+
     async def handle_async_request(self, request: httpx.Request) -> httpx.Response:
         host = request.url.host
-        pinned_ip = await resolve_pinned_ip(host)
+        pinned_ip = await resolve_pinned_ip(
+            host, allow_private_networks=self._allow_private_networks
+        )
         if pinned_ip is None:
             raise httpx.ConnectError(
                 f"host {host!r} failed SSRF validation (unresolvable or non-public)"
@@ -104,14 +107,21 @@ def safe_http_client_factory(
     headers: Optional[dict] = None,
     timeout: Any = None,
     auth: Any = None,
+    *,
+    allow_private_networks: bool = False,
 ) -> httpx.AsyncClient:
     """
     Build an httpx client that is SSRF-safe by construction: every connection is pinned
     to a validated public IP and redirects are never followed (a 3xx to an internal URL
-    would bypass the pin). Signature matches the MCP SDK's ``httpx_client_factory`` so it
-    can guard the main server-connection path, and it is reused for OAuth discovery.
+    would bypass the pin). The positional signature matches the MCP SDK's
+    ``httpx_client_factory`` (headers/timeout/auth) so it can guard the main
+    server-connection path; bind ``allow_private_networks`` via ``functools.partial`` before
+    handing it to the SDK. Reused for OAuth discovery.
     """
-    kwargs: dict = {"follow_redirects": False, "transport": SafePinnedTransport()}
+    kwargs: dict = {
+        "follow_redirects": False,
+        "transport": SafePinnedTransport(allow_private_networks=allow_private_networks),
+    }
     if headers is not None:
         kwargs["headers"] = headers
     if timeout is not None:

@@ -57,13 +57,16 @@ def extract_list_payload(
 
 
 class DiscoveryService:
-    def __init__(self, registry: Registry) -> None:
+    def __init__(self, registry: Registry, *, allow_private_networks: bool = False) -> None:
         self._registry = registry
+        self._allow_private_networks = allow_private_networks
 
     async def discover_immediately(
         self, server: RegisteredServer, *, timeout: float = 30.0
     ) -> None:
-        async with MCPClient(server.url, server=server) as client:
+        async with MCPClient(
+            server.url, server=server, allow_private_networks=self._allow_private_networks
+        ) as client:
             await client.handshake()
             if client.initialize_result is not None:
                 result = client.initialize_result

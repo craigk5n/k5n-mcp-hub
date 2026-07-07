@@ -97,8 +97,11 @@ async def post_playground(request: Request, server_id: str) -> HTMLResponse:
     if server.oauth_token_status == "ok" and prev_oauth_token_status != "ok":
         await registry.register(server)
 
+    allow_private = bool(request.app.state.settings.security.allow_private_networks)
     try:
-        async with httpx.AsyncClient(transport=SafePinnedTransport(), timeout=30.0) as client:
+        async with httpx.AsyncClient(
+            transport=SafePinnedTransport(allow_private_networks=allow_private), timeout=30.0
+        ) as client:
             resp = await client.post(
                 server.url,
                 content=request_body.encode(),

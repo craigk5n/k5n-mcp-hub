@@ -214,7 +214,9 @@ async def invoke_tool(
     call_body_bytes = b""
 
     try:
-        async with httpx.AsyncClient(transport=SafePinnedTransport()) as client:
+        async with httpx.AsyncClient(
+            transport=SafePinnedTransport(allow_private_networks=_allow_private)
+        ) as client:
             init_body = build_initialize_request(
                 request_id="1",
                 client_name="k5n-mcp-hub-ui",

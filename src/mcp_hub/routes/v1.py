@@ -191,7 +191,7 @@ async def _register_server_impl(
         try:
             discovery_url_for_call = srv.oauth_discovery_url if srv.oauth_discovery_url else ""
             disc_url, issuer, metadata = await discover_oauth_metadata(
-                srv.url, discovery_url_for_call
+                srv.url, discovery_url_for_call, allow_private_networks=allow_private
             )
             is_safe, _, _ = await is_url_safe_for_discovery(disc_url, allow_private=allow_private)
             if is_safe:

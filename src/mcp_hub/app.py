@@ -170,7 +170,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     card_agent_registry = CardAgentRegistry()
     authenticator: Authenticator = build_authenticator(settings.auth)
     auth_dependency = auth_required(authenticator)
-    discovery_service = DiscoveryService(registry)
+    # Let outbound MCP/discovery connections reach localhost/LAN when the operator opts in
+    # (local-first mode). The flag is threaded explicitly into the SSRF-pinned transport via
+    # each MCPClient/DiscoveryService — never a process-global — so it can't leak across apps.
+    allow_private_networks = settings.security.allow_private_networks
+    discovery_service = DiscoveryService(registry, allow_private_networks=allow_private_networks)
 
     app.state.settings = settings
     app.state.metrics = metrics
@@ -186,12 +190,6 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.state.trace_recorder = trace_recorder
     app.state.templates = _create_jinja2_environment()
     app.state.fixture_store = FixtureStore()
-
-    # Let outbound MCP/discovery connections reach localhost/LAN when the operator opts in
-    # (local-first mode). Applies to the SSRF-pinned transport used for the actual MCP calls.
-    from mcp_hub.utils import set_allow_private_networks
-
-    set_allow_private_networks(settings.security.allow_private_networks)
 
     _mount_routers(app)
     _mount_static(app)

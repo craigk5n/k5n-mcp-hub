@@ -59,13 +59,19 @@ class StorageConfig(BaseModel):
 
 class BasicAuthConfig(BaseModel):
     register_user: str = "admin"
-    register_pass: str = "admin123"
+    # No built-in default password: a shipped default would be public in the source tree and
+    # silently "protect" an installed CLI with known credentials. Basic auth must be given a
+    # password explicitly (see build_authenticator, which fails closed if this is empty).
+    register_pass: str = ""
 
 
 class AuthConfig(BaseModel):
     model_config = SettingsConfigDict(populate_by_name=True)
 
-    type: str = "basic"
+    # Safe-by-default for a local-first tool: no auth unless the operator opts into "basic"
+    # and sets a password. This is the Pydantic-level default, so it holds even when the
+    # repo's config.yaml isn't the working directory (the normal installed-CLI case).
+    type: str = "none"
     basic_auth: BasicAuthConfig = Field(default_factory=BasicAuthConfig)
 
     @field_validator("type")

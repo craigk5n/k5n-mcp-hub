@@ -56,7 +56,10 @@ async def get_server_tools(request: Request, server_id: str) -> HTMLResponse:
             server.schema_issues = issues
             await registry.register(server)
     else:
-        tools, prompts, resources, error_message = await _fetch_live_capabilities(server)
+        tools, prompts, resources, error_message = await _fetch_live_capabilities(
+            server,
+            allow_private_networks=request.app.state.settings.security.allow_private_networks,
+        )
         cached = False
         last_sync = None
         if error_message and (not tools or not prompts or not resources):
@@ -153,7 +156,10 @@ async def get_server_capabilities(request: Request, server_id: str) -> HTMLRespo
         if tools:
             resolve_tool_schema_refs(tools)
     else:
-        tools, prompts, resources, error_message = await _fetch_live_capabilities(server)
+        tools, prompts, resources, error_message = await _fetch_live_capabilities(
+            server,
+            allow_private_networks=request.app.state.settings.security.allow_private_networks,
+        )
         cached = False
         last_sync = None
         if tools:
@@ -188,6 +194,8 @@ async def get_server_capabilities(request: Request, server_id: str) -> HTMLRespo
 
 async def _fetch_live_capabilities(
     server: RegisteredServer,
+    *,
+    allow_private_networks: bool = False,
 ) -> tuple[list[Any], list[Any], list[Any], str]:
     tools: list[Any] = []
     prompts: list[Any] = []
@@ -196,7 +204,9 @@ async def _fetch_live_capabilities(
     errors: list[str] = []
 
     try:
-        async with MCPClient(server.url, server=server) as client:
+        async with MCPClient(
+            server.url, server=server, allow_private_networks=allow_private_networks
+        ) as client:
             await client.handshake(timeout=12)
 
             try:

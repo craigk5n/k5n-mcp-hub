@@ -162,7 +162,13 @@ class TestDiscoveryService:
         tools_response = [{"name": "foo", "inputSchema": {"type": "object", "properties": {}}}]
 
         class TestMockMCPClient(MockMCPClient):
-            def __init__(self, base_url: str, *, server: RegisteredServer | None = None) -> None:
+            def __init__(
+                self,
+                base_url: str,
+                *,
+                server: RegisteredServer | None = None,
+                allow_private_networks: bool = False,
+            ) -> None:
                 super().__init__(
                     base_url, server=server, tools=tools_response, prompts=[], resources=[]
                 )
@@ -182,7 +188,13 @@ class TestDiscoveryService:
     @pytest.mark.asyncio
     async def test_discover_immediately_raises_when_no_capabilities(self) -> None:
         class EmptyMockMCPClient(MockMCPClient):
-            def __init__(self, base_url: str, *, server: RegisteredServer | None = None) -> None:
+            def __init__(
+                self,
+                base_url: str,
+                *,
+                server: RegisteredServer | None = None,
+                allow_private_networks: bool = False,
+            ) -> None:
                 super().__init__(base_url, server=server, tools=[], prompts=[], resources=[])
 
         registry = MockRegistry()
@@ -199,7 +211,13 @@ class TestDiscoveryService:
     @pytest.mark.asyncio
     async def test_discover_immediately_raises_when_json_rpc_error(self) -> None:
         class ErrorMockMCPClient(MockMCPClient):
-            def __init__(self, base_url: str, *, server: RegisteredServer | None = None) -> None:
+            def __init__(
+                self,
+                base_url: str,
+                *,
+                server: RegisteredServer | None = None,
+                allow_private_networks: bool = False,
+            ) -> None:
                 super().__init__(base_url, server=server)
 
             async def list(self, method: str) -> Any:
@@ -232,7 +250,13 @@ class TestDiscoveryService:
                 return list(self._servers.values())
 
         class FailingClient(MockMCPClient):
-            def __init__(self, base_url: str, *, server: RegisteredServer | None = None) -> None:
+            def __init__(
+                self,
+                base_url: str,
+                *,
+                server: RegisteredServer | None = None,
+                allow_private_networks: bool = False,
+            ) -> None:
                 super().__init__(base_url, server=server)
                 if "test1" in base_url:
                     self._raise_list_error = "tools"
@@ -248,7 +272,13 @@ class TestDiscoveryService:
         tools_response = [{"name": "foo", "inputSchema": {"type": "object", "properties": {}}}]
 
         class TestMockMCPClient(MockMCPClient):
-            def __init__(self, base_url: str, *, server: RegisteredServer | None = None) -> None:
+            def __init__(
+                self,
+                base_url: str,
+                *,
+                server: RegisteredServer | None = None,
+                allow_private_networks: bool = False,
+            ) -> None:
                 super().__init__(
                     base_url, server=server, tools=tools_response, prompts=[], resources=[]
                 )
