@@ -284,7 +284,7 @@ class TestToolScriptPythonTemplate:
     def test_has_docstring(self, jinja_env: Environment, sample_context: dict) -> None:
         template = jinja_env.get_template("tool_script.py.j2")
         result = template.render(**sample_context)
-        assert "MCP tool invocation script (direct or via Dev Hub)" in result
+        assert "MCP tool invocation script (direct or via k5n-mcp-hub)" in result
 
     def test_streamable_docstring_text(self, jinja_env: Environment, sample_context: dict) -> None:
         sample_context["is_streamable"] = True

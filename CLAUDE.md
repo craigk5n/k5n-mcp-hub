@@ -4,9 +4,9 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What this is
 
-k5n-mcp-hub is a registry and management hub for MCP (Model Context Protocol) servers, built with Python + FastAPI — discovery, health monitoring, request tracing, fault injection, a reverse proxy, and an admin UI. It was ported from a Go implementation and kept **wire-compatible** with it: routes, headers, and on-disk storage formats are drop-in compatible so existing clients work unchanged.
+k5n-mcp-hub is a registry and management hub for MCP (Model Context Protocol) servers, built with Python + FastAPI — discovery, health monitoring, request tracing, fault injection, a reverse proxy, and an admin UI. It was originally built using the agent-dev-team tool.
 
-> **Wire compatibility is a hard constraint.** Before changing any route path, response header, JSON field name, or on-disk storage shape, assume an existing client depends on it. `tests/test_readme.py` even asserts the README's documented commands stay accurate.
+> **Treat the public contract as stable.** Before changing any route path, response header, JSON field name, or on-disk storage shape, assume a client depends on it. `tests/test_readme.py` even asserts the README's documented commands stay accurate.
 
 ## Naming
 
@@ -66,7 +66,7 @@ Settings are Pydantic models in `config.py`. Note the storage-type validator nor
 - `agents/` — A2A-style agent cards and fixtures (`card.py`, `fixtures.py`); `FixtureStore` reads/writes agent JSON under a repo-root data dir (`.mcp_hub/fixtures/` by default, gitignored — the app creates it at runtime).
 - `middleware.py` / `metrics.py` — request-id + Prometheus-style `/metrics`.
 
-**Routing convention:** JSON/API routers (`registry_api.py`, `api.py`, `v1.py`, `mcp.py`, `proxy.py`, `system.py`) carry the wire-compatible surface. HTML admin-UI routers are the `ui_*.py` files, rendered through the **async** Jinja2 environment built in `app.py` (custom filters: `has`, `icon_src`, `schema_summary`, `pretty_json`, `path_encode`, `sanitize_headers`). Templates live in `templates/`, static assets in `static/`.
+**Routing convention:** JSON/API routers (`registry_api.py`, `api.py`, `v1.py`, `mcp.py`, `proxy.py`, `system.py`) carry the public JSON/HTTP API surface. HTML admin-UI routers are the `ui_*.py` files, rendered through the **async** Jinja2 environment built in `app.py` (custom filters: `has`, `icon_src`, `schema_summary`, `pretty_json`, `path_encode`, `sanitize_headers`). Templates live in `templates/`, static assets in `static/`.
 
 ## Security notes specific to this codebase
 

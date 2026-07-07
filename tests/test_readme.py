@@ -8,7 +8,6 @@ class TestReadmeSections:
         "Overview",
         "Quick Start",
         "Configuration",
-        "Wire Compatibility",
         "Tests",
         "License",
     ]

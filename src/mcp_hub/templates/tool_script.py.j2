@@ -1,7 +1,7 @@
 {%- set is_hub_bool = is_hub in ('True', 'true', '1') or is_hub == true -%}
 {%- set is_streamable_bool = is_streamable in ('True', 'true', '1') or is_streamable == true -%}
 #!/usr/bin/env python3
-"""MCP tool invocation script (direct or via Dev Hub).
+"""MCP tool invocation script (direct or via k5n-mcp-hub).
 {% if is_streamable_bool %}Uses direct HTTP for streamable servers (no SDK required).{% else %}Requires: mcp (Python SDK). Install: pip install mcp{% endif %}
 """
 import asyncio
