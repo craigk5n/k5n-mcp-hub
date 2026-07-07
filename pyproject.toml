@@ -29,6 +29,18 @@ k5n-mcp-hub = "mcp_hub.__main__:main"
 where = ["src", "."]
 exclude = ["tests*"]
 
+[tool.setuptools.package-data]
+# Ship the Jinja2 templates and static assets inside the wheel. Without this the admin UI
+# 500s on any real `pip install` (the app resolves them relative to the installed package,
+# not the repo). Enumerated by directory so it doesn't depend on setuptools ** glob support.
+mcp_hub = [
+    "templates/*.html",
+    "templates/*.j2",
+    "static/*",
+    "static/vendor/*",
+    "static/images/*",
+]
+
 [tool.ruff]
 line-length = 100
 
