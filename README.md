@@ -2,6 +2,8 @@
 
 <img src="k5n-mcp-hub-icon.svg" alt="k5n-mcp-hub logo" width="96" align="right">
 
+[![CI](https://github.com/craigk5n/k5n-mcp-hub/actions/workflows/ci.yml/badge.svg)](https://github.com/craigk5n/k5n-mcp-hub/actions/workflows/ci.yml)
+
 ## Overview
 
 k5n-mcp-hub is a registry and management hub for MCP (Model Context Protocol) servers, built with Python and FastAPI. It provides server discovery, health monitoring, request tracing, fault injection, a reverse proxy for MCP calls, and an admin web UI.
