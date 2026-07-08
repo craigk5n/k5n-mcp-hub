@@ -12,6 +12,10 @@
     <script src="/static/vendor/json-enc.js"></script>
     <script src="/static/vendor/hyperscript.min.js"></script>
     <script src="/static/vendor/tailwind.js"></script>
+    <style>
+        /* Dim the native <dialog> backdrop regardless of the Tailwind build. */
+        #add-server-dialog::backdrop { background: rgba(0, 0, 0, 0.5); }
+    </style>
 </head>
 <body class="bg-gray-50 min-h-screen">
     <header class="bg-white shadow">
@@ -26,37 +30,64 @@
         </div>
     </header>
     <div class="container mx-auto px-4 py-8">
-        <h1 class="text-3xl font-bold mb-8 text-gray-800">Servers</h1>
+        <div class="flex items-center justify-between mb-8">
+            <h1 class="text-3xl font-bold text-gray-800">Servers</h1>
+            <button type="button"
+                    class="inline-flex items-center gap-2 text-white bg-blue-700 hover:bg-blue-800 font-medium rounded-lg text-sm px-5 py-2.5"
+                    _="on click call #add-server-dialog.showModal()">
+                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"></path>
+                </svg>
+                Add Server
+            </button>
+        </div>
 
-        <div class="mb-8 bg-white shadow rounded-lg p-6">
-            <h2 class="text-xl font-semibold mb-4">Add Server</h2>
-            <form hx-post="/v1/register" hx-ext="json-enc" hx-swap="none"
-                  hx-on::after-request="if (event.detail.successful) { window.location.reload(); } else { alert('Add server failed (HTTP ' + event.detail.xhr.status + '): ' + event.detail.xhr.responseText); }">
-                <div class="grid gap-4 mb-4 md:grid-cols-3">
-                    <div>
+        <dialog id="add-server-dialog"
+                class="rounded-lg shadow-xl p-0 w-full max-w-lg"
+                aria-labelledby="add-server-title"
+                _="on click if event.target is #add-server-dialog call #add-server-dialog.close()">
+            <div class="p-6">
+                <div class="flex items-center justify-between mb-4">
+                    <h2 id="add-server-title" class="text-xl font-semibold">Add Server</h2>
+                    <button type="button" aria-label="Close" title="Close"
+                            class="text-gray-400 hover:text-gray-600 rounded p-1 -mr-1"
+                            _="on click call #add-server-dialog.close()">
+                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
+                        </svg>
+                    </button>
+                </div>
+                <form hx-post="/v1/register" hx-ext="json-enc" hx-swap="none"
+                      hx-on::after-request="if (event.detail.successful) { window.location.reload(); } else { alert('Add server failed (HTTP ' + event.detail.xhr.status + '): ' + event.detail.xhr.responseText); }">
+                    <div class="mb-4">
                         <label class="block mb-2 text-sm font-medium text-gray-900">Server ID</label>
-                        <input type="text" name="id" required placeholder="my-server"
+                        <input type="text" name="id" required placeholder="my-server" autofocus
                                class="bg-gray-50 border border-gray-300 text-gray-900 text-sm rounded-lg block w-full p-2.5">
                     </div>
-                    <div>
+                    <div class="mb-4">
                         <label class="block mb-2 text-sm font-medium text-gray-900">Server Name</label>
                         <input type="text" name="name" placeholder="My Server"
                                class="bg-gray-50 border border-gray-300 text-gray-900 text-sm rounded-lg block w-full p-2.5">
                     </div>
-                    <div>
+                    <div class="mb-4">
                         <label class="block mb-2 text-sm font-medium text-gray-900">Server URL</label>
                         <input type="url" name="url" required placeholder="http://localhost:8000/mcp"
                                class="bg-gray-50 border border-gray-300 text-gray-900 text-sm rounded-lg block w-full p-2.5">
                     </div>
-                </div>
-                <div class="mb-4">
-                    <label class="block mb-2 text-sm font-medium text-gray-900">Bearer token <span class="text-gray-400 font-normal">(optional — required for auth-protected MCP servers)</span></label>
-                    <input type="password" name="bearer_token" autocomplete="off" placeholder="paste the server's API token"
-                           class="bg-gray-50 border border-gray-300 text-gray-900 text-sm rounded-lg block w-full p-2.5">
-                </div>
-                <button type="submit" class="text-white bg-blue-700 hover:bg-blue-800 font-medium rounded-lg text-sm px-5 py-2.5">Add Server</button>
-            </form>
-        </div>
+                    <div class="mb-6">
+                        <label class="block mb-2 text-sm font-medium text-gray-900">Bearer token <span class="text-gray-400 font-normal">(optional — required for auth-protected MCP servers)</span></label>
+                        <input type="password" name="bearer_token" autocomplete="off" placeholder="paste the server's API token"
+                               class="bg-gray-50 border border-gray-300 text-gray-900 text-sm rounded-lg block w-full p-2.5">
+                    </div>
+                    <div class="flex justify-end gap-2">
+                        <button type="button"
+                                class="text-gray-700 bg-gray-100 hover:bg-gray-200 font-medium rounded-lg text-sm px-5 py-2.5"
+                                _="on click call #add-server-dialog.close()">Cancel</button>
+                        <button type="submit" class="text-white bg-blue-700 hover:bg-blue-800 font-medium rounded-lg text-sm px-5 py-2.5">Add Server</button>
+                    </div>
+                </form>
+            </div>
+        </dialog>
 
         {% if not servers %}
         <div class="bg-white rounded-lg shadow p-6">
