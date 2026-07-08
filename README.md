@@ -60,6 +60,30 @@ Configuration is loaded from `config.yaml` at the repository root. Environment v
 - **Bare env var** (highest priority): `SERVER_HTTP_PORT` sets the HTTP port directly.
 - **Nested prefix**: Variables with the `MCPHUB_` prefix use `__` as a separator for nested keys. For example, `MCPHUB_SERVER__HTTP_PORT` sets `server.http_port`.
 
+## Fault Injection
+
+Fault injection lets you deliberately make a registered MCP server *misbehave* so you can test how your own MCP client or agent copes with slow, broken, and non-conforming servers — without having to build a broken server yourself. It's a small chaos-testing harness for the MCP layer: point your client at the hub, turn on a fault, and watch how the client handles a timeout, a corrupt response, or a stream that dies mid-flight. Real-world MCP servers do fail this way, and clients that assume the happy path can hang, crash, or silently misbehave; fault injection lets you find and fix that on demand.
+
+Faults are applied on the hub's **reverse-proxy path**: your client reaches a registered server by sending requests to the hub's `POST /mcp` endpoint with an `X-MCP-Target-Server: <server-id>` header, and when a fault is enabled the hub returns the configured failure instead of forwarding the call to the real backend. Each request triggers at most one fault, evaluated in the order shown below.
+
+| Fault | Simulates | What the caller receives |
+|---|---|---|
+| **SSE Interrupt** | A streaming response that drops mid-stream | `200 text/event-stream` with a single `event: error` and no further data |
+| **Timeout** | A slow or hung server | The hub waits *Timeout (ms)* (default 2000, max 60000), then returns `504` |
+| **Malformed JSON** | A corrupt response body | `200` with an invalid JSON body (`{bad json`) |
+| **Invalid Method Error** | A server rejecting the call | `200` with a JSON-RPC error `-32601 Method not found` |
+
+### Using it from the admin UI
+
+1. Register the MCP server you want to test — use the **Add Server** button on the home page (or `POST /v1/register`).
+2. On that server's card, click **Faults** to open the fault-injection panel.
+3. Check **Enable Fault Injection** (the master switch), then turn on the specific fault(s) you want. For a timeout, also check **Enable Timeout** and set **Timeout (ms)**.
+4. Click **Save Settings**.
+5. Send MCP traffic through the hub to that server from your client or agent (configured to use the hub's `/mcp` endpoint as its server URL) and observe how it reacts to the injected failure.
+6. When you're finished, reopen **Faults** and uncheck **Enable Fault Injection** to return the server to normal.
+
+> Fault injection only affects requests **proxied through the hub** — it never changes the real backend. Because it stays on until you turn it off, remember to disable it when you're done so you don't keep breaking that server's proxied traffic.
+
 ## Tests
 
 Run the canonical local check sequence:
