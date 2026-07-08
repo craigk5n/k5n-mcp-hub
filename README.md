@@ -6,6 +6,10 @@
 
 k5n-mcp-hub is a registry and management hub for MCP (Model Context Protocol) servers, built with Python and FastAPI. It provides server discovery, health monitoring, request tracing, fault injection, a reverse proxy for MCP calls, and an admin web UI.
 
+<p align="center">
+  <img src="docs/admin-ui.png" alt="The k5n-mcp-hub admin UI showing a registered server with its health status, tools, and expanded capabilities panel" width="900">
+</p>
+
 ## Quick Start
 
 ```bash
