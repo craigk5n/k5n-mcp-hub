@@ -1,0 +1,56 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: lint · type-check · test
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.11", "3.12"]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+
+      # The runner starts clean, so installing the project pulls in exactly the
+      # dependencies declared in pyproject.toml (pytest/pytest-asyncio included).
+      # ruff/mypy/pip-audit are dev tools, installed explicitly.
+      - name: Install project and tooling
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e .
+          pip install ruff mypy pip-audit
+
+      - name: Ruff lint
+        run: ruff check .
+
+      - name: Ruff format check
+        run: ruff format --check .
+
+      - name: mypy
+        run: mypy --explicit-package-bases --ignore-missing-imports src
+
+      - name: Pytest
+        run: pytest -q
+
+      # Non-blocking vulnerability scan of the project's own declared dependencies.
+      # Drop `continue-on-error` to make known CVEs fail the build.
+      - name: pip-audit (declared dependencies)
+        continue-on-error: true
+        run: |
+          python -c "import tomllib; d = tomllib.load(open('pyproject.toml', 'rb')); open('audit-deps.txt', 'w').write(chr(10).join(d['project']['dependencies']))"
+          pip-audit -r audit-deps.txt
