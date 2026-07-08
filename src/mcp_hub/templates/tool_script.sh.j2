@@ -12,7 +12,7 @@ IS_HUB="{{ is_hub }}"
 TARGET_SERVER_ID='{{ target_server_id | replace("'", "'\\''") }}'
 CA_BUNDLE_PATH='{{ ca_bundle | replace("'", "'\\''") }}'
 
-if [[ -n "$MCPHUB_USER" && -n "$MCPHUB_PASS" ]]; then
+if [[ -n "${MCPHUB_USER:-}" && -n "${MCPHUB_PASS:-}" ]]; then
     MCPHUB_AUTH="Authorization: Basic $(echo -n "$MCPHUB_USER:$MCPHUB_PASS" | base64)"
 fi
 
