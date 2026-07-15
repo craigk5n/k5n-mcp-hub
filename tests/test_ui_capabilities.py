@@ -529,6 +529,12 @@ async def test_get_capabilities_has_refresh_button() -> None:
 
     assert 'hx-post="/ui/server/server-refresh/refresh-capabilities"' in html
     assert "Refresh capabilities" in html
+    # The form must surface refresh failures in the UI. htmx does not swap
+    # non-2xx responses, so without an after-request handler the 400 returned on
+    # discovery failure (e.g. a stale API token) is invisible to the user.
+    assert "hx-on::after-request" in html
+    assert "window.location.reload()" in html
+    assert "event.detail.xhr.responseText" in html
 
 
 @pytest.mark.asyncio

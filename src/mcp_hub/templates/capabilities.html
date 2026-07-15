@@ -18,12 +18,18 @@
             </div>
             <div class="flex items-center gap-2">
                 <form hx-post="/ui/server/{{ server_id }}/refresh-capabilities"
-                      hx-swap="outerHTML"
-                      hx-indicator=".refresh-indicator">
+                      hx-swap="none"
+                      hx-disabled-elt="find button"
+                      hx-on::after-request="if (event.detail.successful) { window.location.reload(); } else { alert('Refresh capabilities failed (HTTP ' + event.detail.xhr.status + '): ' + event.detail.xhr.responseText); }">
                     <button type="submit"
-                            class="bg-blue-600 hover:bg-blue-700 text-white font-medium py-2 px-4 rounded-md transition-colors">
-                        <span class="refresh-indicator htmx-indicator">Refreshing...</span>
-                        <span class="refresh-btn">Refresh capabilities</span>
+                            class="inline-flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white font-medium py-2 px-4 rounded-md transition-colors disabled:opacity-75 disabled:cursor-wait">
+                        <!-- Spinner: hidden until the form is mid-request (htmx adds .htmx-request to the form). -->
+                        <svg class="hidden [.htmx-request_&]:block animate-spin h-4 w-4" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                            <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                            <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path>
+                        </svg>
+                        <span class="[.htmx-request_&]:hidden">Refresh capabilities</span>
+                        <span class="hidden [.htmx-request_&]:inline">Refreshing&hellip;</span>
                     </button>
                 </form>
                 {{ collapse_button("tools-" ~ server_id) }}

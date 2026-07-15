@@ -160,4 +160,4 @@ def test_action_buttons_present() -> None:
     assert "View Trace" in html
     assert "Faults" in html
     assert "Playground" in html
-    assert "Refresh Capabilities" in html
+    assert ">Capabilities</button>" in html
