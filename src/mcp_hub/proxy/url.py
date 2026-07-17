@@ -14,16 +14,15 @@ def compose_backend_url(
         rel = incoming_path
 
     if rel == "":
-        result = server_url.rstrip("/")
+        # The incoming request targeted the base `/mcp` route, so the registered server
+        # URL IS the target. Send it verbatim — including any trailing slash — so the
+        # operator controls whether the backend receives `/mcp` or `/mcp/`. Hosted
+        # servers (e.g. api.x.com) want the bare `/mcp`; SDK/Starlette-mounted servers
+        # 307-redirect `/mcp`→`/mcp/` and we don't follow redirects, so they must be
+        # registered as `/mcp/`. Forcing either here would break the other.
+        result = server_url
     else:
-        if not server_url.endswith("/") and not rel.startswith("/"):
-            result = server_url + "/" + rel
-        else:
-            result = server_url + rel
-
-    parsed = urlparse(result)
-    if parsed.path.endswith("/mcp") and rel == "":
-        result = result + "/"
+        result = server_url.rstrip("/") + "/" + rel.lstrip("/")
 
     if incoming_query:
         parsed = urlparse(result)

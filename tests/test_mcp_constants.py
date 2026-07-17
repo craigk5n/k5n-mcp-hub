@@ -5,6 +5,7 @@ from mcp_hub.mcp.constants import (
     PROTOCOL_VERSION,
     SUPPORTED_PROTOCOL_VERSIONS,
     is_supported_protocol_version,
+    resolve_protocol_version,
     VALID_MCP_METHODS,
     METHOD_INITIALIZE,
     METHOD_INITIALIZED,
@@ -52,6 +53,28 @@ class TestProtocolVersion:
 
     def test_is_supported_protocol_version_strips_whitespace(self) -> None:
         assert is_supported_protocol_version(" 2025-11-25 ") is True
+
+
+class TestResolveProtocolVersion:
+    def test_empty_falls_back_to_current(self) -> None:
+        assert resolve_protocol_version("") == PROTOCOL_VERSION
+
+    def test_none_falls_back_to_current(self) -> None:
+        assert resolve_protocol_version(None) == PROTOCOL_VERSION
+
+    def test_whitespace_only_falls_back_to_current(self) -> None:
+        assert resolve_protocol_version("   ") == PROTOCOL_VERSION
+
+    def test_configured_version_is_honored(self) -> None:
+        assert resolve_protocol_version(BACKWARD_COMPAT_PROTOCOL_VERSION) == "2025-06-18"
+
+    def test_strips_whitespace(self) -> None:
+        assert resolve_protocol_version(" 2025-06-18 ") == "2025-06-18"
+
+    def test_unsupported_version_is_still_honored(self) -> None:
+        """A server that negotiated a version we don't recognize still gets that version
+        echoed back — silently substituting our own would misreport the negotiation."""
+        assert resolve_protocol_version("2024-11-05") == "2024-11-05"
 
 
 class TestMcpMethods:

@@ -8,6 +8,19 @@ def is_supported_protocol_version(version: str) -> bool:
     return stripped in SUPPORTED_PROTOCOL_VERSIONS
 
 
+def resolve_protocol_version(configured: str | None) -> str:
+    """Pick the ``MCP-Protocol-Version`` to send outbound to a backend.
+
+    A server's negotiated ``mcp_protocol_version`` (set during discovery) wins so we
+    echo back the version it actually agreed to; strict backends reject a header that
+    doesn't match their negotiation. Falls back to our current ``PROTOCOL_VERSION`` when
+    nothing has been negotiated yet."""
+    if configured is None:
+        return PROTOCOL_VERSION
+    stripped = configured.strip()
+    return stripped or PROTOCOL_VERSION
+
+
 METHOD_INITIALIZE = "initialize"
 METHOD_INITIALIZED = "notifications/initialized"
 METHOD_TOOLS_LIST = "tools/list"

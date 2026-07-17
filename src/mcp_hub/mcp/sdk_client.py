@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Callable, Literal
 
 from mcp_hub.mcp.auth import apply_server_auth
-from mcp_hub.mcp.constants import PROTOCOL_VERSION
+from mcp_hub.mcp.constants import resolve_protocol_version
 from mcp_hub.models.server import RegisteredServer
 
 if TYPE_CHECKING:
@@ -108,7 +108,8 @@ class MCPClient:
             )
 
         if "MCP-Protocol-Version" not in headers:
-            headers["MCP-Protocol-Version"] = PROTOCOL_VERSION
+            configured = self.server.mcp_protocol_version if self.server else None
+            headers["MCP-Protocol-Version"] = resolve_protocol_version(configured)
 
         self._headers = headers
 
