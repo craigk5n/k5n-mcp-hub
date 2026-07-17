@@ -12,11 +12,13 @@ def make_server(
     id: str = "test-id",
     url: str = "https://test.example.com",
     bearer_token: str = "",
+    mcp_protocol_version: str = "",
 ) -> RegisteredServer:
     return RegisteredServer(
         id=id,
         url=url,
         bearer_token=bearer_token,
+        mcp_protocol_version=mcp_protocol_version,
     )
 
 
@@ -58,6 +60,24 @@ class TestBuildOutboundHeaders:
         result = await build_outbound_headers(incoming, server)
 
         assert _get_header(result, "MCP-Protocol-Version") == PROTOCOL_VERSION
+
+    @pytest.mark.asyncio
+    async def test_outbound_uses_server_protocol_version(self) -> None:
+        server = make_server(mcp_protocol_version="2025-06-18")
+        incoming = httpx.Headers({})
+
+        result = await build_outbound_headers(incoming, server)
+
+        assert _get_header(result, "MCP-Protocol-Version") == "2025-06-18"
+
+    @pytest.mark.asyncio
+    async def test_incoming_protocol_version_beats_server_field(self) -> None:
+        server = make_server(mcp_protocol_version="2025-06-18")
+        incoming = httpx.Headers({"MCP-Protocol-Version": "2025-11-25"})
+
+        result = await build_outbound_headers(incoming, server)
+
+        assert _get_header(result, "MCP-Protocol-Version") == "2025-11-25"
 
     @pytest.mark.asyncio
     async def test_mcp_protocol_version_not_overwritten_if_present(self) -> None:

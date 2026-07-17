@@ -66,6 +66,12 @@ Configuration is loaded from `config.yaml` at the repository root. Environment v
 - **Bare env var** (highest priority): `SERVER_HTTP_PORT` sets the HTTP port directly.
 - **Nested prefix**: Variables with the `MCPHUB_` prefix use `__` as a separator for nested keys. For example, `MCPHUB_SERVER__HTTP_PORT` sets `server.http_port`.
 
+## Registering a server
+
+Register a server with the **Add Server** button on the home page (or `POST /v1/register`). This works for both local backends and remote hosted MCP servers (for example X's server at `https://api.x.com/mcp`, using a bearer token for auth).
+
+> **Register the exact endpoint URL, including its path.** The hub proxies the base `/mcp` route to the server URL verbatim — it does not add or strip a trailing slash. Register `https://api.x.com/mcp` (no trailing slash) for hosted servers that serve at exactly that path; register `.../mcp/` (with the slash) for SDK/Starlette-mounted servers that redirect `/mcp` to `/mcp/`, since the hub does not follow redirects. If a proxied call unexpectedly returns 404, check the trailing slash first.
+
 ## Fault Injection
 
 Fault injection lets you deliberately make a registered MCP server *misbehave* so you can test how your own MCP client or agent copes with slow, broken, and non-conforming servers — without having to build a broken server yourself. It's a small chaos-testing harness for the MCP layer: point your client at the hub, turn on a fault, and watch how the client handles a timeout, a corrupt response, or a stream that dies mid-flight. Real-world MCP servers do fail this way, and clients that assume the happy path can hang, crash, or silently misbehave; fault injection lets you find and fix that on demand.

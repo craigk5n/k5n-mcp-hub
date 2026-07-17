@@ -8,7 +8,7 @@ from fastapi.responses import StreamingResponse
 
 from mcp_hub.config import TraceConfig
 from mcp_hub.mcp.auth import apply_server_auth
-from mcp_hub.mcp.constants import PROTOCOL_VERSION
+from mcp_hub.mcp.constants import resolve_protocol_version
 from mcp_hub.models.server import RegisteredServer
 from mcp_hub.proxy.fault_injection import apply_fault_injection
 from mcp_hub.proxy.url import compose_backend_url
@@ -77,7 +77,7 @@ async def build_outbound_headers(
         del outbound[key]
 
     if not _has_header(outbound, "MCP-Protocol-Version"):
-        outbound["MCP-Protocol-Version"] = PROTOCOL_VERSION
+        outbound["MCP-Protocol-Version"] = resolve_protocol_version(server.mcp_protocol_version)
 
     await apply_server_auth(outbound, server, allow_private_networks=allow_private_networks)
 
