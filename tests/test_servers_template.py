@@ -205,6 +205,19 @@ def test_add_server_auth_type_dropdown() -> None:
     assert 'name="basic_password"' in html
 
 
+def test_add_server_button_shows_busy_state() -> None:
+    # The submit button is disabled and shows a spinner/"Adding…" label while the
+    # registration request (which triggers a backend discovery round-trip) is in flight.
+    env = _create_test_environment()
+    template = env.get_template("servers.html")
+
+    html = template.render(servers=[])
+
+    assert "hx-disabled-elt=\"find button[type='submit']\"" in html
+    assert "animate-spin" in html
+    assert ">Adding" in html
+
+
 def test_action_buttons_present() -> None:
     env = _create_test_environment()
     template = env.get_template("servers.html")
