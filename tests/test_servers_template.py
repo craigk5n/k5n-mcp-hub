@@ -185,6 +185,26 @@ def test_panel_targets_safe_for_ids_with_spaces_and_dots() -> None:
         assert " " not in m, f"invalid selector with space: {m!r}"
 
 
+def test_add_server_auth_type_dropdown() -> None:
+    env = _create_test_environment()
+    template = env.get_template("servers.html")
+
+    html = template.render(servers=[])
+
+    # Auth-type selector with None / Bearer / Basic options.
+    assert 'name="auth_type"' in html
+    assert '<option value="">None</option>' in html
+    assert '<option value="bearer">' in html
+    assert '<option value="basic">' in html
+
+    # Conditional field groups for each scheme, hidden until selected.
+    assert 'id="bearer-fields"' in html
+    assert 'id="basic-fields"' in html
+    assert 'name="bearer_token"' in html
+    assert 'name="basic_username"' in html
+    assert 'name="basic_password"' in html
+
+
 def test_action_buttons_present() -> None:
     env = _create_test_environment()
     template = env.get_template("servers.html")

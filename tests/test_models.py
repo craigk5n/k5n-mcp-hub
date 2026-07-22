@@ -71,11 +71,16 @@ class TestRegisteredServer:
             id="test-id",
             url="http://test.example.com",
             bearer_token="secret-token",
+            basic_username="admin",
+            basic_password="secret-password",
             oauth_client_secret="client-secret",
             oauth_token_error="some error",
         )
         sanitized = srv.sanitize_for_api()
         assert sanitized.bearer_token == ""
+        assert sanitized.basic_password == ""
+        # Username is not a secret and is retained so the UI can show which account is used.
+        assert sanitized.basic_username == "admin"
         assert sanitized.oauth_client_secret == ""
         assert sanitized.oauth_token_error == ""
         assert sanitized.id == srv.id

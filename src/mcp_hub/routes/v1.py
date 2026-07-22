@@ -132,6 +132,8 @@ async def _register_server_impl(
         registration_type=validated.registration_type,
         auth_type=validated.auth_type,
         bearer_token=validated.bearer_token,
+        basic_username=validated.basic_username,
+        basic_password=validated.basic_password,
         oauth_discovery_url=oauth_discovery_url,
         oauth_token_url=validated.oauth_token_url,
         oauth_client_id=validated.oauth_client_id,
@@ -156,12 +158,16 @@ async def _register_server_impl(
     if not srv.auth_type:
         if srv.bearer_token:
             srv.auth_type = "bearer"
+        elif srv.basic_username or srv.basic_password:
+            srv.auth_type = "basic"
         elif srv.oauth_discovery_url or srv.oauth_token_url:
             srv.auth_type = "oauth"
 
     merge_fields = [
         "auth_type",
         "bearer_token",
+        "basic_username",
+        "basic_password",
         "oauth_discovery_url",
         "oauth_token_url",
         "oauth_client_id",

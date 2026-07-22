@@ -1,4 +1,5 @@
 import asyncio
+import base64
 from dataclasses import dataclass
 from datetime import datetime, timezone, timedelta
 from typing import cast
@@ -114,12 +115,15 @@ async def apply_server_auth(
     Rules (first matching rule wins):
     1. If server.bearer_token is non-empty after strip -> set Authorization header;
        also clear oauth_token_status and oauth_token_error.
-    2. Else if server.auth_type == 'oauth' OR server.oauth_token_url is set OR
+    2. Else if server.basic_username or server.basic_password is non-empty after strip
+       -> set Authorization: Basic base64(user:pass); also clear oauth_token_status and
+       oauth_token_error.
+    3. Else if server.auth_type == 'oauth' OR server.oauth_token_url is set OR
        server.oauth_metadata is set -> attempt to fetch token from cache. On success:
        set Authorization header, set oauth_token_status='ok', oauth_token_error=''.
        On failure: leave Authorization unset, set oauth_token_status='error',
        oauth_token_error=str(exc) or 'empty token response'.
-    3. Else: do not set an Authorization header.
+    4. Else: do not set an Authorization header.
     """
     token = server.bearer_token
     if token and token.strip():
@@ -130,6 +134,20 @@ async def apply_server_auth(
         # MCP-server convention) reaches those servers; a server that only reads
         # Authorization simply ignores the extra header.
         headers["X-MCP-Token"] = tok
+        server.oauth_token_status = ""
+        server.oauth_token_error = ""
+        return
+
+    # Basic auth (e.g. WordPress Application Passwords). Strip leading/trailing
+    # whitespace/newlines from pasted credentials, but preserve any internal spaces
+    # (WP application passwords are displayed in space-separated groups and are valid
+    # with the spaces intact). We base64-encode "user:pass" ourselves so a changed
+    # username or password is always re-encoded correctly.
+    username = server.basic_username.strip() if server.basic_username else ""
+    password = server.basic_password.strip() if server.basic_password else ""
+    if username or password:
+        encoded = base64.b64encode(f"{username}:{password}".encode()).decode("ascii")
+        headers["Authorization"] = f"Basic {encoded}"
         server.oauth_token_status = ""
         server.oauth_token_error = ""
         return
