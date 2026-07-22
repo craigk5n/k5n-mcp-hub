@@ -33,28 +33,32 @@ async def auth_dependency(request: Request) -> None:
     await auth_required_dep(request)
 
 
-SUCCESS_FRAGMENT_TEMPLATE = """<div class="p-4 rounded-lg border {color_class}">
-  <div class="mb-2 flex items-center justify-between gap-2 text-xs text-slate-500">
-    <span>Output</span>
+# Success result: a toolbar (JSON badge + Pretty/Raw toggle + Copy, all wired by JS on the
+# parent servers page since scripts inside htmx-swapped fragments don't run) over a <pre>
+# that wraps long lines and scrolls instead of overflowing the panel. When the output parses
+# as JSON, the page pretty-prints it and reveals the toggle.
+RESULT_FRAGMENT_TEMPLATE = """<div class="rounded-lg border border-green-200 bg-green-50" data-tool-result>
+  <div class="flex items-center justify-between gap-2 px-3 py-2 border-b border-green-100 text-xs">
     <div class="flex items-center gap-2">
-      <span class="text-xs text-emerald-600" data-copy-status aria-live="polite"></span>
+      <span class="text-slate-500">Output</span>
+      <span class="hidden rounded bg-slate-200 px-1.5 py-0.5 font-medium text-slate-600" data-json-badge>JSON</span>
+    </div>
+    <div class="flex items-center gap-2">
+      <div class="hidden items-center overflow-hidden rounded-md border border-slate-300 text-slate-600" data-format-toggle>
+        <button type="button" class="px-2 py-0.5" data-view="pretty">Pretty</button>
+        <button type="button" class="border-l border-slate-300 px-2 py-0.5" data-view="raw">Raw</button>
+      </div>
+      <span class="text-emerald-600" data-copy-status aria-live="polite"></span>
       <button type="button"
-              class="inline-flex items-center gap-1 rounded border border-slate-200 bg-white px-2 py-1 text-xs text-slate-600 hover:bg-slate-50"
-              data-output-copy
-              title="Copy output">
-        <svg class="h-3.5 w-3.5" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
-          <path d="M6 2a2 2 0 00-2 2v8a2 2 0 002 2h6a2 2 0 002-2V6.414a2 2 0 00-.586-1.414l-1.414-1.414A2 2 0 0010.586 3H6z" />
-          <path d="M4 8H3a2 2 0 00-2 2v6a2 2 0 002 2h8a2 2 0 002-2v-1h-2v1H3v-6h1V8z" />
-        </svg>
-        Copy
-      </button>
+              class="inline-flex items-center gap-1 rounded border border-slate-300 bg-white px-2 py-0.5 text-slate-600 hover:bg-slate-50"
+              data-output-copy title="Copy output">Copy</button>
     </div>
   </div>
-  <div data-output-view-panel="raw">
-    <pre class="whitespace-pre-wrap text-sm" data-tool-output-raw>{message_html_escaped}</pre>
-  </div>
-  <div class="hidden" data-output-view-panel="json"><pre class="whitespace-pre-wrap text-sm" data-tool-output-json></pre></div>
-  <div class="hidden" data-output-view-panel="yaml"><pre class="whitespace-pre-wrap text-sm" data-tool-output-yaml></pre></div>
+  <pre class="m-0 max-h-96 overflow-auto whitespace-pre-wrap break-words px-3 py-2 text-sm text-slate-800" data-tool-output>{message_html_escaped}</pre>
+</div>"""
+
+ERROR_FRAGMENT_TEMPLATE = """<div class="rounded-lg border border-red-200 bg-red-50 px-4 py-3">
+  <pre class="m-0 max-h-96 overflow-auto whitespace-pre-wrap break-words text-sm text-red-800" data-tool-output>{message_html_escaped}</pre>
 </div>"""
 
 
@@ -139,19 +143,13 @@ def build_tool_args(form: dict[str, list[str]], ignore: set[str] | None = None) 
 def _build_error_fragment(message: str) -> str:
     """Build an error HTML fragment."""
     escaped = html.escape(message)
-    return SUCCESS_FRAGMENT_TEMPLATE.format(
-        color_class="bg-red-50 border-red-200 text-red-800",
-        message_html_escaped=escaped,
-    )
+    return ERROR_FRAGMENT_TEMPLATE.format(message_html_escaped=escaped)
 
 
 def _build_success_fragment(message: str) -> str:
     """Build a success HTML fragment."""
     escaped = html.escape(message)
-    return SUCCESS_FRAGMENT_TEMPLATE.format(
-        color_class="bg-green-50 border-green-200 text-green-800",
-        message_html_escaped=escaped,
-    )
+    return RESULT_FRAGMENT_TEMPLATE.format(message_html_escaped=escaped)
 
 
 # tool_name is a :path converter: MCP tool names may contain "/" (e.g.

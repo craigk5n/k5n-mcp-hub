@@ -383,6 +383,65 @@
             d.close();
         }
     }
+
+    // ---- Tool invoke output: auto pretty-print JSON, Raw/Pretty toggle, copy ----------
+    // The invoke result fragment is swapped in by htmx and its own scripts don't run, so
+    // this lives on the parent page and hooks htmx:afterSwap + delegated clicks.
+    function _setInvokeView(container, view) {
+        const pre = container.querySelector('[data-tool-output]');
+        if (!pre || pre.dataset.pretty === undefined) return;
+        pre.textContent = view === 'raw' ? pre.dataset.raw : pre.dataset.pretty;
+        container.querySelectorAll('[data-view]').forEach((btn) => {
+            const active = btn.dataset.view === view;
+            btn.classList.toggle('bg-blue-600', active);
+            btn.classList.toggle('text-white', active);
+            btn.classList.toggle('text-slate-600', !active);
+        });
+    }
+
+    function _formatToolResult(container) {
+        const pre = container.querySelector('[data-tool-output]');
+        if (!pre) return;
+        const raw = pre.textContent;
+        let parsed;
+        try { parsed = JSON.parse(raw); } catch (e) { return; }  // not JSON -> leave raw
+        if (parsed === null || typeof parsed !== 'object') return;  // ignore bare scalars
+        pre.dataset.raw = raw;
+        pre.dataset.pretty = JSON.stringify(parsed, null, 2);
+        pre.textContent = pre.dataset.pretty;                    // auto-pretty by default
+        const badge = container.querySelector('[data-json-badge]');
+        if (badge) badge.classList.remove('hidden');
+        const toggle = container.querySelector('[data-format-toggle]');
+        if (toggle) { toggle.classList.remove('hidden'); toggle.classList.add('flex'); }
+        _setInvokeView(container, 'pretty');
+    }
+
+    document.body.addEventListener('htmx:afterSwap', (e) => {
+        const t = e.target;
+        if (t && t.id && t.id.indexOf('result-') === 0) {
+            const c = t.querySelector('[data-tool-result]');
+            if (c) _formatToolResult(c);
+        }
+    });
+
+    document.body.addEventListener('click', (e) => {
+        const viewBtn = e.target.closest && e.target.closest('[data-view]');
+        if (viewBtn) {
+            const c = viewBtn.closest('[data-tool-result]');
+            if (c) _setInvokeView(c, viewBtn.dataset.view);
+            return;
+        }
+        const copyBtn = e.target.closest && e.target.closest('[data-output-copy]');
+        if (copyBtn) {
+            const c = copyBtn.closest('[data-tool-result]');
+            const pre = c && c.querySelector('[data-tool-output]');
+            if (!pre) return;
+            navigator.clipboard.writeText(pre.textContent).then(() => {
+                const s = c.querySelector('[data-copy-status]');
+                if (s) { s.textContent = 'Copied'; setTimeout(() => { s.textContent = ''; }, 1500); }
+            }).catch(() => {});
+        }
+    });
     </script>
 </body>
 </html>
