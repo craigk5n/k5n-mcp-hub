@@ -24,7 +24,7 @@ from mcp_hub.middleware import create_request_id_metrics_middleware
 from mcp_hub.trace.recorder import sanitize_trace_headers
 from mcp_hub.mcp.discovery import DiscoveryService
 from mcp_hub.registry.service import Registry
-from mcp_hub.storage import InMemoryStorage
+from mcp_hub.storage import InMemoryStorage, JSONFileStorage, StorageStrategy
 from mcp_hub.trace.recorder import TraceRecorder
 from mcp_hub.utils import dom_id
 
@@ -67,6 +67,11 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         app.state.context = context
     else:
         context = existing_context
+    # Initialize the storage backend before serving. For JSONFileStorage this loads any
+    # previously persisted servers/agents from disk; for InMemoryStorage it is a no-op.
+    storage = getattr(app.state, "storage", None)
+    if storage is not None:
+        await storage.init()
     try:
         yield
     finally:
@@ -166,7 +171,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     app.add_middleware(create_request_id_metrics_middleware(metrics))  # type: ignore[arg-type]
 
-    storage = InMemoryStorage()
+    storage: StorageStrategy = (
+        JSONFileStorage(settings.storage.json_.path)
+        if settings.storage.type == "json"
+        else InMemoryStorage()
+    )
     registry = Registry(storage)
     agent_registry = AgentRegistry(storage)
     card_agent_registry = CardAgentRegistry()
