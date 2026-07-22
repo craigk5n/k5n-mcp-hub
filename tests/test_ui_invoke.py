@@ -130,18 +130,27 @@ class TestInvokeFragment:
 
         result = _build_success_fragment("Hello World")
 
-        assert "bg-green-50 border-green-200 text-green-800" in result
+        assert "bg-green-50" in result
         assert "Hello World" in result
-        assert "data-tool-output-raw" in result
+        # New structure: a result container + output <pre>, plus the Pretty/Raw toggle
+        # and copy hooks the parent page wires up.
+        assert "data-tool-result" in result
+        assert "data-tool-output" in result
+        assert "data-format-toggle" in result
+        assert "data-output-copy" in result
+        # Output must wrap/scroll rather than overflow the panel.
+        assert "overflow-auto" in result
+        assert "break-words" in result
 
     def test_build_error_fragment(self) -> None:
         from mcp_hub.routes.ui_invoke import _build_error_fragment
 
         result = _build_error_fragment("Something went wrong")
 
-        assert "bg-red-50 border-red-200 text-red-800" in result
+        assert "bg-red-50" in result
+        assert "text-red-800" in result
         assert "Something went wrong" in result
-        assert "data-tool-output-raw" in result
+        assert "data-tool-output" in result
 
     def test_escape_html_in_message(self) -> None:
         from mcp_hub.routes.ui_invoke import _build_success_fragment

@@ -117,22 +117,28 @@
         <div class="mb-8">
             <h2 class="text-2xl font-bold text-gray-900 mb-4">Tools</h2>
             {% if tools %}
-            <div class="grid gap-4 md:grid-cols-2">
+            <div class="space-y-3">
                 {% for tool in tools %}
-                <div class="bg-white rounded-lg shadow-sm border border-gray-200 p-4">
-                    <div class="flex items-start justify-between mb-2">
-                        <h3 class="text-lg font-semibold text-gray-900">{{ tool.name }}</h3>
-                    </div>
-                    {% if tool.title %}
-                    <p class="text-sm text-gray-600 mb-2">{{ tool.title }}</p>
-                    {% endif %}
-                    {% if tool.description %}
-                    <p class="text-sm text-gray-500 mb-4">{{ tool.description }}</p>
-                    {% endif %}
-
+                <details class="group bg-white rounded-lg shadow-sm border border-gray-200">
+                    <summary class="flex items-start justify-between gap-3 cursor-pointer select-none list-none [&amp;::-webkit-details-marker]:hidden px-4 py-3 rounded-lg hover:bg-gray-50">
+                        <div class="min-w-0">
+                            <h3 class="text-base font-semibold text-gray-900 font-mono break-all">{{ tool.name }}</h3>
+                            {% if tool.title %}
+                            <p class="text-sm text-gray-600 mt-0.5">{{ tool.title }}</p>
+                            {% endif %}
+                            {% if tool.description %}
+                            <p class="text-sm text-gray-500 mt-0.5">{{ tool.description }}</p>
+                            {% endif %}
+                        </div>
+                        <svg class="w-5 h-5 text-gray-400 shrink-0 mt-0.5 transition-transform group-open:rotate-90" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"></path>
+                        </svg>
+                    </summary>
+                    <div class="px-4 pb-4 pt-2 border-t border-gray-100">
                     <form hx-post="/ui/invoke/{{ server_id }}/{{ tool.name }}"
                           hx-target="#result-{{ server_id | dom_id }}-{{ tool.name | dom_id }}"
                           hx-swap="innerHTML"
+                          hx-disabled-elt="find button[type='submit']"
                           hx-on::response-error="let t=document.getElementById('result-{{ server_id | dom_id }}-{{ tool.name | dom_id }}'); if(t){t.innerHTML=`<div class='p-4 rounded-lg border bg-red-50 border-red-200 text-red-800 text-sm'>Invoke failed (HTTP ${event.detail.xhr.status}). Check the server and the hub logs.</div>`;}"
                           hx-on::send-error="let t=document.getElementById('result-{{ server_id | dom_id }}-{{ tool.name | dom_id }}'); if(t){t.innerHTML=`<div class='p-4 rounded-lg border bg-red-50 border-red-200 text-red-800 text-sm'>Invoke failed: could not reach the hub.</div>`;}"
                           class="space-y-3">
@@ -167,10 +173,16 @@
                             {% endfor %}
                         </div>
                         {% endif %}
-                        <div class="flex gap-2">
+                        <div class="flex flex-wrap gap-2">
                             <button type="submit"
-                                    class="bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium py-1.5 px-3 rounded-md transition-colors">
-                                Invoke
+                                    class="inline-flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium py-1.5 px-3 rounded-md transition-colors disabled:opacity-75 disabled:cursor-wait">
+                                <!-- Spinner + label swap while the invoke request is in flight (htmx adds .htmx-request to the form). -->
+                                <svg class="hidden [.htmx-request_&]:inline animate-spin h-4 w-4" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                                    <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                                    <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path>
+                                </svg>
+                                <span class="[.htmx-request_&]:hidden">Invoke</span>
+                                <span class="hidden [.htmx-request_&]:inline">Invoking&hellip;</span>
                             </button>
                             <button type="button"
                                     onclick="downloadToolScript(this, '/ui/server/{{ server_id|urlencode }}/tool/{{ tool.name|urlencode }}/download')"
@@ -186,7 +198,8 @@
                     </form>
                     <!-- Invoke results render here so the form stays put and can be reused. -->
                     <div id="result-{{ server_id | dom_id }}-{{ tool.name | dom_id }}" class="mt-3"></div>
-                </div>
+                    </div>
+                </details>
                 {% endfor %}
             </div>
             {% else %}
