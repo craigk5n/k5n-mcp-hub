@@ -60,8 +60,10 @@ class RegisteredServer(BaseModel):
     mcp_protocol_version: str = ""
     mcp_transport: Literal["http", "sse", ""] = ""
     mcp_conformant: bool | None = None
-    auth_type: Literal["bearer", "oauth", ""] = ""
+    auth_type: Literal["bearer", "basic", "oauth", ""] = ""
     bearer_token: str = ""
+    basic_username: str = ""
+    basic_password: str = ""
     oauth_discovery_url: str = ""
     oauth_issuer: str = ""
     oauth_token_url: str = ""
@@ -108,6 +110,7 @@ class RegisteredServer(BaseModel):
         return self.model_copy(
             update={
                 "bearer_token": "",
+                "basic_password": "",
                 "oauth_client_secret": "",
                 "oauth_token_error": "",
             }

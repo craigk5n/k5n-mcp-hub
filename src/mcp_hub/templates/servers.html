@@ -74,9 +74,29 @@
                         <input type="url" name="url" required placeholder="http://localhost:8000/mcp"
                                class="bg-gray-50 border border-gray-300 text-gray-900 text-sm rounded-lg block w-full p-2.5">
                     </div>
-                    <div class="mb-6">
-                        <label class="block mb-2 text-sm font-medium text-gray-900">Bearer token <span class="text-gray-400 font-normal">(optional — required for auth-protected MCP servers)</span></label>
+                    <div class="mb-4">
+                        <label class="block mb-2 text-sm font-medium text-gray-900">Authentication <span class="text-gray-400 font-normal">(optional — required for auth-protected MCP servers)</span></label>
+                        <select name="auth_type" id="auth-type-select"
+                                class="bg-gray-50 border border-gray-300 text-gray-900 text-sm rounded-lg block w-full p-2.5"
+                                _="on change
+                                     if my value == 'bearer' remove .hidden from #bearer-fields else add .hidden to #bearer-fields end
+                                     if my value == 'basic' remove .hidden from #basic-fields else add .hidden to #basic-fields end">
+                            <option value="">None</option>
+                            <option value="bearer">Bearer token</option>
+                            <option value="basic">Basic (username &amp; password)</option>
+                        </select>
+                    </div>
+                    <div class="mb-6 hidden" id="bearer-fields">
+                        <label class="block mb-2 text-sm font-medium text-gray-900">Bearer token</label>
                         <input type="password" name="bearer_token" autocomplete="off" placeholder="paste the server's API token"
+                               class="bg-gray-50 border border-gray-300 text-gray-900 text-sm rounded-lg block w-full p-2.5">
+                    </div>
+                    <div class="mb-6 hidden" id="basic-fields">
+                        <label class="block mb-2 text-sm font-medium text-gray-900">Username</label>
+                        <input type="text" name="basic_username" autocomplete="off" placeholder="e.g. admin"
+                               class="bg-gray-50 border border-gray-300 text-gray-900 text-sm rounded-lg block w-full p-2.5 mb-3">
+                        <label class="block mb-2 text-sm font-medium text-gray-900">Password <span class="text-gray-400 font-normal">(e.g. a WordPress application password)</span></label>
+                        <input type="password" name="basic_password" autocomplete="off" placeholder="paste the password / application password"
                                class="bg-gray-50 border border-gray-300 text-gray-900 text-sm rounded-lg block w-full p-2.5">
                     </div>
                     <div class="flex justify-end gap-2">

@@ -232,6 +232,41 @@ class TestRegisterServer:
         data = response.json()
         assert data["auth_type"] == "bearer"
 
+    def test_auth_type_inferred_from_basic_credentials(self, client_with_basic_auth):
+        response = client_with_basic_auth.post(
+            "/v1/register",
+            json={
+                "id": "basic-auth-server",
+                "url": "http://unreachable-host:9999",
+                "registration_type": "self",
+                "basic_username": "admin",
+                "basic_password": "app-password",
+            },
+            headers=make_basic_auth_header("admin", "secret123"),
+        )
+        assert response.status_code == 201
+        data = response.json()
+        assert data["auth_type"] == "basic"
+
+    def test_response_body_has_basic_password_redacted(self, client_with_basic_auth):
+        response = client_with_basic_auth.post(
+            "/v1/register",
+            json={
+                "id": "basic-redact-server",
+                "url": "http://unreachable-host:9999",
+                "registration_type": "self",
+                "auth_type": "basic",
+                "basic_username": "admin",
+                "basic_password": "super-secret",
+            },
+            headers=make_basic_auth_header("admin", "secret123"),
+        )
+        assert response.status_code == 201
+        data = response.json()
+        assert data["basic_password"] == ""
+        # Username is not a secret and is echoed back.
+        assert data["basic_username"] == "admin"
+
     def test_auth_type_inferred_from_oauth_fields(self, client_with_basic_auth):
         response = client_with_basic_auth.post(
             "/v1/register",
