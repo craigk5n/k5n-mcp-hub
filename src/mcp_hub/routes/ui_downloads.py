@@ -40,7 +40,10 @@ async def auth_dependency(request: Request) -> None:
 def validate_ids(server_id: str, tool_name: str) -> None:
     if not server_id or not re.match(r"^[A-Za-z0-9_.-]+$", server_id):
         raise HTTPException(status_code=400, detail="Invalid server_id")
-    if not tool_name or not re.match(r"^[A-Za-z0-9_.-]+$", tool_name):
+    # Allow "/" in tool names (e.g. "webcalendar/list-events"). It is escaped safely in the
+    # generated scripts (shell single-quote escaping, python tojson) and replaced in the
+    # download filename by sanitize_filename, so it cannot inject or traverse.
+    if not tool_name or not re.match(r"^[A-Za-z0-9_./-]+$", tool_name):
         raise HTTPException(status_code=400, detail="Invalid tool_name")
 
 
@@ -168,7 +171,10 @@ async def render_tool_script(
         raise HTTPException(status_code=500, detail="Failed to generate download") from e
 
 
-@router.post("/server/{server_id}/tool/{tool_name}/download")
+# tool_name is a trailing :path segment so names containing "/" (e.g.
+# "webcalendar/list-events") don't split into extra segments and 404. The format is encoded
+# in the path prefix (tool-download vs tool-download-python) since :path must be last.
+@router.post("/server/{server_id}/tool-download/{tool_name:path}")
 async def download_tool_script(
     request: Request,
     server_id: str,
@@ -195,7 +201,7 @@ async def download_tool_script(
     )
 
 
-@router.post("/server/{server_id}/tool/{tool_name}/download-python")
+@router.post("/server/{server_id}/tool-download-python/{tool_name:path}")
 async def download_tool_script_python(
     request: Request,
     server_id: str,
