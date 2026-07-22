@@ -88,17 +88,20 @@
             </div>
             {% if schema_issues %}
             <div class="mt-4 pt-4 border-t border-gray-100">
-                <span class="text-gray-500 text-sm">Schema Issues:</span>
-                <ul class="mt-2 space-y-1">
-                    {% for issue in schema_issues %}
-                    <li class="text-sm text-red-600 flex items-center">
-                        <svg class="h-4 w-4 mr-1" viewBox="0 0 20 20" fill="currentColor">
-                            <path fill-rule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7 4a1 1 0 11-2 0 1 1 0 012 0zm-1-9a1 1 0 00-1 1v4a1 1 0 102 0V6a1 1 0 00-1-1z" clip-rule="evenodd"/>
-                        </svg>
-                        {{ issue }}
-                    </li>
-                    {% endfor %}
-                </ul>
+                <div class="flex items-start gap-2 rounded-md border border-amber-200 bg-amber-50 p-3">
+                    <svg class="h-4 w-4 shrink-0 mt-0.5 text-amber-500" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
+                        <path fill-rule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-9-3a1 1 0 112 0 1 1 0 01-2 0zm.25 3a.75.75 0 000 1.5h.25v2h-.25a.75.75 0 000 1.5h2a.75.75 0 000-1.5h-.25v-2.75a.75.75 0 00-.75-.75H9.25z" clip-rule="evenodd"/>
+                    </svg>
+                    <div class="min-w-0">
+                        <p class="text-sm font-medium text-amber-800">Schema notes ({{ schema_issues|length }})</p>
+                        <p class="mt-0.5 text-xs text-amber-700">Advisory only &mdash; these don&rsquo;t affect using the tools here. Tool names with characters outside <code class="font-mono">a&ndash;z 0&ndash;9 _ -</code> (e.g.&nbsp;<code class="font-mono">/</code>) are rejected by LLM tool-calling APIs (Claude, OpenAI); rename them in the server if you plan to expose them to an LLM.</p>
+                        <ul class="mt-2 space-y-0.5">
+                            {% for issue in schema_issues %}
+                            <li class="text-xs text-amber-700">{{ issue }}</li>
+                            {% endfor %}
+                        </ul>
+                    </div>
+                </div>
             </div>
             {% endif %}
         </div>
