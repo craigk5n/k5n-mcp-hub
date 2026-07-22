@@ -1,5 +1,5 @@
 import base64
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 
 import pytest
 from fastapi.testclient import TestClient
@@ -116,6 +116,37 @@ class TestRegisterServer:
             get_response = client_with_basic_auth.get("/v1/servers")
             servers = get_response.json()
             assert not any(s["id"] == "manual-server" for s in servers["servers"])
+
+    def test_discovery_failure_surfaces_detail_and_rolls_back(self, client_with_basic_auth):
+        # Reachability passes but capability discovery (MCP handshake / tools-list) fails.
+        # The response must include the real error detail, not just "discovery failed".
+        with (
+            patch(
+                "mcp_hub.routes.v1.is_url_safe_for_discovery",
+                new=AsyncMock(return_value=(True, "", ["127.0.0.1"])),
+            ),
+            patch(
+                "mcp_hub.mcp.discovery.DiscoveryService.discover_immediately",
+                new=AsyncMock(side_effect=RuntimeError("handshake rejected: 401")),
+            ),
+        ):
+            response = client_with_basic_auth.post(
+                "/v1/register",
+                json={
+                    "id": "disco-fail",
+                    "url": "http://localhost:9999/mcp",
+                    "registration_type": "manual",
+                },
+                headers=make_basic_auth_header("admin", "secret123"),
+            )
+
+        assert response.status_code == 400
+        body = response.json()
+        assert body["error"] == "discovery failed"
+        assert body["detail"] == "handshake rejected: 401"
+
+        servers = client_with_basic_auth.get("/v1/servers").json()["servers"]
+        assert not any(s["id"] == "disco-fail" for s in servers)
 
     def test_response_body_has_bearer_token_redacted(self, client_with_basic_auth):
         response = client_with_basic_auth.post(

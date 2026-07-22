@@ -230,10 +230,15 @@ async def _register_server_impl(
 
     try:
         await discovery_service.discover_immediately(srv, timeout=30)
-    except Exception:
+    except Exception as discovery_error:
+        # Surface the real reason: discovery does the MCP handshake + tools/list against the
+        # backend, and any failure there (auth rejected, protocol mismatch, no capabilities,
+        # timeout) previously collapsed into an opaque "discovery failed" with no detail.
         logger.warning(
-            "Discovery failed for %s",
+            "Discovery failed for %s: %s",
             srv.id,
+            discovery_error,
+            exc_info=True,
         )
         try:
             await registry.unregister(srv.id)
@@ -246,7 +251,7 @@ async def _register_server_impl(
 
         return JSONResponse(
             status_code=400,
-            content={"error": "discovery failed"},
+            content={"error": "discovery failed", "detail": str(discovery_error)},
         )
 
     return JSONResponse(
