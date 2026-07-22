@@ -17,7 +17,7 @@
         </div>
 
         <form hx-post="/ui/server/{{ server_id }}/faults"
-              hx-target="#faults-{{ server_id }}" hx-swap="innerHTML"
+              hx-target="#faults-{{ server_id | dom_id }}" hx-swap="innerHTML"
               class="bg-white rounded-lg shadow p-6 space-y-6">
             <input type="hidden" name="server_id" value="{{ server_id }}">
             

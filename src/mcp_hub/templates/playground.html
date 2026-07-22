@@ -24,7 +24,7 @@
         {% endif %}
 
         <form hx-post="/ui/server/{{ server_id }}/playground"
-              hx-target="#playground-{{ server_id }}" hx-swap="innerHTML">
+              hx-target="#playground-{{ server_id | dom_id }}" hx-swap="innerHTML">
             <input type="hidden" name="server_id" value="{{ server_id }}">
             
             <div class="bg-white p-6 rounded-lg shadow mb-6">

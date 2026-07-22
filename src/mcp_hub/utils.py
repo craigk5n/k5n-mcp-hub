@@ -1,4 +1,5 @@
 import asyncio
+import hashlib
 import ipaddress
 import json
 import re
@@ -8,6 +9,28 @@ from typing import Any, Optional
 from urllib.parse import urlparse
 
 import httpx
+
+_DOM_ID_UNSAFE = re.compile(r"[^A-Za-z0-9_-]")
+
+
+def dom_id(value: object) -> str:
+    """Map an arbitrary identifier to a CSS-selector-safe DOM id token.
+
+    Server ids (and MCP tool names) may contain spaces, dots, slashes, and other
+    characters that are invalid in an HTML ``id`` attribute or that break a
+    ``#id`` CSS selector (e.g. ``k5n.us webcalendar`` → ``#tools-k5n.us webcalendar``
+    parses as two selectors and resolves to nothing, raising ``htmx:targetError``).
+
+    This returns ``i<slug>-<hash>``: a readable slug of the original (unsafe chars
+    replaced with ``-``) plus a short stable hash. The leading ``i`` guarantees the
+    token starts with a letter, and the hash suffix keeps it unique even when two
+    different ids slugify to the same string. The mapping is deterministic, so the
+    same id always yields the same token across separately rendered templates.
+    """
+    s = str(value)
+    slug = _DOM_ID_UNSAFE.sub("-", s)
+    digest = hashlib.sha1(s.encode("utf-8")).hexdigest()[:8]
+    return f"i{slug}-{digest}"
 
 
 def pretty_json(s: str) -> str:
