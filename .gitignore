@@ -17,5 +17,9 @@ htmlcov/
 # Runtime agent-fixture store written by the app/tests at repo root
 /.mcp_hub/
 
+# JSON storage backend file (default path). Contains registered servers including
+# plaintext bearer tokens / basic-auth passwords — must never be committed.
+/mcp_servers.json
+
 # Local-only audit (not tracked)
 AUDIT_local.md
