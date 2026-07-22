@@ -1,6 +1,10 @@
+import re
+
 import pytest
 from jinja2 import Environment, FileSystemLoader, select_autoescape
 from pathlib import Path
+
+from mcp_hub.utils import dom_id
 
 
 def _create_test_environment() -> Environment:
@@ -9,6 +13,7 @@ def _create_test_environment() -> Environment:
         loader=FileSystemLoader(str(templates_dir)),
         autoescape=select_autoescape(["html", "xml"]),
     )
+    env.filters["dom_id"] = dom_id
     return env
 
 
@@ -82,9 +87,9 @@ def test_tools_container_exists() -> None:
     html = template.render(servers=servers)
 
     for server in servers:
-        server_id = server["id"]
+        token = dom_id(server["id"])
 
-        assert f'id="tools-{server_id}"' in html
+        assert f'id="tools-{token}"' in html
         assert 'class="hidden"' in html or "hidden" in html
 
 
@@ -96,12 +101,12 @@ def test_all_hidden_panel_containers() -> None:
     html = template.render(servers=servers)
 
     for server in servers:
-        server_id = server["id"]
+        token = dom_id(server["id"])
 
-        assert f'id="initialize-{server_id}"' in html
-        assert f'id="trace-{server_id}"' in html
-        assert f'id="faults-{server_id}"' in html
-        assert f'id="playground-{server_id}"' in html
+        assert f'id="initialize-{token}"' in html
+        assert f'id="trace-{token}"' in html
+        assert f'id="faults-{token}"' in html
+        assert f'id="playground-{token}"' in html
 
 
 def test_template_renders_all_servers() -> None:
@@ -147,6 +152,37 @@ def test_vendored_scripts_included() -> None:
     assert "/static/vendor/htmx.min.js" in html
     assert "/static/vendor/hyperscript.min.js" in html
     assert "/static/vendor/tailwind.js" in html
+
+
+def test_panel_targets_safe_for_ids_with_spaces_and_dots() -> None:
+    # Regression: a server id containing a space/dot (e.g. "k5n.us webcalendar")
+    # must not leak into an hx-target selector like "#tools-k5n.us webcalendar",
+    # which the browser parses as two selectors -> htmx:targetError.
+    env = _create_test_environment()
+    template = env.get_template("servers.html")
+
+    server = {
+        "id": "k5n.us webcalendar",
+        "url": "http://localhost:8001/mcp",
+        "name": "Weird Id Server",
+        "version": "1.0.0",
+        "description": "",
+        "tags": [],
+        "registration_type": "manual",
+    }
+    html = template.render(servers=[server])
+
+    token = dom_id(server["id"])
+    # Every panel target and its container use the sanitized token, which matches.
+    for panel in ("tools", "initialize", "trace", "faults", "playground"):
+        assert f'hx-target="#{panel}-{token}"' in html
+        assert f'id="{panel}-{token}"' in html
+
+    # The raw, unsafe selector must NOT appear anywhere.
+    assert 'hx-target="#tools-k5n.us webcalendar"' not in html
+    # No hx-target selector on the page contains a space (which would be invalid).
+    for m in re.findall(r'hx-target="(#[^"]*)"', html):
+        assert " " not in m, f"invalid selector with space: {m!r}"
 
 
 def test_action_buttons_present() -> None:

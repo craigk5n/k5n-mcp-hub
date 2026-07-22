@@ -161,47 +161,47 @@
                             <button
                                 class="px-3 py-1.5 text-sm bg-gray-100 hover:bg-gray-200 rounded transition-colors"
                                 hx-get="/ui/server/{{ server.id }}/initialize"
-                                hx-target="#initialize-{{ server.id }}"
+                                hx-target="#initialize-{{ server.id | dom_id }}"
                                 hx-swap="innerHTML"
                             >Initialize</button>
                             
                             <button 
                                 class="px-3 py-1.5 text-sm bg-gray-100 hover:bg-gray-200 rounded transition-colors"
                                 hx-get="/ui/server/{{ server.id }}/trace"
-                                hx-target="#trace-{{ server.id }}"
+                                hx-target="#trace-{{ server.id | dom_id }}"
                                 hx-swap="innerHTML"
                             >View Trace</button>
                             
                             <button
                                 class="px-3 py-1.5 text-sm bg-gray-100 hover:bg-gray-200 rounded transition-colors"
                                 hx-get="/ui/server/{{ server.id }}/faults"
-                                hx-target="#faults-{{ server.id }}"
+                                hx-target="#faults-{{ server.id | dom_id }}"
                                 hx-swap="innerHTML"
                             >Faults</button>
                             
                             <button 
                                 class="px-3 py-1.5 text-sm bg-gray-100 hover:bg-gray-200 rounded transition-colors"
                                 hx-get="/ui/server/{{ server.id }}/playground"
-                                hx-target="#playground-{{ server.id }}"
+                                hx-target="#playground-{{ server.id | dom_id }}"
                                 hx-swap="innerHTML"
                             >Playground</button>
                             
                             <button 
                                 class="px-3 py-1.5 text-sm bg-blue-100 hover:bg-blue-200 text-blue-800 rounded transition-colors"
                                 hx-get="/ui/server/{{ server.id }}/tools"
-                                hx-target="#tools-{{ server.id }}"
+                                hx-target="#tools-{{ server.id | dom_id }}"
                                 hx-swap="innerHTML"
                             >Capabilities</button>
                         </div>
                     </div>
                 </div>
                 
-                <div id="tools-{{ server.id }}" class="mt-4 hidden" hx-on::after-swap="this.classList.remove('hidden')"></div>
-                
-                <div id="initialize-{{ server.id }}" class="mt-4 hidden" hx-on::after-swap="this.classList.remove('hidden')"></div>
-                <div id="trace-{{ server.id }}" class="mt-4 hidden" hx-on::after-swap="this.classList.remove('hidden')"></div>
-                <div id="faults-{{ server.id }}" class="mt-4 hidden" hx-on::after-swap="this.classList.remove('hidden')"></div>
-                <div id="playground-{{ server.id }}" class="mt-4 hidden" hx-on::after-swap="this.classList.remove('hidden')"></div>
+                <div id="tools-{{ server.id | dom_id }}" class="mt-4 hidden" hx-on::after-swap="this.classList.remove('hidden')"></div>
+
+                <div id="initialize-{{ server.id | dom_id }}" class="mt-4 hidden" hx-on::after-swap="this.classList.remove('hidden')"></div>
+                <div id="trace-{{ server.id | dom_id }}" class="mt-4 hidden" hx-on::after-swap="this.classList.remove('hidden')"></div>
+                <div id="faults-{{ server.id | dom_id }}" class="mt-4 hidden" hx-on::after-swap="this.classList.remove('hidden')"></div>
+                <div id="playground-{{ server.id | dom_id }}" class="mt-4 hidden" hx-on::after-swap="this.classList.remove('hidden')"></div>
             </div>
             {% endfor %}
         </div>

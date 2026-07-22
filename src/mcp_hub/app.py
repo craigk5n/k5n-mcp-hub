@@ -26,6 +26,7 @@ from mcp_hub.mcp.discovery import DiscoveryService
 from mcp_hub.registry.service import Registry
 from mcp_hub.storage import InMemoryStorage
 from mcp_hub.trace.recorder import TraceRecorder
+from mcp_hub.utils import dom_id
 
 logger = logging.getLogger(__name__)
 
@@ -140,6 +141,7 @@ def _create_jinja2_environment() -> Environment:
         return quote(value, safe="")
 
     env.filters["path_encode"] = path_encode
+    env.filters["dom_id"] = dom_id
     env.filters["sanitize_headers"] = sanitize_trace_headers
 
     return env

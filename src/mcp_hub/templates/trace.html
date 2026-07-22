@@ -23,21 +23,21 @@
                 </button>
                 <button
                     hx-post="/ui/server/{{ server_id|urlencode }}/trace/verbose"
-                    hx-target="#trace-{{ server_id }}" hx-swap="innerHTML"
+                    hx-target="#trace-{{ server_id | dom_id }}" hx-swap="innerHTML"
                     class="px-3 py-1 bg-blue-500 hover:bg-blue-600 text-white rounded text-sm"
                 >
                     {% if verbose %}Disable Verbose{% else %}Enable Verbose{% endif %}
                 </button>
                 <button 
                     hx-get="/ui/server/{{ server_id|urlencode }}/trace{% if verbose %}?verbose=true{% endif %}"
-                    hx-target="#trace-{{ server_id }}" hx-swap="innerHTML"
+                    hx-target="#trace-{{ server_id | dom_id }}" hx-swap="innerHTML"
                     class="px-3 py-1 bg-green-500 hover:bg-green-600 text-white rounded text-sm"
                 >
                     Refresh
                 </button>
                 <button 
                     hx-delete="/api/trace/{{ server_id|urlencode }}"
-                    hx-target="#trace-{{ server_id }}" hx-swap="innerHTML"
+                    hx-target="#trace-{{ server_id | dom_id }}" hx-swap="innerHTML"
                     _="on click if not confirm('Are you sure you want to clear all trace entries?') halt"
                     class="px-3 py-1 bg-yellow-500 hover:bg-yellow-600 text-white rounded text-sm"
                 >

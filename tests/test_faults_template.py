@@ -3,6 +3,7 @@ from fastapi.testclient import TestClient
 
 from mcp_hub.app import create_app
 from mcp_hub.models.server import FaultInjection, RegisteredServer
+from mcp_hub.utils import dom_id
 
 
 class TestFaultsTemplate:
@@ -185,7 +186,7 @@ class TestFaultsEndpoint:
 
         assert response.status_code == 200
         assert 'hx-post="/ui/server/test-server-456/faults"' in response.text
-        assert 'hx-target="#faults-test-server-456"' in response.text
+        assert f'hx-target="#faults-{dom_id("test-server-456")}"' in response.text
         assert 'name="enabled"' in response.text
         assert "checked" in response.text
         assert 'name="timeout_enabled"' in response.text
