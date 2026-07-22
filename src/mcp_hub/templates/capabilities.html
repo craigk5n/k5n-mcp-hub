@@ -133,6 +133,8 @@
                     <form hx-post="/ui/invoke/{{ server_id }}/{{ tool.name }}"
                           hx-target="#result-{{ server_id | dom_id }}-{{ tool.name | dom_id }}"
                           hx-swap="innerHTML"
+                          hx-on::response-error="let t=document.getElementById('result-{{ server_id | dom_id }}-{{ tool.name | dom_id }}'); if(t){t.innerHTML=`<div class='p-4 rounded-lg border bg-red-50 border-red-200 text-red-800 text-sm'>Invoke failed (HTTP ${event.detail.xhr.status}). Check the server and the hub logs.</div>`;}"
+                          hx-on::send-error="let t=document.getElementById('result-{{ server_id | dom_id }}-{{ tool.name | dom_id }}'); if(t){t.innerHTML=`<div class='p-4 rounded-lg border bg-red-50 border-red-200 text-red-800 text-sm'>Invoke failed: could not reach the hub.</div>`;}"
                           class="space-y-3">
                         {% if tool.inputSchema and tool.inputSchema.properties %}
                         <div class="space-y-2">
