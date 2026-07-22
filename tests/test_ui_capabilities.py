@@ -559,7 +559,8 @@ async def test_get_capabilities_shows_schema_conformance() -> None:
 
     assert "Schema Conformant:" in html
     assert "No" in html
-    assert "Schema Issues:" in html
+    # Advisory (softened) presentation of schema notes rather than red "errors".
+    assert "Schema notes" in html
     assert "Invalid type for tool" in html
     assert "Missing required property" in html
 
