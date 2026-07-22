@@ -154,7 +154,10 @@ def _build_success_fragment(message: str) -> str:
     )
 
 
-@router.post("/invoke/{server_id}/{tool_name}", response_class=HTMLResponse)
+# tool_name is a :path converter: MCP tool names may contain "/" (e.g.
+# "webcalendar/list-events"), which would otherwise split into extra path segments and
+# 404. server_id is a single segment, so the greedy tool_name captures everything after it.
+@router.post("/invoke/{server_id}/{tool_name:path}", response_class=HTMLResponse)
 async def invoke_tool(
     request: Request,
     server_id: str,

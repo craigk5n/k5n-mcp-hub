@@ -174,3 +174,20 @@ class TestInvokeRoute:
         )
 
         assert response.status_code == 404
+
+    def test_invoke_route_accepts_tool_name_with_slash(self) -> None:
+        # Regression: MCP tool names may contain "/" (e.g. "webcalendar/list-events").
+        # The route must capture the whole name and reach the handler instead of 404ing at
+        # the router. An unknown server proves routing matched: the handler's own 404
+        # (detail "Server not found") differs from a router miss (detail "Not Found").
+        from fastapi.testclient import TestClient
+
+        from mcp_hub.app import create_app
+
+        app = create_app()
+        client = TestClient(app, raise_server_exceptions=False)
+
+        response = client.post("/ui/invoke/nonexistent-server/webcalendar/list-events")
+
+        assert response.status_code == 404
+        assert response.json()["detail"] == "Server not found"
