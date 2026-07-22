@@ -185,12 +185,12 @@
                                 <span class="hidden [.htmx-request_&]:inline">Invoking&hellip;</span>
                             </button>
                             <button type="button"
-                                    onclick="downloadToolScript(this, '/ui/server/{{ server_id|urlencode }}/tool/{{ tool.name|urlencode }}/download')"
+                                    onclick="downloadToolScript(this, '/ui/server/{{ server_id|urlencode }}/tool-download/{{ tool.name }}')"
                                     class="bg-gray-600 hover:bg-gray-700 text-white text-sm font-medium py-1.5 px-3 rounded-md transition-colors">
                                 Download Bash Script
                             </button>
                             <button type="button"
-                                    onclick="downloadToolScript(this, '/ui/server/{{ server_id|urlencode }}/tool/{{ tool.name|urlencode }}/download-python')"
+                                    onclick="downloadToolScript(this, '/ui/server/{{ server_id|urlencode }}/tool-download-python/{{ tool.name }}')"
                                     class="bg-gray-600 hover:bg-gray-700 text-white text-sm font-medium py-1.5 px-3 rounded-md transition-colors">
                                 Download Python Script
                             </button>

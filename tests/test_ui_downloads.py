@@ -29,6 +29,33 @@ class TestSanitizeFilename:
 
 
 class TestDownloadEndpoint:
+    def test_download_tool_name_with_slash(self) -> None:
+        # Regression: MCP tool names may contain "/" (e.g. "webcalendar/list-events").
+        # The route must capture the whole name (trailing :path) and generate a script;
+        # the "/" is replaced in the download filename.
+        server = RegisteredServer(
+            id="srv-123",
+            url="http://example.com/mcp",
+            name="Test Server",
+            mcp_transport="http",
+        )
+        app = create_app()
+        asyncio.run(app.state.registry.register(server))
+        client = TestClient(app, raise_server_exceptions=False)
+
+        response = client.post(
+            "/ui/server/srv-123/tool-download/webcalendar/list-events",
+            data={"mode": "direct"},
+            headers=make_basic_auth_header("admin", "admin123"),
+        )
+
+        assert response.status_code == 200
+        assert "text/x-shellscript" in response.headers["content-type"]
+        content = response.text
+        assert "webcalendar/list-events" in content  # real name kept in the script body
+        # filename has the slash sanitized out
+        assert "webcalendar_list-events" in response.headers["content-disposition"]
+
     def test_download_direct_mode_with_bearer_token(self) -> None:
         server = RegisteredServer(
             id="srv-123",
@@ -46,7 +73,7 @@ class TestDownloadEndpoint:
         client = TestClient(app, raise_server_exceptions=False)
 
         response = client.post(
-            "/ui/server/srv-123/tool/my-tool/download",
+            "/ui/server/srv-123/tool-download/my-tool",
             data={"mode": "direct", "arg1": "value1"},
             headers=make_basic_auth_header("admin", "admin123"),
         )
@@ -77,7 +104,7 @@ class TestDownloadEndpoint:
         client = TestClient(app, raise_server_exceptions=False)
 
         response = client.post(
-            "/ui/server/srv-456/tool/my-tool/download",
+            "/ui/server/srv-456/tool-download/my-tool",
             data={"mode": "direct"},
             headers=make_basic_auth_header("admin", "admin123"),
         )
@@ -104,7 +131,7 @@ class TestDownloadEndpoint:
         client = TestClient(app, raise_server_exceptions=False)
 
         response = client.post(
-            "/ui/server/srv-789/tool/my-tool/download",
+            "/ui/server/srv-789/tool-download/my-tool",
             data={"mode": "direct"},
             headers=make_basic_auth_header("admin", "admin123"),
         )
@@ -132,7 +159,7 @@ class TestDownloadEndpoint:
         headers = make_basic_auth_header("admin", "admin123")
         headers["Host"] = "127.0.0.1:8080"
         response = client.post(
-            "/ui/server/srv-123/tool/my-tool/download",
+            "/ui/server/srv-123/tool-download/my-tool",
             data={"mode": "hub"},
             headers=headers,
         )
@@ -162,7 +189,7 @@ class TestDownloadEndpoint:
         headers = make_basic_auth_header("admin", "admin123")
         headers["Host"] = "127.0.0.1:8080"
         response = client.post(
-            "/ui/server/srv-123/tool/my-tool/download",
+            "/ui/server/srv-123/tool-download/my-tool",
             data={"mode": "hub"},
             headers=headers,
         )
@@ -190,7 +217,7 @@ class TestDownloadEndpoint:
         client = TestClient(app, raise_server_exceptions=False)
 
         response = client.post(
-            "/ui/server/srv-123/tool/my-tool/download",
+            "/ui/server/srv-123/tool-download/my-tool",
             data={"mode": "invalid_mode"},
             headers=make_basic_auth_header("admin", "admin123"),
         )
@@ -214,7 +241,7 @@ class TestDownloadEndpoint:
         client = TestClient(app, raise_server_exceptions=False)
 
         response = client.post(
-            "/ui/server/srv-123/tool/my-tool/download",
+            "/ui/server/srv-123/tool-download/my-tool",
             data={"__json__config": "1", "config": "not valid json"},
             headers=make_basic_auth_header("admin", "admin123"),
         )
@@ -226,7 +253,7 @@ class TestDownloadEndpoint:
         client = TestClient(app, raise_server_exceptions=False)
 
         response = client.post(
-            "/ui/server/nonexistent/tool-name/download",
+            "/ui/server/nonexistent/tool-download/tool-name",
             data={},
             headers=make_basic_auth_header("admin", "admin123"),
         )
@@ -250,7 +277,7 @@ class TestDownloadEndpoint:
         client = TestClient(app, raise_server_exceptions=False)
 
         response = client.post(
-            "/ui/server/srv-123/tool/my-tool/download",
+            "/ui/server/srv-123/tool-download/my-tool",
             data={},
             headers=make_basic_auth_header("admin", "admin123"),
         )
@@ -280,7 +307,7 @@ class TestDownloadEndpoint:
         client = TestClient(app, raise_server_exceptions=False)
 
         response = client.post(
-            "/ui/server/srv-123/tool/my-tool/download",
+            "/ui/server/srv-123/tool-download/my-tool",
             data={},
             headers=make_basic_auth_header("admin", "admin123"),
         )
@@ -308,7 +335,7 @@ class TestDownloadEndpoint:
         client = TestClient(app, raise_server_exceptions=False)
 
         response = client.post(
-            "/ui/server/srv-123/tool/my-tool/download",
+            "/ui/server/srv-123/tool-download/my-tool",
             data={"arg1": "value1", "arg2": "42"},
             headers=make_basic_auth_header("admin", "admin123"),
         )
@@ -336,7 +363,7 @@ class TestDownloadEndpoint:
         client = TestClient(app, raise_server_exceptions=False)
 
         response = client.post(
-            "/ui/server/srv-123/tool/my-tool/download",
+            "/ui/server/srv-123/tool-download/my-tool",
             data={},
             headers=make_basic_auth_header("admin", "admin123"),
         )
@@ -364,7 +391,7 @@ class TestDownloadEndpoint:
         headers = make_basic_auth_header("admin", "admin123")
         headers["Host"] = "127.0.0.1:8080"
         response = client.post(
-            "/ui/server/srv-123/tool/my-tool/download",
+            "/ui/server/srv-123/tool-download/my-tool",
             data={"mode": "hub"},
             headers=headers,
         )
@@ -390,7 +417,7 @@ class TestDownloadEndpoint:
         client = TestClient(app, raise_server_exceptions=False)
 
         response = client.post(
-            "/ui/server/srv-proto/tool/my-tool/download",
+            "/ui/server/srv-proto/tool-download/my-tool",
             data={},
             headers=make_basic_auth_header("admin", "admin123"),
         )
@@ -418,7 +445,7 @@ class TestDownloadPythonEndpoint:
         client = TestClient(app, raise_server_exceptions=False)
 
         response = client.post(
-            "/ui/server/srv-py-123/tool/my-tool/download-python",
+            "/ui/server/srv-py-123/tool-download-python/my-tool",
             data={"mode": "direct", "arg1": "value1"},
             headers=make_basic_auth_header("admin", "admin123"),
         )
@@ -450,7 +477,7 @@ class TestDownloadPythonEndpoint:
         client = TestClient(app, raise_server_exceptions=False)
 
         response = client.post(
-            "/ui/server/srv-py-stream/tool/my-tool/download-python",
+            "/ui/server/srv-py-stream/tool-download-python/my-tool",
             data={"mode": "direct"},
             headers=make_basic_auth_header("admin", "admin123"),
         )
@@ -478,7 +505,7 @@ class TestDownloadPythonEndpoint:
         client = TestClient(app, raise_server_exceptions=False)
 
         response = client.post(
-            "/ui/server/srv-py-123/tool/my-tool/download-python",
+            "/ui/server/srv-py-123/tool-download-python/my-tool",
             data={"mode": "invalid_mode"},
             headers=make_basic_auth_header("admin", "admin123"),
         )
@@ -502,7 +529,7 @@ class TestDownloadPythonEndpoint:
         client = TestClient(app, raise_server_exceptions=False)
 
         response = client.post(
-            "/ui/server/srv-py-123/tool/my-tool/download-python",
+            "/ui/server/srv-py-123/tool-download-python/my-tool",
             data={"__json__config": "1", "config": "not valid json"},
             headers=make_basic_auth_header("admin", "admin123"),
         )
@@ -514,7 +541,7 @@ class TestDownloadPythonEndpoint:
         client = TestClient(app, raise_server_exceptions=False)
 
         response = client.post(
-            "/ui/server/nonexistent/tool-name/download-python",
+            "/ui/server/nonexistent/tool-download-python/tool-name",
             data={},
             headers=make_basic_auth_header("admin", "admin123"),
         )
@@ -538,7 +565,7 @@ class TestDownloadPythonEndpoint:
         client = TestClient(app, raise_server_exceptions=False)
 
         response = client.post(
-            "/ui/server/srv-py-123/tool/my-tool/download-python",
+            "/ui/server/srv-py-123/tool-download-python/my-tool",
             data={},
             headers=make_basic_auth_header("admin", "admin123"),
         )
@@ -566,7 +593,7 @@ class TestDownloadPythonEndpoint:
         headers = make_basic_auth_header("admin", "admin123")
         headers["Host"] = "127.0.0.1:8080"
         response = client.post(
-            "/ui/server/srv-py-hub/tool/my-tool/download-python",
+            "/ui/server/srv-py-hub/tool-download-python/my-tool",
             data={"mode": "hub"},
             headers=headers,
         )
@@ -594,7 +621,7 @@ class TestDownloadPythonEndpoint:
         client = TestClient(app, raise_server_exceptions=False)
 
         response = client.post(
-            "/ui/server/srv-py-123/tool/my-tool/download-python",
+            "/ui/server/srv-py-123/tool-download-python/my-tool",
             data={},
             headers=make_basic_auth_header("admin", "admin123"),
         )
