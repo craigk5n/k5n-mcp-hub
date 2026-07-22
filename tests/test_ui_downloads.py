@@ -85,8 +85,10 @@ class TestDownloadEndpoint:
         content = response.text
         assert content.startswith("#!/usr/bin/env bash")
         assert "my-tool" in content
-        assert "Authorization: Bearer $AUTH_HEADER_VALUE" in content
+        assert "AUTH_TYPE='bearer'" in content
         assert "${MCP_BEARER_TOKEN:-}" in content
+        assert "Authorization: Bearer ${MCP_BEARER_TOKEN}" in content
+        assert "secret-token-123" not in content  # token comes from env, never embedded
 
     def test_download_direct_mode_with_oauth(self) -> None:
         server = RegisteredServer(
@@ -111,7 +113,7 @@ class TestDownloadEndpoint:
 
         assert response.status_code == 200
         content = response.text
-        assert "Authorization: Bearer $AUTH_HEADER_VALUE" in content
+        assert "AUTH_TYPE='oauth'" in content
         assert "${MCP_ACCESS_TOKEN:-}" in content
         assert "secret-token" not in content
 
@@ -138,7 +140,37 @@ class TestDownloadEndpoint:
 
         assert response.status_code == 200
         content = response.text
-        assert "AUTH_HEADER_VALUE=''" in content
+        # No-auth server: no auth type, so no Authorization header is added at call time.
+        assert "AUTH_TYPE=''" in content
+
+    def test_download_direct_mode_basic_auth(self) -> None:
+        server = RegisteredServer(
+            id="srv-basic",
+            url="http://basic.example.com/mcp",
+            name="Basic Server",
+            auth_type="basic",
+            basic_username="admin",
+            basic_password="super-secret-pw",
+            mcp_transport="http",
+        )
+        app = create_app()
+        asyncio.run(app.state.registry.register(server))
+        client = TestClient(app, raise_server_exceptions=False)
+
+        response = client.post(
+            "/ui/server/srv-basic/tool-download/my-tool",
+            data={"mode": "direct"},
+            headers=make_basic_auth_header("admin", "admin123"),
+        )
+
+        assert response.status_code == 200
+        content = response.text
+        assert "AUTH_TYPE='basic'" in content
+        # Username (not secret) is embedded as the default; password comes from env/prompt.
+        assert "BASIC_USER_DEFAULT='admin'" in content
+        assert "MCP_BASIC_PASS" in content
+        assert "Authorization: Basic" in content
+        assert "super-secret-pw" not in content  # password never embedded
 
     def test_download_hub_mode(self) -> None:
         server = RegisteredServer(
@@ -167,8 +199,8 @@ class TestDownloadEndpoint:
         assert response.status_code == 200
         content = response.text
 
-        assert 'IS_HUB="true"' in content
-        assert "X-MCP-Target-Server: srv-123" in content or "TARGET_SERVER_ID='srv-123'" in content
+        assert "X-MCP-Target-Server: $TARGET_SERVER_ID" in content
+        assert "TARGET_SERVER_ID='srv-123'" in content
 
     def test_download_hub_mode_prompts_for_mcp_hub_auth(self) -> None:
         server = RegisteredServer(
@@ -197,8 +229,8 @@ class TestDownloadEndpoint:
         assert response.status_code == 200
         content = response.text
 
-        assert "prompt_mcp_hub_auth" in content
-        assert "k5n-mcp-hub Username" in content or "MCPHUB_USER" in content
+        assert "k5n-mcp-hub Username" in content
+        assert "MCPHUB_USER" in content
 
     def test_download_invalid_mode_returns_400(self) -> None:
         server = RegisteredServer(
@@ -456,8 +488,11 @@ class TestDownloadPythonEndpoint:
 
         content = response.text
         assert content.startswith("#!/usr/bin/env python3")
-        assert "from mcp.client.session import ClientSession" in content
-        assert "await session.call_tool" in content
+        # No SDK dependency (mcp requires Python 3.10+); the script uses httpx directly.
+        assert "import mcp" not in content
+        assert "from mcp" not in content
+        assert "import httpx" in content
+        assert "def build_auth_header():" in content
         assert "mcp-srv-py-123-my-tool.py" in response.headers["content-disposition"]
 
     def test_download_python_streamable_uses_direct_http(self) -> None:
@@ -486,7 +521,8 @@ class TestDownloadPythonEndpoint:
         content = response.text
         assert "import httpx" in content
         assert "from mcp.client.session" not in content
-        assert "http_request" in content
+        assert "build_headers" in content
+        assert 'AUTH_TYPE = "bearer"' in content
 
     def test_download_python_invalid_mode_returns_400(self) -> None:
         server = RegisteredServer(
