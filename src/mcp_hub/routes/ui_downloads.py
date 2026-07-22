@@ -139,6 +139,10 @@ def build_template_context(
         "init_body": init_body_json,
         "call_body": call_body_json,
         "auth_header_value": auth_header_value,
+        # Server auth type + non-secret username let direct-mode scripts build the right
+        # Authorization header (Basic/Bearer/OAuth) from env vars, without embedding secrets.
+        "auth_type": srv.auth_type or "",
+        "basic_username": srv.basic_username or "",
         "protocol_version": protocol_version,
         "tool_name": tool_name,
         "is_hub": str(is_hub).lower(),

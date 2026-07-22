@@ -138,7 +138,9 @@ class TestToolScriptTemplate:
         template = jinja_env.get_template("tool_script.sh.j2")
         result = template.render(**sample_context)
         assert result.startswith("#!/usr/bin/env bash")
-        assert "set -euo pipefail" in result
+        # -e is intentionally omitted: errors are handled explicitly so a no-match grep
+        # (e.g. missing sessionId) doesn't kill the script with a bare exit 1.
+        assert "set -uo pipefail" in result
 
     def test_has_init_and_call_body_variables(
         self, jinja_env: Environment, sample_context: dict
@@ -152,18 +154,20 @@ class TestToolScriptTemplate:
             in result
         )
 
-    def test_has_curl_with_status_function(
+    def test_has_mcp_call_function_and_status_capture(
         self, jinja_env: Environment, sample_context: dict
     ) -> None:
         template = jinja_env.get_template("tool_script.sh.j2")
         result = template.render(**sample_context)
-        assert "curl_with_status() {" in result
-        assert 'curl "${curl_args[@]}"' in result
+        assert "mcp_call() {" in result
+        # HTTP status is captured from curl's -w, not a broken second -o file.
+        assert "-w '%{http_code}'" in result
+        assert "RESP_STATUS=" in result
 
-    def test_has_cleanup_trap(self, jinja_env: Environment, sample_context: dict) -> None:
+    def test_cleans_up_temp_files(self, jinja_env: Environment, sample_context: dict) -> None:
         template = jinja_env.get_template("tool_script.sh.j2")
         result = template.render(**sample_context)
-        assert "trap cleanup EXIT" in result
+        assert 'rm -f "$headers_file" "$body_file"' in result
 
     def test_has_required_http_headers(self, jinja_env: Environment, sample_context: dict) -> None:
         template = jinja_env.get_template("tool_script.sh.j2")
@@ -172,19 +176,49 @@ class TestToolScriptTemplate:
         assert "Accept: application/json, text/event-stream" in result
         assert "MCP-Protocol-Version: $PROTOCOL_VERSION" in result
 
-    def test_has_auth_header_when_provided(
+    def test_builds_auth_header_and_sends_it(
         self, jinja_env: Environment, sample_context: dict
     ) -> None:
         template = jinja_env.get_template("tool_script.sh.j2")
         result = template.render(**sample_context)
-        assert "Authorization: Bearer $AUTH_HEADER_VALUE" in result
+        assert "build_auth_header()" in result
+        assert '[[ -n "$AUTH_HEADER" ]] && curl_args+=(-H "$AUTH_HEADER")' in result
 
     def test_has_mcp_hub_auth_logic(self, jinja_env: Environment, sample_context: dict) -> None:
+        # sample_context is is_hub=True, so the hub-auth branch is rendered.
         template = jinja_env.get_template("tool_script.sh.j2")
         result = template.render(**sample_context)
         assert "MCPHUB_USER" in result
         assert "MCPHUB_PASS" in result
-        assert "prompt_mcp_hub_auth" in result
+        assert "k5n-mcp-hub Username" in result
+
+    def test_direct_mode_supports_basic_auth(self, jinja_env: Environment) -> None:
+        context = {
+            "base_url": "http://localhost:8000/mcp",
+            "init_body": '{"jsonrpc":"2.0","id":1}',
+            "call_body": '{"jsonrpc":"2.0","id":2}',
+            "auth_header_value": "",
+            "auth_type": "basic",
+            "basic_username": "admin",
+            "protocol_version": "2024-11-05",
+            "tool_name": "test",
+            "is_hub": "False",
+            "target_server_id": "srv-1",
+            "ca_bundle": "",
+        }
+        result = jinja_env.get_template("tool_script.sh.j2").render(**context)
+        assert "AUTH_TYPE='basic'" in result
+        assert "BASIC_USER_DEFAULT='admin'" in result
+        assert "MCP_BASIC_PASS" in result
+        assert "Authorization: Basic" in result
+
+    def test_reports_jsonrpc_error(self, jinja_env: Environment, sample_context: dict) -> None:
+        # Servers can return HTTP 200 with a JSON-RPC {"error":{...}} (e.g. auth failures);
+        # the script must detect and surface that, not silently continue.
+        template = jinja_env.get_template("tool_script.sh.j2")
+        result = template.render(**sample_context)
+        assert "check_error" in result
+        assert '"error"' in result
 
     def test_has_sse_handling(self, jinja_env: Environment, sample_context: dict) -> None:
         template = jinja_env.get_template("tool_script.sh.j2")
@@ -205,13 +239,13 @@ class TestToolScriptTemplate:
         result = template.render(**sample_context)
         assert "Initializing MCP session" in result
         assert "Sending MCP initialized notification" in result
-        assert "Calling tool: $TOOL_NAME" in result
+        assert "Calling tool: ${TOOL_NAME}" in result
 
-    def test_has_401_retry_logic(self, jinja_env: Environment, sample_context: dict) -> None:
+    def test_has_auth_failure_handling(self, jinja_env: Environment, sample_context: dict) -> None:
         template = jinja_env.get_template("tool_script.sh.j2")
         result = template.render(**sample_context)
-        assert 'status" == "401"' in result
-        assert "Unauthorized" in result
+        assert '"$RESP_STATUS" == "401"' in result
+        assert "authentication failed" in result
         assert "exit 1" in result
 
 
@@ -226,9 +260,11 @@ class TestToolScriptPythonTemplate:
     def sample_context(self) -> dict:
         return {
             "base_url": "http://localhost:8000/mcp",
-            "init_body": '{"jsonrpc":"2.0","method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"test","version":"1.0"}},"id":1}',
-            "call_body": '{"jsonrpc":"2.0","method":"tools/call","params":{"name":"echo","arguments":{"text":"hello"}},"id":2}',
-            "auth_header_value": "Bearer test-token-123",
+            "init_body": '{"jsonrpc":"2.0","method":"initialize","params":{},"id":1}',
+            "call_body": '{"jsonrpc":"2.0","method":"tools/call","params":{"name":"echo"},"id":2}',
+            "auth_header_value": "",
+            "auth_type": "bearer",
+            "basic_username": "",
             "protocol_version": "2024-11-05",
             "tool_name": "echo",
             "is_hub": "True",
@@ -237,241 +273,95 @@ class TestToolScriptPythonTemplate:
             "is_streamable": True,
         }
 
-    def test_renders_without_errors(self, jinja_env: Environment, sample_context: dict) -> None:
-        template = jinja_env.get_template("tool_script.py.j2")
-        result = template.render(**sample_context)
-        assert result is not None
-        assert len(result) > 0
+    def _render(self, jinja_env: Environment, ctx: dict) -> str:
+        return jinja_env.get_template("tool_script.py.j2").render(**ctx)
 
-    def test_compiles_without_errors(self, jinja_env: Environment, sample_context: dict) -> None:
-        template = jinja_env.get_template("tool_script.py.j2")
-        result = template.render(**sample_context)
-        try:
-            compile(result, "<template>", "exec")
-        except SyntaxError as e:
-            pytest.fail(f"Template compilation failed: {e}")
-
-    def test_passes_py_compile(self, jinja_env: Environment, sample_context: dict) -> None:
-        template = jinja_env.get_template("tool_script.py.j2")
-        result = template.render(**sample_context)
-        with tempfile.NamedTemporaryFile(mode="w", suffix=".py", delete=False) as f:
-            f.write(result)
-            f.flush()
-            try:
-                import py_compile
-
-                py_compile.compile(f.name, doraise=True)
-            except py_compile.PyCompileError as e:
-                pytest.fail(f"py_compile failed: {e}")
-
-    def test_all_variables_substituted(self, jinja_env: Environment, sample_context: dict) -> None:
-        template = jinja_env.get_template("tool_script.py.j2")
-        result = template.render(**sample_context)
-        assert "{{ base_url }}" not in result
-        assert "{{ init_body }}" not in result
-        assert "{{ call_body }}" not in result
-        assert "{{ auth_header_value }}" not in result
-        assert "{{ protocol_version }}" not in result
-        assert "{{ tool_name }}" not in result
-        assert "{{ is_hub }}" not in result
-        assert "{{ target_server_id }}" not in result
-
-    def test_has_shebang(self, jinja_env: Environment, sample_context: dict) -> None:
-        template = jinja_env.get_template("tool_script.py.j2")
-        result = template.render(**sample_context)
+    def test_renders_and_compiles(self, jinja_env: Environment, sample_context: dict) -> None:
+        result = self._render(jinja_env, sample_context)
         assert result.startswith("#!/usr/bin/env python3")
+        compile(result, "<template>", "exec")  # raises SyntaxError on failure
 
-    def test_has_docstring(self, jinja_env: Environment, sample_context: dict) -> None:
-        template = jinja_env.get_template("tool_script.py.j2")
-        result = template.render(**sample_context)
-        assert "MCP tool invocation script (direct or via k5n-mcp-hub)" in result
-
-    def test_streamable_docstring_text(self, jinja_env: Environment, sample_context: dict) -> None:
-        sample_context["is_streamable"] = True
-        template = jinja_env.get_template("tool_script.py.j2")
-        result = template.render(**sample_context)
-        assert "Uses direct HTTP for streamable servers (no SDK required)" in result
-
-    def test_non_streamable_docstring_text(self, jinja_env: Environment) -> None:
-        context = {
-            "base_url": "http://localhost:8000/mcp",
-            "init_body": '{"jsonrpc":"2.0","id":1}',
-            "call_body": '{"jsonrpc":"2.0","id":2}',
-            "auth_header_value": "",
-            "protocol_version": "2024-11-05",
-            "tool_name": "test",
-            "is_hub": "False",
-            "target_server_id": "",
-            "ca_bundle": "",
-            "is_streamable": False,
-        }
-        template = jinja_env.get_template("tool_script.py.j2")
-        result = template.render(**context)
-        assert "Requires: mcp (Python SDK). Install: pip install mcp" in result
-
-    def test_is_streamable_true_sets_constant(
-        self, jinja_env: Environment, sample_context: dict
-    ) -> None:
-        sample_context["is_streamable"] = True
-        template = jinja_env.get_template("tool_script.py.j2")
-        result = template.render(**sample_context)
-        assert "IS_STREAMABLE = True" in result
-
-    def test_is_streamable_false_sets_constant(self, jinja_env: Environment) -> None:
-        context = {
-            "base_url": "http://localhost:8000/mcp",
-            "init_body": '{"jsonrpc":"2.0","id":1}',
-            "call_body": '{"jsonrpc":"2.0","id":2}',
-            "auth_header_value": "",
-            "protocol_version": "2024-11-05",
-            "tool_name": "test",
-            "is_hub": "False",
-            "target_server_id": "",
-            "ca_bundle": "",
-            "is_streamable": False,
-        }
-        template = jinja_env.get_template("tool_script.py.j2")
-        result = template.render(**context)
-        assert "IS_STREAMABLE = False" in result
-
-    def test_is_hub_true_sets_target_server(
-        self, jinja_env: Environment, sample_context: dict
-    ) -> None:
-        template = jinja_env.get_template("tool_script.py.j2")
-        result = template.render(**sample_context)
-        assert 'TARGET_SERVER = "server-456"' in result
-
-    def test_is_hub_false_sets_target_server_none(self, jinja_env: Environment) -> None:
-        context = {
-            "base_url": "http://localhost:8000/mcp",
-            "init_body": '{"jsonrpc":"2.0","id":1}',
-            "call_body": '{"jsonrpc":"2.0","id":2}',
-            "auth_header_value": "",
-            "protocol_version": "2024-11-05",
-            "tool_name": "test",
-            "is_hub": "False",
-            "target_server_id": "srv-123",
-            "ca_bundle": "",
-            "is_streamable": True,
-        }
-        template = jinja_env.get_template("tool_script.py.j2")
-        result = template.render(**context)
-        assert "TARGET_SERVER = None" in result
-
-    def test_has_required_imports(self, jinja_env: Environment, sample_context: dict) -> None:
-        template = jinja_env.get_template("tool_script.py.j2")
-        result = template.render(**sample_context)
-        assert "import asyncio" in result
-        assert "import base64" in result
-        assert "import getpass" in result
-        assert "import json" in result
-        assert "import os" in result
-        assert "import sys" in result
-        assert "from typing import Optional" in result
+    def test_no_sdk_dependency(self, jinja_env: Environment, sample_context: dict) -> None:
+        # The script must NOT require the mcp SDK (which needs Python 3.10+); httpx only.
+        result = self._render(jinja_env, sample_context)
+        assert "import mcp" not in result
+        assert "from mcp" not in result
         assert "import httpx" in result
+        assert "pip3 install httpx" in result
 
-    def test_has_prompt_mcp_hub_basic_auth_function(
-        self, jinja_env: Environment, sample_context: dict
-    ) -> None:
-        template = jinja_env.get_template("tool_script.py.j2")
-        result = template.render(**sample_context)
-        assert "def prompt_mcp_hub_basic_auth() -> Optional[str]:" in result
+    def test_variables_substituted(self, jinja_env: Environment, sample_context: dict) -> None:
+        result = self._render(jinja_env, sample_context)
+        for var in ("base_url", "init_body", "call_body", "tool_name", "auth_type"):
+            assert "{{ " + var not in result
+        assert 'BASE_URL = "http://localhost:8000/mcp"' in result
+        assert 'TOOL_NAME = "echo"' in result
+        assert 'PROTOCOL_VERSION = "2024-11-05"' in result
+        assert "INIT_BODY = json.loads(" in result
+        assert "CALL_BODY = json.loads(" in result
 
-    def test_has_build_headers_function(self, jinja_env: Environment, sample_context: dict) -> None:
-        template = jinja_env.get_template("tool_script.py.j2")
-        result = template.render(**sample_context)
-        assert (
-            "def build_headers(auth_header: Optional[str], target_server: Optional[str]) -> dict[str, str]:"
-            in result
-        )
-
-    def test_has_parse_sse_body_function(
-        self, jinja_env: Environment, sample_context: dict
-    ) -> None:
-        template = jinja_env.get_template("tool_script.py.j2")
-        result = template.render(**sample_context)
-        assert "def parse_sse_body(response: httpx.Response) -> str:" in result
-
-    def test_has_run_streamable_function(
-        self, jinja_env: Environment, sample_context: dict
-    ) -> None:
-        template = jinja_env.get_template("tool_script.py.j2")
-        result = template.render(**sample_context)
-        assert "async def run_streamable() -> None:" in result
-
-    def test_has_run_via_sdk_function(self, jinja_env: Environment, sample_context: dict) -> None:
-        template = jinja_env.get_template("tool_script.py.j2")
-        result = template.render(**sample_context)
-        assert "async def run_via_sdk() -> None:" in result
-
-    def test_has_main_entry_point(self, jinja_env: Environment, sample_context: dict) -> None:
-        template = jinja_env.get_template("tool_script.py.j2")
-        result = template.render(**sample_context)
+    def test_core_functions_present(self, jinja_env: Environment, sample_context: dict) -> None:
+        result = self._render(jinja_env, sample_context)
+        assert "def build_auth_header():" in result
+        assert "def build_headers(" in result
+        assert "def parse_body(" in result
+        assert "def check_error(" in result
         assert "async def main() -> None:" in result
         assert 'if __name__ == "__main__":' in result
         assert "asyncio.run(main())" in result
 
-    def test_has_protocol_version_constant(
+    def test_auth_types_supported(self, jinja_env: Environment) -> None:
+        base = {
+            "base_url": "http://x/mcp",
+            "init_body": "{}",
+            "call_body": "{}",
+            "protocol_version": "p",
+            "tool_name": "t",
+            "target_server_id": "",
+            "ca_bundle": "",
+            "is_hub": "False",
+        }
+        bearer = dict(base, auth_type="bearer", basic_username="")
+        basic = dict(base, auth_type="basic", basic_username="admin")
+        r_bearer = self._render(jinja_env, bearer)
+        r_basic = self._render(jinja_env, basic)
+        assert 'AUTH_TYPE = "bearer"' in r_bearer
+        assert "MCP_BEARER_TOKEN" in r_bearer
+        assert 'AUTH_TYPE = "basic"' in r_basic
+        assert 'BASIC_USER_DEFAULT = "admin"' in r_basic
+        assert "MCP_BASIC_PASS" in r_basic
+
+    def test_session_from_response_header(
         self, jinja_env: Environment, sample_context: dict
     ) -> None:
-        template = jinja_env.get_template("tool_script.py.j2")
-        result = template.render(**sample_context)
-        assert 'PROTOCOL_VERSION = "2024-11-05"' in result
+        result = self._render(jinja_env, sample_context)
+        assert 'resp.headers.get("Mcp-Session-Id"' in result
 
-    def test_has_base_url_constant(self, jinja_env: Environment, sample_context: dict) -> None:
-        template = jinja_env.get_template("tool_script.py.j2")
-        result = template.render(**sample_context)
-        assert 'BASE_URL = "http://localhost:8000/mcp"' in result
-
-    def test_has_auth_header_value_constant(
-        self, jinja_env: Environment, sample_context: dict
-    ) -> None:
-        template = jinja_env.get_template("tool_script.py.j2")
-        result = template.render(**sample_context)
-        assert 'AUTH_HEADER_ENV = "Bearer test-token-123"' in result
-
-    def test_has_tool_name_constant(self, jinja_env: Environment, sample_context: dict) -> None:
-        template = jinja_env.get_template("tool_script.py.j2")
-        result = template.render(**sample_context)
-        assert 'TOOL_NAME = "echo"' in result
-
-    def test_has_init_body_json_loaded(self, jinja_env: Environment, sample_context: dict) -> None:
-        template = jinja_env.get_template("tool_script.py.j2")
-        result = template.render(**sample_context)
-        assert "INIT_BODY = json.loads(" in result
-
-    def test_has_call_body_json_loaded(self, jinja_env: Environment, sample_context: dict) -> None:
-        template = jinja_env.get_template("tool_script.py.j2")
-        result = template.render(**sample_context)
-        assert "CALL_BODY = json.loads(" in result
-
-    def test_has_sse_handling_in_streamable(
-        self, jinja_env: Environment, sample_context: dict
-    ) -> None:
-        template = jinja_env.get_template("tool_script.py.j2")
-        result = template.render(**sample_context)
+    def test_error_and_sse_handling(self, jinja_env: Environment, sample_context: dict) -> None:
+        result = self._render(jinja_env, sample_context)
         assert "text/event-stream" in result
-        assert "data:" in result
+        assert "authentication failed" in result
+        assert 'parsed.get("error")' in result
 
-    def test_has_401_retry_logic(self, jinja_env: Environment, sample_context: dict) -> None:
-        template = jinja_env.get_template("tool_script.py.j2")
-        result = template.render(**sample_context)
-        assert "status_code == 401" in result
-        assert "Unauthorized" in result
-        assert "sys.exit(1)" in result
-
-    def test_has_initialize_notification_steps(
+    def test_hub_mode_sets_target_and_hub_auth(
         self, jinja_env: Environment, sample_context: dict
     ) -> None:
-        template = jinja_env.get_template("tool_script.py.j2")
-        result = template.render(**sample_context)
-        assert "Initializing MCP session" in result
-        assert "Sending MCP initialized notification" in result
-        assert "Calling tool:" in result
+        result = self._render(jinja_env, sample_context)
+        assert 'TARGET_SERVER = "server-456"' in result
+        assert "X-MCP-Target-Server" in result
+        assert "MCPHUB_USER" in result
 
-    def test_has_mcp_protocol_version_header(
-        self, jinja_env: Environment, sample_context: dict
-    ) -> None:
-        template = jinja_env.get_template("tool_script.py.j2")
-        result = template.render(**sample_context)
-        assert "MCP-Protocol-Version" in result
+    def test_direct_mode_no_target_server(self, jinja_env: Environment) -> None:
+        ctx = {
+            "base_url": "http://x/mcp",
+            "init_body": "{}",
+            "call_body": "{}",
+            "auth_type": "",
+            "basic_username": "",
+            "protocol_version": "p",
+            "tool_name": "t",
+            "is_hub": "False",
+            "target_server_id": "srv-1",
+            "ca_bundle": "",
+        }
+        result = self._render(jinja_env, ctx)
+        assert "TARGET_SERVER = None" in result
