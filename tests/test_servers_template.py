@@ -205,6 +205,44 @@ def test_add_server_auth_type_dropdown() -> None:
     assert 'name="basic_password"' in html
 
 
+def test_server_card_has_actions_menu_with_edit_and_delete() -> None:
+    env = _create_test_environment()
+    template = env.get_template("servers.html")
+
+    server = {
+        "id": "srv.one",
+        "url": "http://localhost:8001/mcp",
+        "name": "Server One",
+        "version": "1.0.0",
+        "description": "",
+        "tags": [],
+        "registration_type": "manual",
+        "auth_type": "basic",
+    }
+    html = template.render(servers=[server])
+
+    token = dom_id(server["id"])
+    # Kebab menu with a safe, per-server id and Edit/Delete items wired to the dialogs.
+    assert 'aria-label="Server actions"' in html
+    assert f'id="menu-{token}"' in html
+    assert "openEditServerDialog(closest <[data-server-card]/>)" in html
+    assert "openDeleteServerDialog(closest <[data-server-card]/>)" in html
+    # auth_type is exposed so the edit dialog can pre-select the scheme.
+    assert 'data-server-auth-type="basic"' in html
+
+
+def test_delete_confirmation_dialog_present() -> None:
+    env = _create_test_environment()
+    template = env.get_template("servers.html")
+    html = template.render(servers=[])
+
+    assert 'id="delete-server-dialog"' in html
+    assert "confirmDeleteServer(this)" in html
+    # Delete goes through the existing unregister endpoint.
+    assert "'/v1/register/' + encodeURIComponent(id)" in html
+    assert "method: 'DELETE'" in html
+
+
 def test_add_server_button_shows_busy_state() -> None:
     # The submit button is disabled and shows a spinner/"Adding…" label while the
     # registration request (which triggers a backend discovery round-trip) is in flight.
