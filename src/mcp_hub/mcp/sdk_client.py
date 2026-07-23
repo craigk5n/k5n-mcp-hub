@@ -54,6 +54,40 @@ class MCPClientError(Exception):
         self.kind = kind
 
 
+# One MCP connection per server at a time. The streamable-HTTP transport issues several
+# requests per session, and rate-limiting backends (e.g. WordPress) answer concurrent
+# connections with 429 — which the SDK surfaces as an opaque BrokenResourceError / "unhandled
+# errors in a TaskGroup". Serializing per base URL stops the hub from making a server
+# rate-limit itself (health checker + discovery + capabilities fetch no longer collide).
+# NOTE: the lock is non-reentrant, so never call ping() on an already-entered client for the
+# same URL (the callers here don't).
+_connection_locks: dict[str, asyncio.Lock] = {}
+
+
+def _connection_lock(url: str) -> asyncio.Lock:
+    lock = _connection_locks.get(url)
+    if lock is None:
+        lock = asyncio.Lock()
+        _connection_locks[url] = lock
+    return lock
+
+
+def _flatten_exc(exc: BaseException) -> str:
+    """Reduce an ExceptionGroup (anyio TaskGroup) to a meaningful message rather than the
+    opaque 'unhandled errors in a TaskGroup (N sub-exceptions)'."""
+    subs = getattr(exc, "exceptions", None)
+    if subs:
+        parts = [p for p in (_flatten_exc(s) for s in subs) if p]
+        if parts:
+            return "; ".join(dict.fromkeys(parts))
+    msg = str(exc).strip()
+    if msg:
+        return msg
+    if type(exc).__name__ == "BrokenResourceError":
+        return "connection interrupted (the server may be rate-limiting concurrent requests)"
+    return type(exc).__name__
+
+
 def _as_dicts(items: Any) -> list[dict]:
     """Normalize SDK list results to plain dicts. Newer MCP SDKs return typed Pydantic
     models (Tool/Prompt/Resource); older ones (and the rest of this codebase) use dicts.
@@ -86,17 +120,32 @@ class MCPClient:
         self._transport_type: Literal["http", "sse"] = "http"
         self._headers: dict[str, str] = {}
         self._exit_stack: AsyncExitStack | None = None
+        self._conn_lock: asyncio.Lock | None = None
 
     @property
     def initialize_result(self) -> InitializeResult | None:
         return self._initialize_result
 
     async def __aenter__(self) -> "MCPClient":
-        await self._open_transport()
+        # Serialize connections to this server (see _connection_lock) so we never make it
+        # rate-limit our own concurrent connections.
+        self._conn_lock = _connection_lock(self.base_url)
+        await self._conn_lock.acquire()
+        try:
+            await self._open_transport()
+        except BaseException:
+            self._conn_lock.release()
+            self._conn_lock = None
+            raise
         return self
 
     async def __aexit__(self, exc_type: Any, exc_val: Any, exc_tb: Any) -> None:
-        await self._close_transport()
+        try:
+            await self._close_transport()
+        finally:
+            if self._conn_lock is not None:
+                self._conn_lock.release()
+                self._conn_lock = None
 
     async def _open_transport(self) -> None:
         streamable_http_client = _get_streamable_http_client()
@@ -159,7 +208,7 @@ class MCPClient:
                 self._exit_stack = None
             self._session = None
             raise MCPClientError(
-                f"Failed to open transport: {e}",
+                f"Failed to open transport: {_flatten_exc(e)}",
                 kind="transport",
             ) from e
 
@@ -214,7 +263,7 @@ class MCPClient:
             if isinstance(e, MCPClientError):
                 raise
             raise MCPClientError(
-                f"Handshake failed: {e}",
+                f"Handshake failed: {_flatten_exc(e)}",
                 kind="handshake",
             ) from e
 
@@ -257,7 +306,7 @@ class MCPClient:
             raise
         except Exception as e:
             raise MCPClientError(
-                f"List {method} failed: {e}",
+                f"List {method} failed: {_flatten_exc(e)}",
                 kind="list",
             ) from e
 
