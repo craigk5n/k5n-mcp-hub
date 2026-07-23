@@ -191,18 +191,19 @@
                 </div>
                 <div class="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-4 pr-8">
                     <div class="flex-1">
-                        <div class="flex items-center gap-3 mb-2">
+                        <div class="flex items-baseline gap-2 mb-2">
                             <h2 class="text-xl font-semibold text-gray-900">{{ server.name }}</h2>
                             {% if server.version %}
                             <span class="text-sm text-gray-500">v{{ server.version }}</span>
                             {% endif %}
-                            <div 
-                                hx-get="/api/servers/{{ server.id }}/health-status" 
-                                hx-trigger="load delay:500ms, every 20s" 
-                                hx-swap="innerHTML"
-                            ></div>
                         </div>
-                        
+                        <!-- Badges on their own row below the name so it isn't crowded. -->
+                        <div class="flex flex-wrap items-center gap-2 mb-3"
+                             hx-get="/api/servers/{{ server.id }}/health-status"
+                             hx-trigger="load delay:500ms, every 20s"
+                             hx-swap="innerHTML"
+                        ></div>
+
                         {% if server.description %}
                         <p class="text-gray-600 mb-3">{{ server.description }}</p>
                         {% endif %}

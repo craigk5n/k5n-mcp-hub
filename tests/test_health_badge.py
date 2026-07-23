@@ -297,7 +297,7 @@ class TestHealthBadge:
         response = client.get(f"/api/servers/{unhealthy_server.id}/health-status")
 
         assert response.status_code == 200
-        assert "MCP 2024-11-05 - unsupported" in response.text
+        assert "MCP 2024-11-05 - outdated" in response.text
         assert "bg-amber-100" in response.text
 
     def test_mcp_protocol_version_unsupported(
@@ -306,7 +306,7 @@ class TestHealthBadge:
         response = client.get(f"/api/servers/{unhealthy_server.id}/health-status")
 
         assert response.status_code == 200
-        assert "MCP 2024-11-05 - unsupported" in response.text
+        assert "MCP 2024-11-05 - outdated" in response.text
         assert "bg-amber-100" in response.text
 
     def test_oauth_token_status_ok(

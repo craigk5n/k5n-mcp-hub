@@ -4,7 +4,11 @@ import logging
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import HTMLResponse
 
-from mcp_hub.mcp.constants import is_supported_protocol_version
+from mcp_hub.mcp.constants import (
+    is_supported_protocol_version,
+    mcp_version_status,
+    supported_protocol_versions_str,
+)
 from mcp_hub.mcp.sdk_client import MCPClient
 from mcp_hub.registry.service import Registry
 
@@ -117,5 +121,7 @@ async def get_server_health_status(request: Request, server_id: str) -> HTMLResp
         server=server_data,
         format_uptime=format_uptime,
         is_supported_protocol_version=is_supported_protocol_version,
+        mcp_version_status=mcp_version_status,
+        supported_versions=supported_protocol_versions_str(),
     )
     return HTMLResponse(content=html, media_type="text/html; charset=utf-8")

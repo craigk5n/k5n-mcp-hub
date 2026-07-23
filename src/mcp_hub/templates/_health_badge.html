@@ -1,57 +1,60 @@
 {% if server.last_checked is none %}
-<span class="bg-slate-100 text-slate-700 border border-slate-200 px-2 py-1 rounded text-xs">🕐 Unknown</span>
+<span title="The hub hasn't completed a health check yet. Status appears after the first check (within ~30s of startup)." class="bg-slate-100 text-slate-700 border border-slate-200 px-2 py-1 rounded text-xs">🕐 Unknown</span>
 {% elif server.healthy %}
-<span class="bg-green-100 text-green-800 border border-green-200 px-2 py-1 rounded text-xs">✓ Healthy</span>
+<span title="The server responded to the most recent health check." class="bg-green-100 text-green-800 border border-green-200 px-2 py-1 rounded text-xs">✓ Healthy</span>
 {% else %}
 {% if server.consecutive_fails > 0 %}
-<span class="bg-red-100 text-red-800 border border-red-200 px-2 py-1 rounded text-xs">✗ Unhealthy ({{ server.consecutive_fails }} fails)</span>
+<span title="The server has failed {{ server.consecutive_fails }} consecutive health check(s)." class="bg-red-100 text-red-800 border border-red-200 px-2 py-1 rounded text-xs">✗ Unhealthy ({{ server.consecutive_fails }} fails)</span>
 {% else %}
-<span class="bg-red-100 text-red-800 border border-red-200 px-2 py-1 rounded text-xs">✗ Unhealthy</span>
+<span title="The server failed the most recent health check." class="bg-red-100 text-red-800 border border-red-200 px-2 py-1 rounded text-xs">✗ Unhealthy</span>
 {% endif %}
 {% endif %}
 {% if server.healthy and server.uptime_seconds > 0 %}
-<span class="bg-indigo-50 text-indigo-700 border border-indigo-200 px-2 py-1 rounded text-xs">Uptime: {{ format_uptime(server.uptime_seconds) }}</span>
+<span title="How long the server has been continuously healthy, tracked by the hub since it last became healthy." class="bg-indigo-50 text-indigo-700 border border-indigo-200 px-2 py-1 rounded text-xs">Uptime: {{ format_uptime(server.uptime_seconds) }}</span>
 {% else %}
-<span class="bg-slate-100 text-slate-700 border border-slate-200 px-2 py-1 rounded text-xs">Uptime: --</span>
+<span title="Uptime is measured from when the server last became healthy; it shows once the server is confirmed healthy." class="bg-slate-100 text-slate-700 border border-slate-200 px-2 py-1 rounded text-xs">Uptime: --</span>
 {% endif %}
 {% if server.mcp_transport == 'sse' %}
-<span class="bg-sky-100 text-sky-800 border border-sky-200 px-2 py-1 rounded text-xs">Transport: Streamable HTTP</span>
+<span title="The server uses the MCP streamable-HTTP transport (responses may be Server-Sent Events)." class="bg-sky-100 text-sky-800 border border-sky-200 px-2 py-1 rounded text-xs">Transport: Streamable HTTP</span>
 {% elif server.mcp_transport == 'http' %}
-<span class="bg-slate-100 text-slate-700 border border-slate-200 px-2 py-1 rounded text-xs">Transport: HTTP</span>
+<span title="The server uses plain HTTP JSON responses (non-streaming)." class="bg-slate-100 text-slate-700 border border-slate-200 px-2 py-1 rounded text-xs">Transport: HTTP</span>
 {% else %}
-<span class="bg-slate-100 text-slate-700 border border-slate-200 px-2 py-1 rounded text-xs">Transport: unknown</span>
+<span title="The transport hasn't been determined yet (no successful initialize)." class="bg-slate-100 text-slate-700 border border-slate-200 px-2 py-1 rounded text-xs">Transport: unknown</span>
 {% endif %}
 {% if server.mcp_protocol_version and server.mcp_protocol_version != '' %}
-{% if is_supported_protocol_version(server.mcp_protocol_version) %}
-<span class="bg-emerald-100 text-emerald-800 border border-emerald-200 px-2 py-1 rounded text-xs">✓ MCP {{ server.mcp_protocol_version }} - supported</span>
+{% set vstatus = mcp_version_status(server.mcp_protocol_version) %}
+{% if vstatus == 'supported' %}
+<span title="Server speaks MCP {{ server.mcp_protocol_version }}, which this hub supports. Supported: {{ supported_versions }}." class="bg-emerald-100 text-emerald-800 border border-emerald-200 px-2 py-1 rounded text-xs">✓ MCP {{ server.mcp_protocol_version }} - supported</span>
+{% elif vstatus == 'outdated' %}
+<span title="Server speaks MCP {{ server.mcp_protocol_version }}, older than the versions this hub supports ({{ supported_versions }}). It still works, but consider upgrading the server." class="bg-amber-100 text-amber-900 border border-amber-200 px-2 py-1 rounded text-xs">⚠ MCP {{ server.mcp_protocol_version }} - outdated</span>
 {% else %}
-<span class="bg-amber-100 text-amber-900 border border-amber-200 px-2 py-1 rounded text-xs">⚠ MCP {{ server.mcp_protocol_version }} - unsupported</span>
+<span title="Server speaks MCP {{ server.mcp_protocol_version }}, which this hub doesn't recognize. Supported: {{ supported_versions }}." class="bg-amber-100 text-amber-900 border border-amber-200 px-2 py-1 rounded text-xs">⚠ MCP {{ server.mcp_protocol_version }} - unsupported</span>
 {% endif %}
 {% elif server.mcp_conformant is true %}
-<span class="bg-emerald-100 text-emerald-800 border border-emerald-200 px-2 py-1 rounded text-xs">MCP supported</span>
+<span title="The server negotiated a supported MCP protocol version." class="bg-emerald-100 text-emerald-800 border border-emerald-200 px-2 py-1 rounded text-xs">MCP supported</span>
 {% elif server.mcp_conformant is false %}
-<span class="bg-amber-100 text-amber-900 border border-amber-200 px-2 py-1 rounded text-xs">MCP unsupported</span>
+<span title="The server's MCP protocol version isn't one this hub recognizes ({{ supported_versions }})." class="bg-amber-100 text-amber-900 border border-amber-200 px-2 py-1 rounded text-xs">MCP unsupported</span>
 {% else %}
-<span class="bg-slate-100 text-slate-700 border border-slate-200 px-2 py-1 rounded text-xs">MCP version unknown</span>
+<span title="No MCP protocol version has been negotiated yet (run Initialize or wait for discovery)." class="bg-slate-100 text-slate-700 border border-slate-200 px-2 py-1 rounded text-xs">MCP version unknown</span>
 {% endif %}
 {% if server.auth_type == 'oauth' or (server.oauth_token_status and server.oauth_token_status != '') %}
 {% if server.oauth_token_status == 'ok' %}
-<span class="bg-emerald-100 text-emerald-800 border border-emerald-200 px-2 py-1 rounded text-xs">✓ OAuth token: ok</span>
+<span title="The hub successfully obtained an OAuth access token for this server." class="bg-emerald-100 text-emerald-800 border border-emerald-200 px-2 py-1 rounded text-xs">✓ OAuth token: ok</span>
 {% elif server.oauth_token_status == 'error' %}
-<span class="bg-amber-100 text-amber-900 border border-amber-200 px-2 py-1 rounded text-xs">⚠ OAuth token: error</span>
+<span title="The hub couldn't obtain an OAuth token (check the client credentials / token endpoint)." class="bg-amber-100 text-amber-900 border border-amber-200 px-2 py-1 rounded text-xs">⚠ OAuth token: error</span>
 {% else %}
-<span class="bg-slate-100 text-slate-700 border border-slate-200 px-2 py-1 rounded text-xs">OAuth token: unchecked</span>
+<span title="No OAuth token has been fetched yet." class="bg-slate-100 text-slate-700 border border-slate-200 px-2 py-1 rounded text-xs">OAuth token: unchecked</span>
 {% endif %}
 {% endif %}
 {% if server.schema_conformant is not none %}
 {% if server.schema_conformant %}
-<span class="bg-emerald-100 text-emerald-800 border border-emerald-200 px-2 py-1 rounded text-xs">Schema: valid</span>
+<span title="All tool input schemas conform to the expected shape." class="bg-emerald-100 text-emerald-800 border border-emerald-200 px-2 py-1 rounded text-xs">Schema: valid</span>
 {% else %}
 {% if server.schema_issues and server.schema_issues|length > 0 %}
-<span class="bg-amber-100 text-amber-900 border border-amber-200 px-2 py-1 rounded text-xs">Schema: issues ({{ server.schema_issues|length }})</span>
+<span title="{{ server.schema_issues|length }} advisory schema note(s) — see the Schema notes panel under Capabilities. These don't block use of the tools here." class="bg-amber-100 text-amber-900 border border-amber-200 px-2 py-1 rounded text-xs">Schema: issues ({{ server.schema_issues|length }})</span>
 {% else %}
-<span class="bg-amber-100 text-amber-900 border border-amber-200 px-2 py-1 rounded text-xs">Schema: issues</span>
+<span title="Advisory schema notes — see the Schema notes panel under Capabilities." class="bg-amber-100 text-amber-900 border border-amber-200 px-2 py-1 rounded text-xs">Schema: issues</span>
 {% endif %}
 {% endif %}
 {% endif %}
-<div class="text-xs text-gray-500 mt-1">{% if server.last_checked %}{{ server.last_checked.strftime("%H:%M:%S") }}{% else %}never{% endif %}</div>
+<div class="w-full text-xs text-gray-500 mt-1" title="Time of the most recent health check.">{% if server.last_checked %}Last checked {{ server.last_checked.strftime("%H:%M:%S") }}{% else %}never{% endif %}</div>
