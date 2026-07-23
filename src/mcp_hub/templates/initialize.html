@@ -1,4 +1,4 @@
-{% from "_panel_controls.html" import collapse_button %}<!DOCTYPE html>
+{% from "_panel_controls.html" import collapse_button %}{% from "_json_block.html" import json_block %}<!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
@@ -78,7 +78,7 @@
             {% if request_body %}
             <div>
                 <h3 class="text-sm font-medium text-gray-600 mb-2">Body:</h3>
-                <pre class="bg-gray-100 p-4 rounded-lg overflow-x-auto text-sm font-mono">{{ request_body | escape }}</pre>
+                {{ json_block(request_body, 'Request body') }}
             </div>
             {% endif %}
         </div>
@@ -94,7 +94,7 @@
             {% if response_body %}
             <div>
                 <h3 class="text-sm font-medium text-gray-600 mb-2">Body:</h3>
-                <pre class="bg-gray-100 p-4 rounded-lg overflow-x-auto text-sm font-mono">{{ response_body | escape }}</pre>
+                {{ json_block(response_body, 'Response body') }}
             </div>
             {% endif %}
         </div>

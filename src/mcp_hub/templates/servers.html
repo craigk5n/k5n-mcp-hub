@@ -240,41 +240,50 @@
                             <span class="font-medium">URL:</span> {{ server.url }}
                         </p>
                         
+                        {# Each panel button shows a spinner + is disabled while its request is in
+                           flight (htmx adds .htmx-request to the button, hx-disabled-elt disables it),
+                           so a slow first load (e.g. Capabilities' live discovery) gives clear feedback. #}
+                        {% set spinner %}<svg class="hidden [.htmx-request_&]:inline animate-spin h-3.5 w-3.5 shrink-0" viewBox="0 0 24 24" fill="none" aria-hidden="true"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path></svg>{% endset %}
                         <div class="flex flex-wrap gap-2 lg:justify-end">
                             <button
-                                class="px-3 py-1.5 text-sm bg-gray-100 hover:bg-gray-200 rounded transition-colors"
+                                class="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm bg-gray-100 hover:bg-gray-200 rounded transition-colors disabled:opacity-70 disabled:cursor-wait"
                                 hx-get="/ui/server/{{ server.id }}/initialize"
                                 hx-target="#initialize-{{ server.id | dom_id }}"
                                 hx-swap="innerHTML"
-                            >Initialize</button>
-                            
-                            <button 
-                                class="px-3 py-1.5 text-sm bg-gray-100 hover:bg-gray-200 rounded transition-colors"
+                                hx-disabled-elt="this"
+                            >{{ spinner }}Initialize</button>
+
+                            <button
+                                class="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm bg-gray-100 hover:bg-gray-200 rounded transition-colors disabled:opacity-70 disabled:cursor-wait"
                                 hx-get="/ui/server/{{ server.id }}/trace"
                                 hx-target="#trace-{{ server.id | dom_id }}"
                                 hx-swap="innerHTML"
-                            >View Trace</button>
-                            
+                                hx-disabled-elt="this"
+                            >{{ spinner }}View Trace</button>
+
                             <button
-                                class="px-3 py-1.5 text-sm bg-gray-100 hover:bg-gray-200 rounded transition-colors"
+                                class="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm bg-gray-100 hover:bg-gray-200 rounded transition-colors disabled:opacity-70 disabled:cursor-wait"
                                 hx-get="/ui/server/{{ server.id }}/faults"
                                 hx-target="#faults-{{ server.id | dom_id }}"
                                 hx-swap="innerHTML"
-                            >Faults</button>
-                            
-                            <button 
-                                class="px-3 py-1.5 text-sm bg-gray-100 hover:bg-gray-200 rounded transition-colors"
+                                hx-disabled-elt="this"
+                            >{{ spinner }}Faults</button>
+
+                            <button
+                                class="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm bg-gray-100 hover:bg-gray-200 rounded transition-colors disabled:opacity-70 disabled:cursor-wait"
                                 hx-get="/ui/server/{{ server.id }}/playground"
                                 hx-target="#playground-{{ server.id | dom_id }}"
                                 hx-swap="innerHTML"
-                            >Playground</button>
-                            
-                            <button 
-                                class="px-3 py-1.5 text-sm bg-blue-100 hover:bg-blue-200 text-blue-800 rounded transition-colors"
+                                hx-disabled-elt="this"
+                            >{{ spinner }}Playground</button>
+
+                            <button
+                                class="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm bg-blue-100 hover:bg-blue-200 text-blue-800 rounded transition-colors disabled:opacity-70 disabled:cursor-wait"
                                 hx-get="/ui/server/{{ server.id }}/tools"
                                 hx-target="#tools-{{ server.id | dom_id }}"
                                 hx-swap="innerHTML"
-                            >Capabilities</button>
+                                hx-disabled-elt="this"
+                            >{{ spinner }}Capabilities</button>
                         </div>
                     </div>
                 </div>
@@ -417,11 +426,12 @@
         _setInvokeView(container, 'pretty');
     }
 
+    // Format every JSON block that appears in swapped-in content: invoke results, and the
+    // Initialize panel's request/response bodies.
     document.body.addEventListener('htmx:afterSwap', (e) => {
         const t = e.target;
-        if (t && t.id && t.id.indexOf('result-') === 0) {
-            const c = t.querySelector('[data-tool-result]');
-            if (c) _formatToolResult(c);
+        if (t && t.querySelectorAll) {
+            t.querySelectorAll('[data-tool-result]').forEach(_formatToolResult);
         }
     });
 
