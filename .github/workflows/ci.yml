@@ -33,7 +33,9 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install -e .
-          pip install ruff mypy pip-audit
+          # Pin lint/type tools so a new ruff/mypy release can't break CI on unrelated PRs
+          # (e.g. a rule graduating from preview). Bump deliberately.
+          pip install ruff==0.15.20 mypy==2.1.0 pip-audit
 
       - name: Ruff lint
         run: ruff check .
