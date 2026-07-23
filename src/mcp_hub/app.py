@@ -21,7 +21,7 @@ from mcp_hub.config import Settings, load_settings
 from mcp_hub.logging_setup import configure_logging
 from mcp_hub.metrics import Metrics
 from mcp_hub.middleware import create_request_id_metrics_middleware
-from mcp_hub.trace.recorder import sanitize_trace_headers
+from mcp_hub.trace.recorder import format_headers, sanitize_trace_headers
 from mcp_hub.health.checker import HealthChecker
 from mcp_hub.mcp.discovery import DiscoveryService
 from mcp_hub.registry.service import Registry
@@ -164,6 +164,7 @@ def _create_jinja2_environment() -> Environment:
     env.filters["path_encode"] = path_encode
     env.filters["dom_id"] = dom_id
     env.filters["sanitize_headers"] = sanitize_trace_headers
+    env.filters["format_headers"] = format_headers
 
     return env
 

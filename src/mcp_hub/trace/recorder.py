@@ -50,6 +50,13 @@ def sanitize_trace_headers(headers: Mapping[str, str]) -> dict[str, str]:
     return result
 
 
+def format_headers(headers: Mapping[str, str]) -> str:
+    """Render headers as newline-separated ``Name: Value`` lines (the real HTTP wire
+    format) rather than a JSON object or Python dict repr, which misrepresent how headers
+    are actually sent/received."""
+    return "\n".join(f"{key}: {value}" for key, value in headers.items())
+
+
 def trim_trace_body(body: str, *, body_limit: int) -> str:
     if body_limit <= 0 or len(body) <= body_limit:
         return body
