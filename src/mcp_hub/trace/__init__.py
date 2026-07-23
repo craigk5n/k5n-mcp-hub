@@ -48,8 +48,8 @@ def is_sse_content_type(content_type: str | None) -> bool:
 
 
 __all__ = [
-    "Entry",
     "SENSITIVE_HEADERS",
+    "Entry",
     "TraceEntry",
     "TraceRecorder",
     "is_sse_content_type",

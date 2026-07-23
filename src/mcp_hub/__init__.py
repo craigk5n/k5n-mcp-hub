@@ -19,12 +19,12 @@ __all__ = [
     "HealthCheckConfig",
     "HealthResponseFields",
     "JSONStorageConfig",
+    "Metrics",
     "RedisConfig",
     "ServerConfig",
     "Settings",
     "StorageConfig",
     "TraceConfig",
     "load_settings",
-    "Metrics",
     "metrics",
 ]

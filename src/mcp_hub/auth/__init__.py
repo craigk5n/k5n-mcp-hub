@@ -25,8 +25,8 @@ def build_authenticator(settings: AuthConfig) -> Authenticator:
 
 __all__ = [
     "Authenticator",
-    "auth_required",
     "BasicAuthStrategy",
     "NoAuthStrategy",
+    "auth_required",
     "build_authenticator",
 ]
