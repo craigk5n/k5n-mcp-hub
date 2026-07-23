@@ -22,6 +22,7 @@ from mcp_hub.logging_setup import configure_logging
 from mcp_hub.metrics import Metrics
 from mcp_hub.middleware import create_request_id_metrics_middleware
 from mcp_hub.trace.recorder import sanitize_trace_headers
+from mcp_hub.health.checker import HealthChecker
 from mcp_hub.mcp.discovery import DiscoveryService
 from mcp_hub.registry.service import Registry
 from mcp_hub.storage import InMemoryStorage, JSONFileStorage, StorageStrategy
@@ -72,6 +73,21 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     storage = getattr(app.state, "storage", None)
     if storage is not None:
         await storage.init()
+
+    # Start the background health checker so servers actually get health-checked (otherwise
+    # every server stays "Unknown"/never-checked). Registered as a task so it's cancelled on
+    # shutdown. Guarded so a missing dependency can't block startup.
+    settings = getattr(app.state, "settings", None)
+    if settings is not None and getattr(app.state, "registry", None) is not None:
+        health_checker = HealthChecker(
+            app.state.registry,
+            settings.healthcheck,
+            app.state.trace_recorder,
+            settings.trace,
+            allow_private_networks=settings.security.allow_private_networks,
+        )
+        register_background_task(app, asyncio.create_task(health_checker.run_forever()))
+
     try:
         yield
     finally:
@@ -176,6 +192,16 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         if settings.storage.type == "json"
         else InMemoryStorage()
     )
+    if settings.storage.type == "json":
+        logger.info(
+            "Storage backend: json (persisting to %s)",
+            Path(settings.storage.json_.path).resolve(),
+        )
+    else:
+        logger.info(
+            "Storage backend: in-memory (servers are NOT persisted across restarts; "
+            "set storage.type: json to persist)"
+        )
     registry = Registry(storage)
     agent_registry = AgentRegistry(storage)
     card_agent_registry = CardAgentRegistry()

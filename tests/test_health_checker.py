@@ -437,3 +437,22 @@ class TestHealthChecker:
 
         elapsed = asyncio.get_event_loop().time() - start_time
         assert elapsed < 1.0
+
+
+class TestHealthCheckerStartup:
+    def test_lifespan_starts_health_checker(self) -> None:
+        # Regression: the background health checker must actually be started on app startup,
+        # otherwise every server stays "Unknown"/never-checked forever.
+        from fastapi.testclient import TestClient
+
+        from mcp_hub.app import create_app
+
+        with patch(
+            "mcp_hub.health.checker.HealthChecker.run_forever", new_callable=AsyncMock
+        ) as mock_run:
+            app = create_app()
+            with TestClient(app):
+                # A background task was registered during startup...
+                assert len(app.state.context.background_tasks) >= 1
+            # ...and it ran the checker loop.
+            assert mock_run.await_count >= 1
