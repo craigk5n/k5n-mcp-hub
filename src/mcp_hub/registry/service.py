@@ -53,10 +53,20 @@ class Registry:
         server = await self._storage.get(server_id)
         if server is None:
             raise KeyError(server_id)
+        now = utcnow()
+        # Uptime is hub-tracked: measured from when the server most recently became healthy,
+        # so it works for any server (the `uptime` argument, a server-reported value from a
+        # /health endpoint, is retained for compatibility but no longer the source of truth).
+        if healthy:
+            if server.healthy_since is None:
+                server.healthy_since = now
+            server.uptime_seconds = (now - server.healthy_since).total_seconds()
+        else:
+            server.healthy_since = None
+            server.uptime_seconds = 0.0
         server.healthy = healthy
         server.consecutive_fails = consecutive_fails
-        server.last_checked = utcnow()
-        server.uptime_seconds = uptime
+        server.last_checked = now
         await self._storage.save(server)
 
     async def set_supports_health_endpoint(self, server_id: str, supports: bool) -> None:

@@ -55,16 +55,32 @@ async def test_update_health_and_uptime(registry: Registry) -> None:
     server = RegisteredServer(id="srv3", url="http://localhost:8002", name="Test")
     await registry.register(server)
 
+    # Uptime is now hub-tracked from a `healthy_since` timestamp (the passed `uptime` is
+    # ignored). First healthy check sets healthy_since; uptime starts near zero and grows.
     await registry.update_health_and_uptime(
         "srv3", healthy=True, consecutive_fails=0, uptime=3600.0
     )
-
     result = await registry.get("srv3")
     assert result is not None
     assert result.healthy is True
     assert result.consecutive_fails == 0
-    assert result.uptime_seconds == 3600.0
+    assert result.healthy_since is not None
+    assert result.uptime_seconds >= 0.0
     assert result.last_checked is not None
+    first_since = result.healthy_since
+
+    # A second healthy check keeps the same healthy_since (continuous uptime).
+    await registry.update_health_and_uptime("srv3", healthy=True, consecutive_fails=0, uptime=0.0)
+    result = await registry.get("srv3")
+    assert result is not None and result.healthy_since == first_since
+
+    # A failed check resets uptime and clears healthy_since.
+    await registry.update_health_and_uptime("srv3", healthy=False, consecutive_fails=1, uptime=0.0)
+    result = await registry.get("srv3")
+    assert result is not None
+    assert result.healthy is False
+    assert result.healthy_since is None
+    assert result.uptime_seconds == 0.0
 
 
 @pytest.mark.asyncio

@@ -10,6 +10,7 @@ DATETIME_FIELDS = (
     "oauth_last_checked",
     "last_checked",
     "last_capability_sync",
+    "healthy_since",
 )
 
 
@@ -79,6 +80,9 @@ class RegisteredServer(BaseModel):
     healthy: bool = False
     consecutive_fails: int = 0
     last_checked: datetime | None = None
+    # When the server most recently became healthy; uptime is derived from this (hub-tracked),
+    # reset to None on any failed check.
+    healthy_since: datetime | None = None
     uptime_seconds: float = 0.0
     supports_health_endpoint: bool | None = None
     schema_conformant: bool | None = None
@@ -127,8 +131,11 @@ class RegisteredServer(BaseModel):
                 "schema_issues": [],
                 "healthy": False,
                 "last_checked": None,
+                "healthy_since": None,
                 "uptime_seconds": 0.0,
-                "supports_health_endpoint": None,
+                # supports_health_endpoint is intentionally NOT reset: once we learn a server
+                # has no /health endpoint (404), we remember it so we never probe /health
+                # again (even across restarts) and go straight to an MCP ping.
                 "oauth_token_status": "",
                 "oauth_token_error": "",
             }

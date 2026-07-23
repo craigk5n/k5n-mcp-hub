@@ -113,7 +113,8 @@ class TestRegisteredServer:
         assert sanitized.healthy is False
         assert sanitized.last_checked is None
         assert sanitized.uptime_seconds == 0.0
-        assert sanitized.supports_health_endpoint is None
+        # supports_health_endpoint is preserved (remembered), so we don't re-probe /health.
+        assert sanitized.supports_health_endpoint is True
         assert sanitized.oauth_token_status == ""
         assert sanitized.oauth_token_error == ""
         assert sanitized.id == srv.id
