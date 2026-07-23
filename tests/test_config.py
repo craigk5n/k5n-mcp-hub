@@ -173,6 +173,19 @@ class TestHealthCheckConfigValidator:
         config = HealthCheckConfig(failure_threshold=0)
         assert config.failure_threshold == 3
 
+    def test_string_env_values_are_coerced(self):
+        # Env overrides (e.g. MCPHUB_HEALTHCHECK__INTERVAL_SECONDS=5) arrive as strings and
+        # must be accepted, not raise "'<=' not supported between str and int".
+        config = HealthCheckConfig(interval_seconds="5", timeout_seconds="2", failure_threshold="4")
+        assert config.interval_seconds == 5
+        assert config.timeout_seconds == 2
+        assert config.failure_threshold == 4
+
+    def test_string_non_positive_and_garbage_fall_back_to_default(self):
+        assert HealthCheckConfig(interval_seconds="0").interval_seconds == 30
+        assert HealthCheckConfig(interval_seconds="-3").interval_seconds == 30
+        assert HealthCheckConfig(interval_seconds="abc").interval_seconds == 30
+
     def test_valid_values_preserved(self):
         config = HealthCheckConfig(interval_seconds=60, timeout_seconds=10, failure_threshold=5)
         assert config.interval_seconds == 60
