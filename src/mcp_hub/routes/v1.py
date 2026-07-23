@@ -1,3 +1,4 @@
+import asyncio
 import json
 import logging
 
@@ -228,31 +229,23 @@ async def _register_server_impl(
 
     await registry.register(srv)
 
-    try:
-        await discovery_service.discover_immediately(srv, timeout=30)
-    except Exception as discovery_error:
-        # Surface the real reason: discovery does the MCP handshake + tools/list against the
-        # backend, and any failure there (auth rejected, protocol mismatch, no capabilities,
-        # timeout) previously collapsed into an opaque "discovery failed" with no detail.
-        logger.warning(
-            "Discovery failed for %s: %s",
-            srv.id,
-            discovery_error,
-            exc_info=True,
-        )
+    # Discover capabilities in the background so registration returns immediately. A slow or
+    # hanging backend can no longer block the Add request (which manifested as an "HTTP 0"
+    # dropped connection in the browser). The server stays registered regardless; its
+    # capabilities and MCP metadata populate asynchronously, and the background health checker
+    # keeps its health fresh. Discovery is bounded by its own (now-enforced) timeout, and its
+    # failure is logged rather than surfaced as a registration error.
+    async def _background_discover() -> None:
         try:
-            await registry.unregister(srv.id)
-        except Exception as unregister_error:
-            logger.error(
-                "Failed to unregister %s after discovery failure: %s",
-                srv.id,
-                unregister_error,
-            )
+            await discovery_service.discover_immediately(srv, timeout=20)
+        except Exception as discovery_error:
+            logger.warning("Background discovery failed for %s: %s", srv.id, discovery_error)
 
-        return JSONResponse(
-            status_code=400,
-            content={"error": "discovery failed", "detail": str(discovery_error)},
-        )
+    discovery_task = asyncio.create_task(_background_discover())
+    context = getattr(request.app.state, "context", None)
+    if context is not None:
+        # Track the task so it's cancelled cleanly on shutdown.
+        context.background_tasks.append(discovery_task)
 
     return JSONResponse(
         status_code=201,
