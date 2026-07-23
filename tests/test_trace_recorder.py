@@ -2,11 +2,32 @@ from datetime import datetime, timezone
 
 import pytest
 from mcp_hub.trace.recorder import (
+    format_headers,
     redact_auth_header,
     sanitize_trace_headers,
     trim_trace_body,
 )
 from mcp_hub.trace import TraceEntry, TraceRecorder
+
+
+class TestFormatHeaders:
+    def test_renders_name_colon_value_lines_not_json(self) -> None:
+        result = format_headers(
+            {"Content-Type": "application/json", "Accept": "application/json, text/event-stream"}
+        )
+        assert result == (
+            "Content-Type: application/json\nAccept: application/json, text/event-stream"
+        )
+        # Not JSON / not a dict repr.
+        assert "{" not in result
+        assert '"' not in result
+
+    def test_empty_headers(self) -> None:
+        assert format_headers({}) == ""
+
+    def test_preserves_comma_values_verbatim(self) -> None:
+        # A value with a comma must stay as-is (JSON would have quoted/escaped it).
+        assert format_headers({"Accept": "a, b, c"}) == "Accept: a, b, c"
 
 
 class TestRedactAuthHeader:

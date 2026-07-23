@@ -4,7 +4,7 @@ import pytest
 from jinja2 import Environment, FileSystemLoader
 
 from mcp_hub.trace import sanitize_headers, truncate_body
-from mcp_hub.trace.recorder import sanitize_trace_headers
+from mcp_hub.trace.recorder import format_headers, sanitize_trace_headers
 from mcp_hub.utils import dom_id
 
 
@@ -16,6 +16,7 @@ def jinja_env() -> Environment:
         autoescape=True,
     )
     env.filters["sanitize_headers"] = sanitize_trace_headers
+    env.filters["format_headers"] = format_headers
     env.filters["dom_id"] = dom_id
     return env
 

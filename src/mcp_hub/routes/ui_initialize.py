@@ -14,6 +14,7 @@ from mcp_hub.models.server import RegisteredServer
 from mcp_hub.registry.service import Registry
 from mcp_hub.trace.recorder import (
     TraceEntry,
+    format_headers,
     sanitize_trace_headers,
     trim_trace_body,
 )
@@ -260,10 +261,10 @@ async def get_initialize(
         server_id=server_id,
         url=srv.url,
         request_body=init_body.decode("utf-8"),
-        request_headers=json.dumps(redacted_headers, indent=2),
+        request_headers=format_headers(redacted_headers),
         response_status=response_status,
         response_body=response_body_str,
-        response_headers=json.dumps(response_headers_dict, indent=2),
+        response_headers=format_headers(response_headers_dict),
         session_id=session_id,
         protocol_version=protocol_version,
         server_name=server_name,

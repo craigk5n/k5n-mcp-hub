@@ -112,11 +112,11 @@
                         <div class="mt-2 grid grid-cols-1 md:grid-cols-2 gap-4">
                             <div>
                                 <h4 class="text-xs font-semibold text-gray-500 mb-1">Request Headers:</h4>
-                                <pre class="bg-gray-50 p-2 rounded text-xs overflow-x-auto font-mono json-content header-content">{{ entry.request_headers|sanitize_headers|e }}</pre>
+                                <pre class="bg-gray-50 p-2 rounded text-xs overflow-x-auto font-mono json-content header-content">{{ entry.request_headers|sanitize_headers|format_headers|e }}</pre>
                             </div>
                             <div>
                                 <h4 class="text-xs font-semibold text-gray-500 mb-1">Response Headers:</h4>
-                                <pre class="bg-gray-50 p-2 rounded text-xs overflow-x-auto font-mono json-content header-content">{{ entry.response_headers|sanitize_headers|e }}</pre>
+                                <pre class="bg-gray-50 p-2 rounded text-xs overflow-x-auto font-mono json-content header-content">{{ entry.response_headers|sanitize_headers|format_headers|e }}</pre>
                             </div>
                             <div>
                                 <h4 class="text-xs font-semibold text-gray-500 mb-1">Request Body:</h4>
