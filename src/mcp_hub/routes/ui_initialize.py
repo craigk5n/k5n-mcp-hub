@@ -196,10 +196,9 @@ async def get_initialize(
 
     try:
         if response_body_bytes:
-            response_body_str = json.dumps(
-                json.loads(response_body_bytes.decode("utf-8")),
-                indent=2,
-            )
+            # Emit compact JSON; the client (json_block) pretty-prints it and offers a
+            # Raw/Pretty toggle, so Raw shows the compact form.
+            response_body_str = json.dumps(json.loads(response_body_bytes.decode("utf-8")))
         else:
             response_body_str = error_msg if error_msg else ""
     except (json.JSONDecodeError, UnicodeDecodeError):

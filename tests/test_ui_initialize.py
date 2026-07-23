@@ -26,7 +26,9 @@ class TestInitializeTemplate:
         )
 
         assert "<pre" in html
-        assert "bg-gray-100" in html and "p-4" in html
+        # Bodies are wrapped in the JSON block (Pretty/Raw toggle + copy), same as tool output.
+        assert "data-tool-result" in html
+        assert "data-format-toggle" in html
         request_count = html.count("<pre")
         assert request_count == 2
 

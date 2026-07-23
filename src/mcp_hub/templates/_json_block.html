@@ -1,0 +1,28 @@
+{#
+  A JSON-aware output block: a toolbar (JSON badge + Pretty/Raw toggle + Copy) over a <pre>
+  that wraps/scrolls. The parent servers page wires it up on htmx:afterSwap (any element with
+  data-tool-result): if the content parses as JSON it's pretty-printed with a Raw/Pretty
+  toggle; otherwise it stays as-is. Same structure as the tool-invoke result fragment so the
+  same JS handles both.
+#}
+{% macro json_block(content, label='Body') -%}
+<div class="rounded-lg border border-gray-200 bg-gray-50" data-tool-result>
+  <div class="flex items-center justify-between gap-2 px-3 py-2 border-b border-gray-100 text-xs">
+    <div class="flex items-center gap-2">
+      <span class="text-slate-500">{{ label }}</span>
+      <span class="hidden rounded bg-slate-200 px-1.5 py-0.5 font-medium text-slate-600" data-json-badge>JSON</span>
+    </div>
+    <div class="flex items-center gap-2">
+      <div class="hidden items-center overflow-hidden rounded-md border border-slate-300 text-slate-600" data-format-toggle>
+        <button type="button" class="px-2 py-0.5" data-view="pretty">Pretty</button>
+        <button type="button" class="border-l border-slate-300 px-2 py-0.5" data-view="raw">Raw</button>
+      </div>
+      <span class="text-emerald-600" data-copy-status aria-live="polite"></span>
+      <button type="button"
+              class="inline-flex items-center gap-1 rounded border border-slate-300 bg-white px-2 py-0.5 text-slate-600 hover:bg-slate-50"
+              data-output-copy title="Copy">Copy</button>
+    </div>
+  </div>
+  <pre class="m-0 max-h-96 overflow-auto whitespace-pre-wrap break-words px-3 py-2 text-sm font-mono text-slate-800" data-tool-output>{{ content | e }}</pre>
+</div>
+{%- endmacro %}
