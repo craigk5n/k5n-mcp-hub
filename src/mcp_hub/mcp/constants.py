@@ -8,6 +8,28 @@ def is_supported_protocol_version(version: str) -> bool:
     return stripped in SUPPORTED_PROTOCOL_VERSIONS
 
 
+def supported_protocol_versions_str() -> str:
+    """Supported protocol versions, newest first, for display (e.g. tooltips)."""
+    return ", ".join(sorted(SUPPORTED_PROTOCOL_VERSIONS, reverse=True))
+
+
+def mcp_version_status(version: str) -> str:
+    """Classify a server's MCP protocol version for the UI badge.
+
+    Returns 'supported', 'outdated' (older than the oldest version this hub supports),
+    or 'unsupported' (newer/unknown). MCP versions are ISO dates, so they compare
+    lexically.
+    """
+    stripped = (version or "").strip()
+    if not stripped:
+        return "unknown"
+    if stripped in SUPPORTED_PROTOCOL_VERSIONS:
+        return "supported"
+    if stripped < min(SUPPORTED_PROTOCOL_VERSIONS):
+        return "outdated"
+    return "unsupported"
+
+
 def resolve_protocol_version(configured: str | None) -> str:
     """Pick the ``MCP-Protocol-Version`` to send outbound to a backend.
 
