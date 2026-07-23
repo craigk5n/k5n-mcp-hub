@@ -117,9 +117,12 @@ class TestRegisterServer:
             servers = get_response.json()
             assert not any(s["id"] == "manual-server" for s in servers["servers"])
 
-    def test_discovery_failure_surfaces_detail_and_rolls_back(self, client_with_basic_auth):
-        # Reachability passes but capability discovery (MCP handshake / tools-list) fails.
-        # The response must include the real error detail, not just "discovery failed".
+    def test_discovery_runs_in_background_and_does_not_block_registration(
+        self, client_with_basic_auth
+    ):
+        # Reachability passes; capability discovery now runs in the background, so a failing
+        # (or slow) discovery must NOT fail registration or roll the server back — the server
+        # stays registered and its capabilities populate later.
         with (
             patch(
                 "mcp_hub.routes.v1.is_url_safe_for_discovery",
@@ -133,20 +136,19 @@ class TestRegisterServer:
             response = client_with_basic_auth.post(
                 "/v1/register",
                 json={
-                    "id": "disco-fail",
+                    "id": "disco-bg",
                     "url": "http://localhost:9999/mcp",
                     "registration_type": "manual",
                 },
                 headers=make_basic_auth_header("admin", "secret123"),
             )
 
-        assert response.status_code == 400
-        body = response.json()
-        assert body["error"] == "discovery failed"
-        assert body["detail"] == "handshake rejected: 401"
+        assert response.status_code == 201
+        assert response.json()["id"] == "disco-bg"
 
+        # The server is kept despite the (background) discovery failure.
         servers = client_with_basic_auth.get("/v1/servers").json()["servers"]
-        assert not any(s["id"] == "disco-fail" for s in servers)
+        assert any(s["id"] == "disco-bg" for s in servers)
 
     def test_response_body_has_bearer_token_redacted(self, client_with_basic_auth):
         response = client_with_basic_auth.post(

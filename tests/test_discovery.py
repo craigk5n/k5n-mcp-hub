@@ -98,7 +98,7 @@ class MockMCPClient:
     async def __aexit__(self, exc_type: Any, exc_val: Any, exc_tb: Any) -> None:
         pass
 
-    async def handshake(self) -> InitializeResult:
+    async def handshake(self, timeout: float = 30.0) -> InitializeResult:
         self._initialize_result = InitializeResult(
             server_name="test-server",
             server_version="1.0.0",
@@ -108,7 +108,7 @@ class MockMCPClient:
         )
         return self._initialize_result
 
-    async def list(self, method: str) -> Any:
+    async def list(self, method: str, timeout: float = 30.0) -> Any:
         if method == "tools/list":
             return {"tools": self._tools} if self._tools else []
         if method == "prompts/list":
@@ -220,7 +220,7 @@ class TestDiscoveryService:
             ) -> None:
                 super().__init__(base_url, server=server)
 
-            async def list(self, method: str) -> Any:
+            async def list(self, method: str, timeout: float = 30.0) -> Any:
                 return {"error": {"code": -32601}}
 
         registry = MockRegistry()

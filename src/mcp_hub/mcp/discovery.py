@@ -67,7 +67,10 @@ class DiscoveryService:
         async with MCPClient(
             server.url, server=server, allow_private_networks=self._allow_private_networks
         ) as client:
-            await client.handshake()
+            # Bound every network call by `timeout`. Previously this argument was ignored and
+            # each sub-call fell back to its own 30s default, so a slow/hanging backend could
+            # block discovery (and, when called synchronously, the caller) for minutes.
+            await client.handshake(timeout=timeout)
             if client.initialize_result is not None:
                 result = client.initialize_result
                 server.mcp_protocol_version = result.protocol_version
@@ -79,17 +82,17 @@ class DiscoveryService:
             resources_raw: Any = None
 
             try:
-                tools_raw = await client.list("tools/list")
+                tools_raw = await client.list("tools/list", timeout=timeout)
             except Exception as e:
                 logger.warning("Failed to list tools for %s: %s", server.id, e)
 
             try:
-                prompts_raw = await client.list("prompts/list")
+                prompts_raw = await client.list("prompts/list", timeout=timeout)
             except Exception as e:
                 logger.warning("Failed to list prompts for %s: %s", server.id, e)
 
             try:
-                resources_raw = await client.list("resources/list")
+                resources_raw = await client.list("resources/list", timeout=timeout)
             except Exception as e:
                 logger.warning("Failed to list resources for %s: %s", server.id, e)
 
