@@ -9,6 +9,22 @@ from pydantic import BaseModel, Field, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
+def _coerce_positive_int(v: object, default: int) -> int:
+    """Return a positive int, falling back to ``default``.
+
+    Env overrides arrive as strings (e.g. MCPHUB_HEALTHCHECK__INTERVAL_SECONDS=5), and this
+    runs as a mode="before" validator ahead of Pydantic's own coercion, so it must accept
+    strings/None and non-positive or non-numeric values.
+    """
+    if v is None:
+        return default
+    try:
+        n = int(v)  # type: ignore[call-overload]
+    except (TypeError, ValueError):
+        return default
+    return n if n > 0 else default
+
+
 class ServerConfig(BaseModel):
     model_config = SettingsConfigDict(populate_by_name=True)
 
@@ -100,24 +116,18 @@ class HealthCheckConfig(BaseModel):
 
     @field_validator("interval_seconds", mode="before")
     @classmethod
-    def validate_interval(cls, v: int | None) -> int:
-        if v is not None and v <= 0:
-            return 30
-        return v if v is not None else 30
+    def validate_interval(cls, v: object) -> int:
+        return _coerce_positive_int(v, 30)
 
     @field_validator("timeout_seconds", mode="before")
     @classmethod
-    def validate_timeout(cls, v: int | None) -> int:
-        if v is not None and v <= 0:
-            return 5
-        return v if v is not None else 5
+    def validate_timeout(cls, v: object) -> int:
+        return _coerce_positive_int(v, 5)
 
     @field_validator("failure_threshold", mode="before")
     @classmethod
-    def validate_failure_threshold(cls, v: int | None) -> int:
-        if v is not None and v <= 0:
-            return 3
-        return v if v is not None else 3
+    def validate_failure_threshold(cls, v: object) -> int:
+        return _coerce_positive_int(v, 3)
 
 
 class TraceConfig(BaseModel):
