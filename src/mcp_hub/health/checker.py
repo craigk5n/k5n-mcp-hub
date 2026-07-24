@@ -161,6 +161,7 @@ class HealthChecker:
     async def _check_single_server(self, srv: RegisteredServer, client: httpx.AsyncClient) -> None:
         healthy = False
         uptime = 0.0
+        rate_limited = False
 
         if srv.supports_health_endpoint is not False:
             result = await check_service_health(
@@ -200,10 +201,11 @@ class HealthChecker:
                 # down — otherwise a busy server flaps red even though it is clearly alive.
                 if _is_rate_limited(e):
                     logger.info(
-                        "Server %s is rate-limited (429) but reachable; treating as healthy",
+                        "Server %s is rate-limited (429) but reachable; marking degraded",
                         srv.id,
                     )
                     healthy = True
+                    rate_limited = True
                     uptime = 0
                 else:
                     logger.warning("MCP ping fallback failed for %s: %s", srv.id, e)
@@ -213,7 +215,11 @@ class HealthChecker:
         new_fails = 0 if healthy else srv.consecutive_fails + 1
 
         await self._registry.update_health_and_uptime(
-            srv.id, healthy=healthy, consecutive_fails=new_fails, uptime=uptime
+            srv.id,
+            healthy=healthy,
+            consecutive_fails=new_fails,
+            uptime=uptime,
+            rate_limited=rate_limited,
         )
 
         if (

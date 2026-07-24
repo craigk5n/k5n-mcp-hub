@@ -14,6 +14,7 @@ from typing import Literal
 def create_test_server(
     server_id: str,
     healthy: bool = False,
+    rate_limited: bool = False,
     consecutive_fails: int = 0,
     last_checked: datetime | None = None,
     uptime_seconds: float = 0.0,
@@ -30,6 +31,7 @@ def create_test_server(
         url=f"http://localhost:8000/{server_id}",
         name=f"Test Server {server_id}",
         healthy=healthy,
+        rate_limited=rate_limited,
         consecutive_fails=consecutive_fails,
         last_checked=last_checked,
         uptime_seconds=uptime_seconds,
@@ -212,6 +214,31 @@ class TestHealthBadge:
         assert response.status_code == 200
         assert "Unknown" in response.text
         assert "bg-slate-100" in response.text
+
+    @pytest_asyncio.fixture
+    async def rate_limited_server(self, app):
+        server = create_test_server(
+            server_id="rate-limited-server",
+            healthy=True,
+            rate_limited=True,
+            last_checked=datetime(2024, 1, 1, 12, 0, 0, tzinfo=timezone.utc),
+            uptime_seconds=3600,
+        )
+        await app.state.registry.register(server)
+        return server
+
+    def test_rate_limited_shows_degraded_amber_not_green(
+        self, client: TestClient, rate_limited_server: RegisteredServer
+    ) -> None:
+        response = client.get(f"/api/servers/{rate_limited_server.id}/health-status")
+
+        assert response.status_code == 200
+        # Distinct "Rate-limited" state in amber, not the green "Healthy" badge...
+        assert "Rate-limited" in response.text
+        assert "bg-amber-100" in response.text
+        assert "✓ Healthy" not in response.text
+        # ...and the green uptime badge is suppressed for a degraded server.
+        assert "Uptime: 1h" not in response.text
 
     def test_badge_order_health_then_uptime_then_transport(
         self, client: TestClient, healthy_server: RegisteredServer

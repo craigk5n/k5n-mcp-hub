@@ -82,6 +82,21 @@ async def test_update_health_and_uptime(registry: Registry) -> None:
     assert result.healthy_since is None
     assert result.uptime_seconds == 0.0
 
+    # A rate-limited check records the degraded flag while staying reachable...
+    await registry.update_health_and_uptime(
+        "srv3", healthy=True, consecutive_fails=0, uptime=0.0, rate_limited=True
+    )
+    result = await registry.get("srv3")
+    assert result is not None
+    assert result.healthy is True
+    assert result.rate_limited is True
+
+    # ...and a subsequent clean check clears it again.
+    await registry.update_health_and_uptime("srv3", healthy=True, consecutive_fails=0, uptime=0.0)
+    result = await registry.get("srv3")
+    assert result is not None
+    assert result.rate_limited is False
+
 
 @pytest.mark.asyncio
 async def test_set_supports_health_endpoint(registry: Registry) -> None:

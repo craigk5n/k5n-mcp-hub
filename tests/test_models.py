@@ -97,6 +97,7 @@ class TestRegisteredServer:
             schema_conformant=True,
             schema_issues=["issue1"],
             healthy=True,
+            rate_limited=True,
             last_checked=datetime.now(timezone.utc),
             uptime_seconds=100.0,
             supports_health_endpoint=True,
@@ -111,6 +112,7 @@ class TestRegisteredServer:
         assert sanitized.schema_conformant is None
         assert sanitized.schema_issues == []
         assert sanitized.healthy is False
+        assert sanitized.rate_limited is False
         assert sanitized.last_checked is None
         assert sanitized.uptime_seconds == 0.0
         # supports_health_endpoint is preserved (remembered), so we don't re-probe /health.

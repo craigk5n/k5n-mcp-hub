@@ -491,21 +491,24 @@ class TestPingRateLimit:
         return await storage.get("rl")
 
     @pytest.mark.asyncio
-    async def test_429_status_code_marks_healthy(self) -> None:
+    async def test_429_status_code_marks_degraded(self) -> None:
         updated = await self._run_with_ping_error(
             MCPClientError("Ping failed: boom", kind="ping", status_code=429)
         )
         assert updated is not None
+        # Reachable (healthy) but flagged rate-limited/degraded, not plain green.
         assert updated.healthy is True
+        assert updated.rate_limited is True
 
     @pytest.mark.asyncio
-    async def test_429_message_text_marks_healthy(self) -> None:
+    async def test_429_message_text_marks_degraded(self) -> None:
         # Some SDK error paths don't preserve the response object; fall back to the message.
         updated = await self._run_with_ping_error(
             MCPClientError("Ping failed: 429 Too Many Requests", kind="ping")
         )
         assert updated is not None
         assert updated.healthy is True
+        assert updated.rate_limited is True
 
     @pytest.mark.asyncio
     async def test_other_ping_failure_stays_unhealthy(self) -> None:
@@ -514,3 +517,4 @@ class TestPingRateLimit:
         )
         assert updated is not None
         assert updated.healthy is False
+        assert updated.rate_limited is False
