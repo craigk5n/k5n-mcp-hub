@@ -1,16 +1,4 @@
-{% from "_panel_controls.html" import collapse_button %}<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <link rel="icon" type="image/svg+xml" href="/static/images/icon.svg">
-    <link rel="alternate icon" href="/static/images/favicon.ico" sizes="any">
-    <title>Trace Timeline - k5n-mcp-hub</title>
-    <script src="/static/vendor/tailwind.js"></script>
-    <script src="/static/vendor/htmx.min.js"></script>
-    <script src="/static/vendor/hyperscript.min.js"></script>
-</head>
-<body class="bg-gray-100 min-h-screen">
+{% from "_panel_controls.html" import collapse_button %}<div class="p-4">
     <div class="container mx-auto p-4">
         <div class="flex items-center justify-between mb-4">
             <h1 class="text-2xl font-bold">Trace Timeline</h1>
@@ -143,40 +131,53 @@
     </div>
 
     <script>
-        document.getElementById('show-health-checks').addEventListener('change', function() {
-            const entries = document.querySelectorAll('.entry');
-            entries.forEach(entry => {
+    (function () {
+        const showHealth = document.getElementById('show-health-checks');
+        const newestFirst = document.getElementById('newest-first');
+        const formatJson = document.getElementById('format-json');
+
+        // Pretty/compact every body pre, respecting the Format JSON checkbox. Runs on load
+        // (bodies are pretty-printed by default) as well as on toggle. Truncated bodies are
+        // invalid JSON, so we leave them as-is instead of logging a parse error.
+        function applyJsonFormat(pretty) {
+            document.querySelectorAll('#trace-entries pre.json-content').forEach(pre => {
+                const text = pre.textContent.trim();
+                if (!text) return;
+                if (pre.classList.contains('header-content')) {
+                    pre.textContent = pretty ? text : text.replace(/\n/g, ' ');
+                    return;
+                }
+                if (text.includes('…(truncated)…')) return;
+                if (!(text.startsWith('{') || text.startsWith('['))) return;
+                try {
+                    const parsed = JSON.parse(text);
+                    pre.textContent = pretty ? JSON.stringify(parsed, null, 2) : JSON.stringify(parsed);
+                } catch (e) {
+                    /* not valid JSON — leave the raw text untouched */
+                }
+            });
+        }
+
+        if (showHealth) showHealth.addEventListener('change', function () {
+            document.querySelectorAll('.entry').forEach(entry => {
                 if (entry.dataset.operation === 'health_check') {
                     entry.style.display = this.checked ? '' : 'none';
                 }
             });
         });
 
-        document.getElementById('newest-first').addEventListener('change', function() {
+        if (newestFirst) newestFirst.addEventListener('change', function () {
             const container = document.getElementById('trace-entries');
-            const entries = Array.from(document.querySelectorAll('.entry'));
-            entries.reverse().forEach(entry => container.appendChild(entry));
+            Array.from(document.querySelectorAll('.entry')).reverse()
+                .forEach(entry => container.appendChild(entry));
         });
 
-        document.getElementById('format-json').addEventListener('change', function() {
-            const preElements = document.querySelectorAll('#trace-entries pre.json-content');
-            preElements.forEach(pre => {
-                const text = pre.textContent.trim();
-                if (!text) return;
-                if (pre.classList.contains('header-content')) {
-                    pre.textContent = this.checked ? text : text.replace(/\n/g, ' ');
-                    return;
-                }
-                try {
-                    if (text.startsWith('{') || text.startsWith('[')) {
-                        const parsed = JSON.parse(text);
-                        pre.textContent = this.checked ? JSON.stringify(parsed, null, 2) : JSON.stringify(parsed);
-                    }
-                } catch (e) {
-                    console.error('JSON parse error:', e);
-                }
-            });
+        if (formatJson) formatJson.addEventListener('change', function () {
+            applyJsonFormat(this.checked);
         });
+
+        // Auto-format on load so JSON bodies are readable without touching the checkbox.
+        applyJsonFormat(formatJson ? formatJson.checked : true);
+    })();
     </script>
-</body>
-</html>
+</div>
