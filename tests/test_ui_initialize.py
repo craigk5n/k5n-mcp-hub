@@ -2,11 +2,17 @@ import pytest
 from jinja2 import Environment, FileSystemLoader
 from pathlib import Path
 
+from mcp_hub.utils import dom_id
+
 
 @pytest.fixture
 def jinja_env() -> Environment:
     templates_dir = Path(__file__).parent.parent / "src" / "mcp_hub" / "templates"
-    return Environment(loader=FileSystemLoader(str(templates_dir)))
+    env = Environment(loader=FileSystemLoader(str(templates_dir)))
+    # dom_id is registered globally on the app's Jinja env (app.py); the collapse button uses
+    # it so its selector matches the panel container's dom_id-safe id.
+    env.filters["dom_id"] = dom_id
+    return env
 
 
 @pytest.fixture
@@ -137,6 +143,24 @@ class TestInitializeTemplate:
         assert "test-server-123" in html
         assert "http://localhost:8080/mcp" in html
         assert "Server:" in html
+
+    def test_collapse_button_targets_dom_id_safe_container(self, initialize_template) -> None:
+        # Regression: the Collapse button must target the same dom_id-safe id the servers page
+        # gives the panel container. A raw id with dots/spaces produces an invalid CSS selector
+        # and the hyperscript throws in the console instead of collapsing.
+        server_id = "k5n.us webcalendar"
+        html = initialize_template.render(
+            server_id=server_id,
+            url="http://localhost:8080/mcp",
+            request_body="{}",
+            response_body="{}",
+            protocol_version="2025-06-18",
+            session_id="sess",
+            duration_ms=1,
+        )
+
+        assert f"add .hidden to #initialize-{dom_id(server_id)}" in html
+        assert "add .hidden to #initialize-k5n.us webcalendar" not in html
 
     def test_render_template_with_error(self, initialize_template) -> None:
         html = initialize_template.render(
