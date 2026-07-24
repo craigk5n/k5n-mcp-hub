@@ -2,7 +2,7 @@
     <div class="max-w-6xl mx-auto">
         <div class="flex items-center justify-between mb-6">
             <h1 class="text-2xl font-bold">Manual Request Playground</h1>
-            {{ collapse_button("playground-" ~ server_id) }}
+            {{ collapse_button("playground-" ~ (server_id | dom_id)) }}
         </div>
 
         {% if auth_hint %}

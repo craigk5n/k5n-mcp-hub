@@ -2,7 +2,7 @@
     <div class="max-w-2xl mx-auto">
         <div class="flex items-center justify-between mb-6">
             <h1 class="text-2xl font-bold text-gray-800">Fault Injection Settings</h1>
-            {{ collapse_button("faults-" ~ server_id) }}
+            {{ collapse_button("faults-" ~ (server_id | dom_id)) }}
         </div>
 
         <form hx-post="/ui/server/{{ server_id }}/faults"
