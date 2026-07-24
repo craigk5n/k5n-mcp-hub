@@ -16,6 +16,22 @@ from mcp_hub.app import create_app
 from mcp_hub.config import Settings, StorageConfig, AuthConfig, BasicAuthConfig
 
 
+@pytest.fixture(autouse=True)
+def _isolate_storage_from_local_config(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Never let the test suite touch a developer's real registry file.
+
+    ``create_app()`` with no explicit ``Settings`` calls ``load_settings()``, which reads
+    ``config.yaml`` from the CWD. If a developer has set ``storage.type: json`` there (a common
+    local convenience), every test that calls ``create_app()`` and registers a server would
+    persist test data into the real ``mcp_servers.json`` — last-writer-wins, silently wiping
+    their registry. Force in-memory storage for all tests via the highest-priority override.
+
+    Tests that specifically exercise JSON storage pass explicit ``Settings``/``tmp_path`` to
+    ``create_app()``, which bypasses ``load_settings()`` and is therefore unaffected.
+    """
+    monkeypatch.setenv("MCPHUB_STORAGE__TYPE", "inmemory")
+
+
 @pytest.fixture
 def settings() -> Settings:
     return Settings(
