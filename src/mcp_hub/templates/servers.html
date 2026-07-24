@@ -435,6 +435,17 @@
         }
     });
 
+    // The panel buttons (Capabilities, Initialize, etc.) use hx-disabled-elt="this" together
+    // with a .htmx-request spinner. htmx disables and later re-enables the button, but when the
+    // request indicator IS the disabled element it fails to strip .htmx-request — leaving the
+    // spinner turning forever even though the panel has already loaded. Clear it defensively.
+    document.body.addEventListener('htmx:afterRequest', (e) => {
+        const el = e.detail && e.detail.elt;
+        if (el && el.classList && el.classList.contains('htmx-request')) {
+            el.classList.remove('htmx-request');
+        }
+    });
+
     document.body.addEventListener('click', (e) => {
         const viewBtn = e.target.closest && e.target.closest('[data-view]');
         if (viewBtn) {

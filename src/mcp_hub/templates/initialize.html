@@ -1,15 +1,4 @@
-{% from "_panel_controls.html" import collapse_button %}{% from "_json_block.html" import json_block %}<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <link rel="icon" type="image/svg+xml" href="/static/images/icon.svg">
-    <link rel="alternate icon" href="/static/images/favicon.ico" sizes="any">
-    <title>Initialize Inspection - k5n-mcp-hub</title>
-    <script src="/static/vendor/htmx.min.js"></script>
-    <script src="/static/vendor/tailwind.js"></script>
-</head>
-<body class="bg-gray-50 min-h-screen p-8">
+{% from "_panel_controls.html" import collapse_button %}{% from "_json_block.html" import json_block %}<div class="p-8">
     {% if server_id %}
     <div class="flex justify-end mb-2">{{ collapse_button("initialize-" ~ server_id) }}</div>
     {% endif %}
@@ -99,5 +88,4 @@
             {% endif %}
         </div>
     </div>
-</body>
-</html>
+</div>
