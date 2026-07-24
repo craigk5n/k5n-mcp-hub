@@ -5,6 +5,7 @@ import asyncio
 
 from mcp_hub.config import HealthCheckConfig, TraceConfig
 from mcp_hub.health import HealthCheckResult, HealthChecker, HealthParser, check_service_health
+from mcp_hub.mcp.sdk_client import MCPClientError
 from mcp_hub.models.server import RegisteredServer
 from mcp_hub.registry.service import Registry
 from mcp_hub.trace import TraceRecorder
@@ -456,3 +457,60 @@ class TestHealthCheckerStartup:
                 assert len(app.state.context.background_tasks) >= 1
             # ...and it ran the checker loop.
             assert mock_run.await_count >= 1
+
+
+class TestPingRateLimit:
+    """A ping that fails with HTTP 429 means the server is up but throttling us — it must be
+    treated as healthy (reachable), not marked down."""
+
+    def _fake_mcp_client(self, error: MCPClientError):
+        class _FakePingClient:
+            def __init__(self, *args: object, **kwargs: object) -> None:
+                pass
+
+            async def ping(self, timeout: float = 10) -> None:
+                raise error
+
+        return _FakePingClient
+
+    async def _run_with_ping_error(self, error: MCPClientError) -> RegisteredServer | None:
+        server = RegisteredServer(
+            id="rl", url="https://rl.example.com/mcp", supports_health_endpoint=False
+        )
+        checker, storage = make_checker([server])
+
+        mock_client = AsyncMock(spec=httpx.AsyncClient)
+        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+        mock_client.__aexit__ = AsyncMock(return_value=None)
+
+        with (
+            patch("mcp_hub.health.checker.httpx.AsyncClient", return_value=mock_client),
+            patch("mcp_hub.health.checker.MCPClient", self._fake_mcp_client(error)),
+        ):
+            await checker.check_all_once()
+        return await storage.get("rl")
+
+    @pytest.mark.asyncio
+    async def test_429_status_code_marks_healthy(self) -> None:
+        updated = await self._run_with_ping_error(
+            MCPClientError("Ping failed: boom", kind="ping", status_code=429)
+        )
+        assert updated is not None
+        assert updated.healthy is True
+
+    @pytest.mark.asyncio
+    async def test_429_message_text_marks_healthy(self) -> None:
+        # Some SDK error paths don't preserve the response object; fall back to the message.
+        updated = await self._run_with_ping_error(
+            MCPClientError("Ping failed: 429 Too Many Requests", kind="ping")
+        )
+        assert updated is not None
+        assert updated.healthy is True
+
+    @pytest.mark.asyncio
+    async def test_other_ping_failure_stays_unhealthy(self) -> None:
+        updated = await self._run_with_ping_error(
+            MCPClientError("Ping failed: connection refused", kind="ping", status_code=None)
+        )
+        assert updated is not None
+        assert updated.healthy is False

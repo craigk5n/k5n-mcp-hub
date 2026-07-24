@@ -49,9 +49,13 @@ class MCPClientError(Exception):
         message: str,
         *,
         kind: Literal["handshake", "list", "ping", "transport"],
+        status_code: int | None = None,
     ) -> None:
         super().__init__(message)
         self.kind = kind
+        # HTTP status of the underlying failure when one can be recovered (e.g. 429). Lets the
+        # health checker tell "server rate-limited us" apart from "server is down".
+        self.status_code = status_code
 
 
 # One MCP connection per server at a time. The streamable-HTTP transport issues several
@@ -70,6 +74,33 @@ def _connection_lock(url: str) -> asyncio.Lock:
         lock = asyncio.Lock()
         _connection_locks[url] = lock
     return lock
+
+
+def _extract_status_code(exc: BaseException) -> int | None:
+    """Best-effort HTTP status from an exception tree. The streamable transport buries the
+    real cause inside anyio ExceptionGroups and __cause__/__context__ chains; walk them for
+    anything carrying a `.response.status_code` (httpx.HTTPStatusError) so callers can react to
+    e.g. 429 Too Many Requests."""
+    seen: set[int] = set()
+
+    def walk(e: BaseException | None) -> int | None:
+        if e is None or id(e) in seen:
+            return None
+        seen.add(id(e))
+        code = getattr(getattr(e, "response", None), "status_code", None)
+        if isinstance(code, int):
+            return code
+        for sub in getattr(e, "exceptions", None) or []:
+            found = walk(sub)
+            if found is not None:
+                return found
+        for chained in (getattr(e, "__cause__", None), getattr(e, "__context__", None)):
+            found = walk(chained)
+            if found is not None:
+                return found
+        return None
+
+    return walk(exc)
 
 
 def _flatten_exc(exc: BaseException) -> str:
@@ -210,6 +241,7 @@ class MCPClient:
             raise MCPClientError(
                 f"Failed to open transport: {_flatten_exc(e)}",
                 kind="transport",
+                status_code=_extract_status_code(e),
             ) from e
 
     async def _close_transport(self) -> None:
@@ -265,6 +297,7 @@ class MCPClient:
             raise MCPClientError(
                 f"Handshake failed: {_flatten_exc(e)}",
                 kind="handshake",
+                status_code=_extract_status_code(e),
             ) from e
 
     async def list(self, method: str, timeout: float = 30.0) -> Any:
@@ -312,23 +345,23 @@ class MCPClient:
 
     async def ping(self, timeout: float = 10.0) -> None:
         try:
+            # Reuse the caller's network policy. A local-first hub health-checks loopback/LAN
+            # servers, so the ping's own connection must honor allow_private_networks too —
+            # otherwise the SSRF pin blocks 127.0.0.1/LAN and a perfectly reachable local
+            # server (e.g. a WordPress plugin on localhost) looks unreachable.
             async with self.__class__(
                 self.base_url,
                 server=self.server,
+                allow_private_networks=self._allow_private_networks,
             ) as client:
                 await client.handshake(timeout=timeout)
         except MCPClientError as e:
-            if e.kind == "transport":
-                raise MCPClientError(
-                    f"Ping failed: {e}",
-                    kind="ping",
-                ) from e
-            raise MCPClientError(
-                f"Ping failed: {e}",
-                kind="ping",
-            ) from e
+            raise MCPClientError(f"Ping failed: {e}", kind="ping", status_code=e.status_code) from e
         except Exception as e:
+            # Flatten anyio ExceptionGroups ("unhandled errors in a TaskGroup") to the real
+            # cause so health-check logs are actionable instead of opaque.
             raise MCPClientError(
-                f"Ping failed: {e}",
+                f"Ping failed: {_flatten_exc(e)}",
                 kind="ping",
+                status_code=_extract_status_code(e),
             ) from e

@@ -1,6 +1,6 @@
 """Tests for MCPClient helpers that don't require the `mcp` SDK to be importable."""
 
-from mcp_hub.mcp.sdk_client import _connection_lock, _flatten_exc
+from mcp_hub.mcp.sdk_client import _connection_lock, _extract_status_code, _flatten_exc
 
 
 class _FakeGroup(Exception):
@@ -48,3 +48,37 @@ class TestConnectionLock:
         a = _connection_lock("https://a.example.com/mcp")
         b = _connection_lock("https://b.example.com/mcp")
         assert a is not b
+
+
+class _FakeResponse:
+    def __init__(self, status_code: int) -> None:
+        self.status_code = status_code
+
+
+class _FakeHTTPStatusError(Exception):
+    """Mimics httpx.HTTPStatusError (carries a .response.status_code)."""
+
+    def __init__(self, status_code: int) -> None:
+        super().__init__(f"Client error '{status_code}'")
+        self.response = _FakeResponse(status_code)
+
+
+class TestExtractStatusCode:
+    def test_direct_status_error(self) -> None:
+        assert _extract_status_code(_FakeHTTPStatusError(429)) == 429
+
+    def test_status_nested_in_exception_group(self) -> None:
+        group = _FakeGroup([RuntimeError("noise"), _FakeHTTPStatusError(503)])
+        assert _extract_status_code(group) == 503
+
+    def test_status_in_cause_chain(self) -> None:
+        try:
+            try:
+                raise _FakeHTTPStatusError(429)
+            except Exception as inner:
+                raise RuntimeError("wrapped") from inner
+        except RuntimeError as e:
+            assert _extract_status_code(e) == 429
+
+    def test_none_when_no_status(self) -> None:
+        assert _extract_status_code(RuntimeError("boom")) is None
