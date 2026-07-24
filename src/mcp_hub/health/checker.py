@@ -20,6 +20,16 @@ from mcp_hub.utils import SafePinnedTransport
 logger = logging.getLogger(__name__)
 
 
+def _is_rate_limited(err: MCPClientError) -> bool:
+    """True when a ping failure was actually an HTTP 429 (server up, throttling us) rather
+    than the server being unreachable. Checks the recovered status code first, then falls back
+    to the message text since some SDK error paths don't preserve the response object."""
+    if err.status_code == 429:
+        return True
+    text = str(err)
+    return "429" in text or "Too Many Requests" in text
+
+
 @dataclass
 class HealthCheckResult:
     healthy: bool
@@ -185,7 +195,18 @@ class HealthChecker:
                 healthy = True
                 uptime = 0
             except MCPClientError as e:
-                logger.warning("MCP ping fallback failed for %s: %s", srv.id, e)
+                # A 429 means the server is up but throttling us (often the hub's own frequent
+                # authenticated health pings). "Reachable but rate-limited" is healthy, not
+                # down — otherwise a busy server flaps red even though it is clearly alive.
+                if _is_rate_limited(e):
+                    logger.info(
+                        "Server %s is rate-limited (429) but reachable; treating as healthy",
+                        srv.id,
+                    )
+                    healthy = True
+                    uptime = 0
+                else:
+                    logger.warning("MCP ping fallback failed for %s: %s", srv.id, e)
             except Exception as e:
                 logger.warning("MCP ping fallback failed for %s: %s", srv.id, e)
 
