@@ -203,3 +203,53 @@ class TestInitializeRoute:
         response = client.get("/ui/server/nonexistent-server/initialize")
 
         assert response.status_code == 404
+
+    def test_initialize_persists_negotiated_protocol_version(self) -> None:
+        # Regression: Initialize used to display the negotiated protocol version but only
+        # persisted the transport, so the server card kept showing "MCP version unknown".
+        import asyncio
+        import json
+        from unittest.mock import AsyncMock, patch
+
+        import httpx
+        from fastapi.testclient import TestClient
+
+        from mcp_hub.app import create_app
+        from mcp_hub.models.server import RegisteredServer
+
+        app = create_app()
+        server_id = "proto-server"
+        asyncio.run(
+            app.state.registry.register(
+                RegisteredServer(id=server_id, url="https://example.com/mcp", name="Proto")
+            )
+        )
+
+        init_result = {
+            "jsonrpc": "2.0",
+            "id": 1,
+            "result": {
+                "protocolVersion": "2025-03-26",
+                "serverInfo": {"name": "Proto", "version": "1.0"},
+            },
+        }
+        fake_response = httpx.Response(
+            200,
+            headers={"Content-Type": "application/json"},
+            content=json.dumps(init_result).encode(),
+        )
+        mock_client = AsyncMock()
+        mock_client.post = AsyncMock(return_value=fake_response)
+        mock_client.aclose = AsyncMock()
+
+        client = TestClient(app, raise_server_exceptions=False)
+        with patch("mcp_hub.routes.ui_initialize.httpx.AsyncClient", return_value=mock_client):
+            response = client.get(f"/ui/server/{server_id}/initialize")
+
+        assert response.status_code == 200
+        updated = asyncio.run(app.state.registry.get(server_id))
+        assert updated is not None
+        assert updated.mcp_protocol_version == "2025-03-26"
+        # 2025-03-26 isn't in this hub's supported set, so it's recorded as non-conformant —
+        # the badge shows "outdated/unsupported", not "unknown".
+        assert updated.mcp_conformant is False

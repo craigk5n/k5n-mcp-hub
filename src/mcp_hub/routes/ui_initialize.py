@@ -8,6 +8,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import HTMLResponse
 
 from mcp_hub.mcp.auth import apply_server_auth
+from mcp_hub.mcp.constants import is_supported_protocol_version
 from mcp_hub.mcp.jsonrpc import build_initialize_request
 from mcp_hub.mcp.oauth import format_auth_challenge, parse_www_authenticate
 from mcp_hub.models.server import RegisteredServer
@@ -224,8 +225,22 @@ async def get_initialize(
         response_body_bytes,
     )
 
+    # Persist what the handshake revealed so the server card's badges match what Initialize
+    # shows. Previously only the transport was saved, so a manually-inspected server kept
+    # showing "MCP version unknown" even though Initialize had negotiated a version.
+    metadata_changed = False
     if detected_transport and srv.mcp_transport != detected_transport:
         srv.mcp_transport = detected_transport
+        metadata_changed = True
+    if protocol_version:
+        if srv.mcp_protocol_version != protocol_version:
+            srv.mcp_protocol_version = protocol_version
+            metadata_changed = True
+        conformant = is_supported_protocol_version(protocol_version)
+        if srv.mcp_conformant != conformant:
+            srv.mcp_conformant = conformant
+            metadata_changed = True
+    if metadata_changed:
         await registry.register(srv)
 
     auth_hint = ""
