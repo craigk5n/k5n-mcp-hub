@@ -78,6 +78,9 @@ class RegisteredServer(BaseModel):
     fault_injection: FaultInjection = Field(default_factory=FaultInjection)
 
     healthy: bool = False
+    # Reachable but the server answered a health probe with HTTP 429 — up, yet throttling the
+    # hub (a "degraded" state). `healthy` stays True so it isn't treated as down/unregistered.
+    rate_limited: bool = False
     consecutive_fails: int = 0
     last_checked: datetime | None = None
     # When the server most recently became healthy; uptime is derived from this (hub-tracked),
@@ -130,6 +133,7 @@ class RegisteredServer(BaseModel):
                 "schema_conformant": None,
                 "schema_issues": [],
                 "healthy": False,
+                "rate_limited": False,
                 "last_checked": None,
                 "healthy_since": None,
                 "uptime_seconds": 0.0,

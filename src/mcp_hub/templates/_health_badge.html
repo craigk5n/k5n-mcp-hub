@@ -1,5 +1,7 @@
 {% if server.last_checked is none %}
 <span title="The hub hasn't completed a health check yet. Status appears after the first check (within ~30s of startup)." class="bg-slate-100 text-slate-700 border border-slate-200 px-2 py-1 rounded text-xs">🕐 Unknown</span>
+{% elif server.rate_limited %}
+<span title="The server is reachable but answered the health check with HTTP 429 (Too Many Requests) — it's up but throttling the hub, so calls may fail until it recovers. Often caused by frequent authenticated health checks; consider raising health.interval_seconds." class="bg-amber-100 text-amber-900 border border-amber-200 px-2 py-1 rounded text-xs">⚠ Rate-limited</span>
 {% elif server.healthy %}
 <span title="The server responded to the most recent health check." class="bg-green-100 text-green-800 border border-green-200 px-2 py-1 rounded text-xs">✓ Healthy</span>
 {% else %}
@@ -9,7 +11,7 @@
 <span title="The server failed the most recent health check." class="bg-red-100 text-red-800 border border-red-200 px-2 py-1 rounded text-xs">✗ Unhealthy</span>
 {% endif %}
 {% endif %}
-{% if server.healthy and server.uptime_seconds > 0 %}
+{% if server.healthy and not server.rate_limited and server.uptime_seconds > 0 %}
 <span title="How long the server has been continuously healthy, tracked by the hub since it last became healthy." class="bg-indigo-50 text-indigo-700 border border-indigo-200 px-2 py-1 rounded text-xs">Uptime: {{ format_uptime(server.uptime_seconds) }}</span>
 {% else %}
 <span title="Uptime is measured from when the server last became healthy; it shows once the server is confirmed healthy." class="bg-slate-100 text-slate-700 border border-slate-200 px-2 py-1 rounded text-xs">Uptime: --</span>

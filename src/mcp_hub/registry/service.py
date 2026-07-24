@@ -49,6 +49,7 @@ class Registry:
         healthy: bool,
         consecutive_fails: int,
         uptime: float,
+        rate_limited: bool = False,
     ) -> None:
         server = await self._storage.get(server_id)
         if server is None:
@@ -65,6 +66,7 @@ class Registry:
             server.healthy_since = None
             server.uptime_seconds = 0.0
         server.healthy = healthy
+        server.rate_limited = rate_limited
         server.consecutive_fails = consecutive_fails
         server.last_checked = now
         await self._storage.save(server)
