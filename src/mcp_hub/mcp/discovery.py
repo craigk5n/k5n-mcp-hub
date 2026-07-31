@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import time
 from typing import TYPE_CHECKING, Any, Literal
 
 from mcp_hub.mcp.constants import (
@@ -60,10 +61,23 @@ def extract_list_payload(
     return None
 
 
+def extract_ttl_ms(raw: Any) -> float | None:
+    """Read the ``ttlMs`` freshness hint from a 2026-07-28 list result, if present."""
+    if isinstance(raw, dict):
+        ttl = raw.get("ttlMs")
+        if isinstance(ttl, (int, float)) and not isinstance(ttl, bool) and ttl >= 0:
+            return float(ttl)
+    return None
+
+
 class DiscoveryService:
     def __init__(self, registry: Registry, *, allow_private_networks: bool = False) -> None:
         self._registry = registry
         self._allow_private_networks = allow_private_networks
+        # Per-server earliest next poll (monotonic seconds), from ttlMs freshness
+        # hints on stateless list results. Only poll_once honors this — an explicit
+        # discover_immediately call always runs.
+        self._poll_not_before: dict[str, float] = {}
 
     async def discover_immediately(
         self, server: RegisteredServer, *, timeout: float = 30.0
@@ -119,10 +133,24 @@ class DiscoveryService:
         except Exception as e:
             logger.warning("Failed to list resources for %s: %s", server.id, e)
 
+        # The shortest ttlMs across the list results bounds how long everything
+        # stays fresh; don't background-repoll before it expires.
+        ttls = [
+            ttl
+            for ttl in (extract_ttl_ms(r) for r in (tools_raw, prompts_raw, resources_raw))
+            if ttl is not None
+        ]
+        if ttls:
+            self._poll_not_before[server.id] = time.monotonic() + min(ttls) / 1000.0
+        else:
+            self._poll_not_before.pop(server.id, None)
+
         await self._store_capabilities(server, tools_raw, prompts_raw, resources_raw)
         return True
 
     async def _discover_handshake(self, server: RegisteredServer, *, timeout: float) -> None:
+        # Handshake revisions carry no ttl hints; drop any stale pacing entry.
+        self._poll_not_before.pop(server.id, None)
         async with MCPClient(
             server.url, server=server, allow_private_networks=self._allow_private_networks
         ) as client:
@@ -191,13 +219,21 @@ class DiscoveryService:
     async def poll_once(self) -> None:
         servers = await self._registry.list()
 
+        # Drop pacing state for servers that are no longer registered.
+        current_ids = {s.id for s in servers}
+        for stale_id in set(self._poll_not_before) - current_ids:
+            del self._poll_not_before[stale_id]
+
+        now = time.monotonic()
+        due = [s for s in servers if now >= self._poll_not_before.get(s.id, 0.0)]
+
         async def discover_server(server: RegisteredServer) -> None:
             try:
                 await self.discover_immediately(server)
             except Exception as e:
                 logger.error("Discovery failed for %s: %s", server.id, e)
 
-        await asyncio.gather(*[discover_server(s) for s in servers])
+        await asyncio.gather(*[discover_server(s) for s in due])
 
     async def run_forever(self, interval_seconds: int = MCP_DISCOVERY_INTERVAL_SECONDS) -> None:
         while True:

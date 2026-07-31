@@ -95,6 +95,8 @@ class FakeMCPServer:
         self.tools: list[dict[str, Any]] = []
         self.prompts: list[dict[str, Any]] = []
         self.resources: list[dict[str, Any]] = []
+        # ttlMs stamped on stateless list results; tests mutate to exercise pacing.
+        self.ttl_ms: int = 60000
         # Last JSON-RPC request seen, for asserting on wire shape (_meta, headers).
         self.last_request_body: dict[str, Any] | None = None
         self.last_request_headers: dict[str, str] | None = None
@@ -153,7 +155,9 @@ class FakeMCPServer:
         def list_result(key: str) -> dict[str, Any]:
             result: dict[str, Any] = {key: served[key]}
             if stateless:
-                result.update({"resultType": "complete", "ttlMs": 60000, "cacheScope": "private"})
+                result.update(
+                    {"resultType": "complete", "ttlMs": self.ttl_ms, "cacheScope": "private"}
+                )
             return result
 
         if method == "initialize" and not stateless:

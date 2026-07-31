@@ -181,9 +181,9 @@ As a UI user, I want to exercise 2026-07-28 servers without a handshake.
 **Story 2.5 — Honor `ttlMs` cache hints in discovery pacing** *(nice-to-have)*
 
 - Acceptance criteria:
-  - [ ] When list results carry `ttlMs`, discovery does not re-poll that
+  - [x] When list results carry `ttlMs`, discovery does not re-poll that
         server before expiry (bounded below by the configured interval).
-  - [ ] Missing `ttlMs` → today's fixed 30s interval, unchanged.
+  - [x] Missing `ttlMs` → today's fixed 30s interval, unchanged.
 
 ### Epic 3 — Proxy & trace hardening
 

@@ -442,3 +442,79 @@ class TestStatelessDiscovery:
             await service.discover_immediately(server, timeout=5.0)
 
         assert server.tools == fake_stateless_mcp_server.tools
+
+
+class TestTtlPacing:
+    """Story 2.5: stateless list results carry a ttlMs freshness hint — discovery
+    must not re-poll a server before the hint expires. No hint (legacy servers)
+    keeps the fixed-interval behavior; explicit discovery bypasses pacing."""
+
+    def _tool(self) -> dict[str, Any]:
+        return {"name": "echo", "inputSchema": {"type": "object", "properties": {}}}
+
+    def _service_and_server(self, fake: FakeMCPServer) -> tuple[DiscoveryService, MockRegistry]:
+        registry = MockRegistry()
+        service = DiscoveryService(registry, allow_private_networks=True)  # type: ignore[arg-type]
+        server = make_server(
+            id="paced", url=fake.base_url, mcp_protocol_version=STATELESS_PROTOCOL_VERSION
+        )
+        registry._servers[server.id] = server
+        return service, registry
+
+    @pytest.mark.asyncio
+    async def test_fresh_ttl_skips_next_poll(self, fake_stateless_mcp_server) -> None:
+        fake_stateless_mcp_server.tools = [self._tool()]
+        fake_stateless_mcp_server.ttl_ms = 60_000
+        service, _ = self._service_and_server(fake_stateless_mcp_server)
+
+        await service.poll_once()
+        count_after_first = fake_stateless_mcp_server.handler_call_count
+        assert count_after_first > 0
+
+        await service.poll_once()
+        assert fake_stateless_mcp_server.handler_call_count == count_after_first, (
+            "server with an unexpired ttlMs must not be re-polled"
+        )
+
+    @pytest.mark.asyncio
+    async def test_expired_ttl_repolls(self, fake_stateless_mcp_server) -> None:
+        fake_stateless_mcp_server.tools = [self._tool()]
+        fake_stateless_mcp_server.ttl_ms = 0
+        service, _ = self._service_and_server(fake_stateless_mcp_server)
+
+        await service.poll_once()
+        count_after_first = fake_stateless_mcp_server.handler_call_count
+
+        await service.poll_once()
+        assert fake_stateless_mcp_server.handler_call_count > count_after_first
+
+    @pytest.mark.asyncio
+    async def test_no_ttl_keeps_fixed_interval(self, fake_mcp_server) -> None:
+        fake_mcp_server.tools = [self._tool()]
+        registry = MockRegistry()
+        service = DiscoveryService(registry, allow_private_networks=True)  # type: ignore[arg-type]
+        server = make_server(id="legacy-paced", url=fake_mcp_server.base_url)
+        registry._servers[server.id] = server
+
+        await service.poll_once()
+        count_after_first = fake_mcp_server.handler_call_count
+        assert count_after_first > 0
+
+        await service.poll_once()
+        assert fake_mcp_server.handler_call_count > count_after_first, (
+            "servers without a ttl hint keep the fixed-interval polling"
+        )
+
+    @pytest.mark.asyncio
+    async def test_direct_discovery_bypasses_pacing(self, fake_stateless_mcp_server) -> None:
+        fake_stateless_mcp_server.tools = [self._tool()]
+        fake_stateless_mcp_server.ttl_ms = 60_000
+        service, registry = self._service_and_server(fake_stateless_mcp_server)
+
+        await service.poll_once()
+        count_after_first = fake_stateless_mcp_server.handler_call_count
+
+        await service.discover_immediately(registry._servers["paced"], timeout=5.0)
+        assert fake_stateless_mcp_server.handler_call_count > count_after_first, (
+            "an explicit discovery request must not be blocked by the ttl hint"
+        )
