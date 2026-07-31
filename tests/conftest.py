@@ -14,6 +14,11 @@ from fastapi import FastAPI
 
 from mcp_hub.app import create_app
 from mcp_hub.config import Settings, StorageConfig, AuthConfig, BasicAuthConfig
+from mcp_hub.mcp.constants import (
+    METHOD_NOT_FOUND,
+    PROTOCOL_VERSION,
+    STATELESS_PROTOCOL_VERSION,
+)
 
 
 @pytest.fixture(autouse=True)
@@ -74,7 +79,16 @@ def auth_header() -> dict[str, str]:
 
 
 class FakeMCPServer:
-    def __init__(self) -> None:
+    """Minimal MCP server for tests.
+
+    ``protocol_version`` selects the revision it speaks. Handshake revisions
+    (the default) answer ``initialize``; the stateless ``2026-07-28`` revision
+    rejects ``initialize`` and implements ``server/discover`` instead, and its
+    list results carry the required ``resultType``/``ttlMs``/``cacheScope``.
+    """
+
+    def __init__(self, protocol_version: str = PROTOCOL_VERSION) -> None:
+        self.protocol_version = protocol_version
         self.handler_called: bool = False
         self.handler_call_count: int = 0
         self._app: aiohttp.web.Application | None = None
@@ -122,21 +136,34 @@ class FakeMCPServer:
         method = body.get("method")
 
         response: dict[str, Any] = {"jsonrpc": "2.0", "id": request_id}
+        stateless = self.protocol_version == STATELESS_PROTOCOL_VERSION
 
-        if method == "initialize":
+        def list_result(key: str) -> dict[str, Any]:
+            result: dict[str, Any] = {key: []}
+            if stateless:
+                result.update({"resultType": "complete", "ttlMs": 60000, "cacheScope": "private"})
+            return result
+
+        if method == "initialize" and not stateless:
             response["result"] = {
-                "protocolVersion": "2024-11-05",
+                "protocolVersion": self.protocol_version,
+                "capabilities": {},
+                "serverInfo": {"name": "fake-mcp-server", "version": "0.1.0"},
+            }
+        elif method == "server/discover" and stateless:
+            response["result"] = {
+                "protocolVersions": [self.protocol_version],
                 "capabilities": {},
                 "serverInfo": {"name": "fake-mcp-server", "version": "0.1.0"},
             }
         elif method == "tools/list":
-            response["result"] = {"tools": []}
+            response["result"] = list_result("tools")
         elif method == "resources/list":
-            response["result"] = {"resources": []}
+            response["result"] = list_result("resources")
         elif method == "prompts/list":
-            response["result"] = {"prompts": []}
+            response["result"] = list_result("prompts")
         else:
-            response["error"] = {"code": -32601, "message": "Method not found"}
+            response["error"] = {"code": METHOD_NOT_FOUND, "message": "Method not found"}
 
         return aiohttp.web.json_response(response)
 
@@ -151,6 +178,14 @@ class FakeMCPServer:
 @pytest.fixture
 async def fake_mcp_server() -> AsyncIterator[FakeMCPServer]:
     server = FakeMCPServer()
+    await server.start()
+    yield server
+    await server.stop()
+
+
+@pytest.fixture
+async def fake_stateless_mcp_server() -> AsyncIterator[FakeMCPServer]:
+    server = FakeMCPServer(protocol_version=STATELESS_PROTOCOL_VERSION)
     await server.start()
     yield server
     await server.stop()

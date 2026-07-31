@@ -37,6 +37,214 @@ Once the image is published, document several ways to run it, e.g.:
 > Note: for an internet-exposed deployment, also set `security.allow_private_networks: false`
 > and review the outstanding security items below.
 
+## MCP spec 2026-07-28 support
+
+Goal: support servers and clients speaking the new **stateless** MCP revision
+(2026-07-28) while keeping full compatibility with the currently supported
+`2025-11-25` / `2025-06-18` paths. The revision removes the
+`initialize`/`notifications/initialized` handshake and `Mcp-Session-Id`, adds a
+`server/discover` RPC, replaces the GET/SSE endpoint with `subscriptions/listen`,
+removes `ping` and `logging/setLevel`, requires `Mcp-Method`/`Mcp-Name` headers on
+Streamable HTTP POSTs, and requires `resultType` on results.
+Changelog: <https://modelcontextprotocol.io/specification/2026-07-28/changelog>
+
+All stories follow TDD (RED → GREEN → IMPROVE): write/extend the named tests
+first, watch them fail, then implement. Version support is additive — never
+break the existing negotiated paths (public contract is stable per CLAUDE.md).
+
+### Epic 1 — Version recognition & validation groundwork (no behavior change)
+
+**Story 1.1 — Recognize 2026-07-28 as a supported protocol version**
+
+As a hub operator, I want servers negotiating 2026-07-28 to show as supported
+so the UI doesn't display a misleading amber "unsupported" badge.
+
+- TDD: extend `tests/test_mcp_constants.py` and `tests/test_health_badge.py`
+  first (new version in the supported set, badge renders "supported").
+- Acceptance criteria:
+  - [x] `is_supported_protocol_version("2026-07-28")` is true; `2025-11-25`
+        and `2025-06-18` remain supported (`src/mcp_hub/mcp/constants.py:1-3`).
+  - [x] `mcp_version_status()` no longer lumps *newer-than-supported* versions
+        into "unsupported" — a distinct `newer` (or similar) status, with a
+        sensible badge in `templates/_health_badge.html`.
+  - [x] Hardcoded version strings in `tests/test_jsonrpc.py`,
+        `tests/test_sdk_client.py`, `tests/test_discovery.py`,
+        `tests/test_proxy_handler.py`, `tests/test_ui_capabilities.py` updated
+        to reference the constants, not literals, where feasible.
+  - [x] `ruff` / `mypy` / full `pytest` green.
+
+**Story 1.2 — Version-aware MCP method registry**
+
+As a developer using the request validator, I want method validity to depend on
+the negotiated protocol version so new methods don't warn and removed methods do.
+
+- TDD: extend `tests/test_mcp_constants.py` (13-method assertion at `:81-100`
+  becomes per-version) and `tests/test_jsonrpc.py` first.
+- Acceptance criteria:
+  - [x] `server/discover` and `subscriptions/listen` are valid methods for
+        2026-07-28; `resources/subscribe`/`unsubscribe`, `elicitation/create`,
+        `roots/list` added for the versions where they exist.
+  - [x] `ping`, `logging/setLevel`, `initialize`, `notifications/initialized`
+        produce a validation warning when used against a 2026-07-28 server.
+  - [x] Validator API stays backward compatible for callers that pass no
+        version (defaults to current union behavior — no new warnings for
+        existing valid traffic).
+
+**Story 1.3 — `resultType` and error-code validation updates**
+
+As a user of the playground/validator, I want responses checked against the new
+result and error rules.
+
+- TDD: extend `tests/test_jsonrpc.py` first.
+- Acceptance criteria:
+  - [x] Results missing `resultType` are treated as `"complete"` (spec rule for
+        earlier-protocol servers); `"input_required"` recognized and not
+        flagged as an error shape.
+  - [x] Error-code constants updated: resource-not-found is `-32602`; new
+        MCP-reserved range `-32020..-32099` known to the validator
+        (`HeaderMismatch` `-32020`, `MissingRequiredClientCapability` `-32021`,
+        `UnsupportedProtocolVersion` `-32022`).
+  - [x] `fault_injection.py:81` uses the named constant instead of a literal.
+
+**Story 1.4 — Modernize test fixtures**
+
+As a contributor, I want the fake MCP server in tests to speak current
+revisions so tests exercise realistic negotiation.
+
+- Acceptance criteria:
+  - [x] `tests/conftest.py:128` fake server no longer answers `2024-11-05`;
+        parameterizable per test (legacy, 2025-11-25, and a stateless
+        2026-07-28 mode that rejects `initialize` and implements
+        `server/discover`).
+  - [x] Existing tests pass unchanged against the default fixture mode.
+
+### Epic 2 — Stateless client path (discovery, health, UI, scripts)
+
+**Story 2.1 — `server/discover` probe with `initialize` fallback in discovery**
+
+As a hub operator, I want discovery to detect and record 2026-07-28 servers.
+
+- TDD: extend `tests/test_discovery.py` first using the Story 1.4 stateless
+  fixture (RED: discovery against a stateless server currently fails/records
+  nothing).
+- Acceptance criteria:
+  - [ ] Discovery tries `server/discover` first; on method-not-found falls back
+        to the existing `initialize` handshake (`mcp/discovery.py`,
+        `mcp/sdk_client.py`).
+  - [ ] Negotiated/advertised version stored in
+        `RegisteredServer.mcp_protocol_version` from either path; the four
+        writer code paths (discovery, ui_servers, ui_initialize, ui_invoke)
+        share one helper so they can't drift.
+  - [ ] `tools/prompts/resources` lists fetched statelessly (single POST with
+        `_meta` version/capabilities) for 2026-07-28 servers.
+  - [ ] Register-merge behavior preserved (empty lists don't clobber
+        previously discovered ones).
+
+**Story 2.2 — Health checks without `ping`**
+
+As a hub operator, I want health checks to work for stateless servers, where
+`ping` no longer exists.
+
+- TDD: extend `tests/` health-checker tests first.
+- Acceptance criteria:
+  - [ ] For 2026-07-28 servers the fallback probe is `server/discover`
+        (replacing the current full-`initialize` probe in
+        `sdk_client.py:346-367` / `health/checker.py:190-213`).
+  - [ ] Legacy servers keep the existing probe; 429 → "degraded" behavior
+        unchanged.
+
+**Story 2.3 — Stateless request mode in the UI (invoke, playground, initialize panel)**
+
+As a UI user, I want to exercise 2026-07-28 servers without a handshake.
+
+- TDD: extend `tests/test_ui_playground.py` / ui_invoke tests first.
+- Acceptance criteria:
+  - [ ] `ui_invoke.py` skips `initialize`/`initialized` and sends
+        `io.modelcontextprotocol/protocolVersion` (+ client info/capabilities)
+        in `_meta` when the server's stored version is 2026-07-28.
+  - [ ] Playground exposes the `_meta` version fields; session-id field hidden
+        or marked legacy-only for stateless servers.
+  - [ ] The "Initialize" inspection panel gains a "Discover" mode that issues
+        `server/discover` and persists the advertised version (reusing the
+        Story 2.1 helper).
+  - [ ] Legacy servers keep today's exact three-step flow (regression tests).
+
+**Story 2.4 — Generated client scripts support stateless mode**
+
+- TDD: extend the downloads/tool-script tests first.
+- Acceptance criteria:
+  - [ ] `tool_script.py.j2` / `tool_script.sh.j2` emit the stateless single-POST
+        flow when the server's recorded version is 2026-07-28, and the legacy
+        3-step flow otherwise.
+  - [ ] `tests/test_readme.py` and documented commands stay accurate.
+
+**Story 2.5 — Honor `ttlMs` cache hints in discovery pacing** *(nice-to-have)*
+
+- Acceptance criteria:
+  - [ ] When list results carry `ttlMs`, discovery does not re-poll that
+        server before expiry (bounded below by the configured interval).
+  - [ ] Missing `ttlMs` → today's fixed 30s interval, unchanged.
+
+### Epic 3 — Proxy & trace hardening
+
+**Story 3.1 — Inject required `Mcp-Method` / `Mcp-Name` headers**
+
+As a proxy user, I want the hub to satisfy the new required-header rule for
+clients that don't set them.
+
+- TDD: extend `tests/test_proxy_handler.py` first.
+- Acceptance criteria:
+  - [ ] For POSTs to 2026-07-28 backends, the proxy injects `Mcp-Method` (and
+        `Mcp-Name` where derivable from the JSON-RPC body) only when absent —
+        mirroring the existing `MCP-Protocol-Version` injection at
+        `proxy/handler.py:79-80`.
+  - [ ] Client-supplied headers are never overwritten; legacy backends see no
+        new headers.
+
+**Story 3.2 — Long-lived stream safety for `subscriptions/listen`**
+
+As a trace user, I want verbose tracing to not buffer unbounded streams.
+
+- TDD: add a proxy test with a never-ending SSE body first (RED: current code
+  at `proxy/handler.py:187-226` drains the whole stream before responding).
+- Acceptance criteria:
+  - [ ] With `trace_verbose` + `capture_sse` on, streamed responses are teed
+        with a capture cap (reuse `trace.body_limit`) instead of drained;
+        first bytes reach the client without waiting for stream close.
+  - [ ] Captured trace marks truncation explicitly.
+
+**Story 3.3 — Treat `Mcp-Session-Id` as sensitive in traces** *(legacy path)*
+
+- Acceptance criteria:
+  - [ ] `mcp-session-id` added to `SENSITIVE_HEADERS` in `trace/recorder.py`;
+        redacted in trace UI and API output; test added.
+
+### Epic 4 — SDK upgrade & advanced features *(blocked: stable `mcp` SDK release with 2026-07-28 support)*
+
+**Story 4.1 — Adopt the official SDK's stateless client**
+
+- Acceptance criteria:
+  - [ ] `pyproject.toml` bumps `mcp` to the first stable 2026-07-28 release
+        (with an upper bound this time); the dual-import fallbacks in
+        `sdk_client.py:16-34` are removed if no longer needed.
+  - [ ] `sdk_client.py` uses the SDK's stateless transport for 2026-07-28
+        servers; hardcoded `transport_type = "sse"` (`:271`) and the duplicate
+        `InitializedNotification` (`:283-285`) fixed.
+  - [ ] CI's clean-venv gate passes (no undeclared imports).
+
+**Story 4.2 — Pagination for list endpoints** *(pre-existing gap, more visible now)*
+
+- Acceptance criteria:
+  - [ ] Discovery follows `nextCursor` across all pages for tools/prompts/
+        resources; test with a paginating fake server.
+
+**Story 4.3 — Surface MRTR (`input_required`) in the playground** *(later)*
+
+- Acceptance criteria:
+  - [ ] A `resultType: "input_required"` response renders its `inputRequests`
+        and lets the user supply `inputResponses` on a retry of the original
+        request.
+
 ## Security follow-ups (from AUDIT_local.md)
 
 Two CRITICALs are fixed (safe auth defaults + no hardcoded password; SSRF flag no longer a

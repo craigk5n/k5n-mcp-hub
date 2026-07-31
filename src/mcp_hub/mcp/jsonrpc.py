@@ -8,7 +8,8 @@ from mcp_hub.mcp.constants import (
     MCP_CLIENT_NAME,
     MCP_CLIENT_VERSION,
     PROTOCOL_VERSION,
-    VALID_MCP_METHODS,
+    VALID_RESULT_TYPES,
+    valid_methods_for,
 )
 
 
@@ -68,7 +69,14 @@ def build_call_tool_request(
     return build_request("tools/call", request_id, {"name": tool_name, "arguments": arguments})
 
 
-def validate_request(data: bytes | dict) -> list[ValidationError]:
+def validate_request(
+    data: bytes | dict, protocol_version: str | None = None
+) -> list[ValidationError]:
+    """Validate a JSON-RPC request shape.
+
+    When ``protocol_version`` is a known revision, method validity is checked
+    against that revision's method set (e.g. ``ping`` warns for 2026-07-28);
+    otherwise the union across all supported revisions is used."""
     if isinstance(data, bytes):
         try:
             loaded = json.loads(data.decode("utf-8"))
@@ -88,11 +96,16 @@ def validate_request(data: bytes | dict) -> list[ValidationError]:
             ValidationError(field="method", message='"method" must be a non-empty string')
         )
     else:
-        if method not in VALID_MCP_METHODS:
+        if method not in valid_methods_for(protocol_version):
+            known_in_another_revision = method in valid_methods_for(None)
+            if protocol_version and known_in_another_revision:
+                message = f'method "{method}" does not exist in MCP {protocol_version.strip()}'
+            else:
+                message = f'unknown MCP method "{method}"'
             errors.append(
                 ValidationError(
                     field="method",
-                    message=f'unknown MCP method "{method}"',
+                    message=message,
                     severity="warning",
                 )
             )
@@ -142,6 +155,24 @@ def validate_response(data: bytes | dict) -> list[ValidationError]:
                 field="result/error", message="Exactly one of 'result' or 'error' must be present"
             )
         )
+
+    if has_result:
+        result_obj = data.get("result")
+        # A missing resultType means "complete" (pre-2026-07-28 servers omit it);
+        # only a present-but-invalid value is worth flagging.
+        if isinstance(result_obj, dict) and "resultType" in result_obj:
+            result_type = result_obj.get("resultType")
+            if result_type not in VALID_RESULT_TYPES:
+                errors.append(
+                    ValidationError(
+                        field="result.resultType",
+                        message=(
+                            f"'resultType' must be one of {sorted(VALID_RESULT_TYPES)}, "
+                            f"got {result_type!r}"
+                        ),
+                        severity="warning",
+                    )
+                )
 
     if has_error:
         error_obj = data.get("error")

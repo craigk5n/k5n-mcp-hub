@@ -4,7 +4,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 from mcp_hub.proxy import build_outbound_headers, proxy_request
 from mcp_hub.models.server import RegisteredServer, FaultInjection
-from mcp_hub.mcp.constants import PROTOCOL_VERSION
+from mcp_hub.mcp.constants import BACKWARD_COMPAT_PROTOCOL_VERSION, PROTOCOL_VERSION
 from mcp_hub.config import TraceConfig
 
 
@@ -63,21 +63,21 @@ class TestBuildOutboundHeaders:
 
     @pytest.mark.asyncio
     async def test_outbound_uses_server_protocol_version(self) -> None:
-        server = make_server(mcp_protocol_version="2025-06-18")
+        server = make_server(mcp_protocol_version=BACKWARD_COMPAT_PROTOCOL_VERSION)
         incoming = httpx.Headers({})
 
         result = await build_outbound_headers(incoming, server)
 
-        assert _get_header(result, "MCP-Protocol-Version") == "2025-06-18"
+        assert _get_header(result, "MCP-Protocol-Version") == BACKWARD_COMPAT_PROTOCOL_VERSION
 
     @pytest.mark.asyncio
     async def test_incoming_protocol_version_beats_server_field(self) -> None:
-        server = make_server(mcp_protocol_version="2025-06-18")
-        incoming = httpx.Headers({"MCP-Protocol-Version": "2025-11-25"})
+        server = make_server(mcp_protocol_version=BACKWARD_COMPAT_PROTOCOL_VERSION)
+        incoming = httpx.Headers({"MCP-Protocol-Version": PROTOCOL_VERSION})
 
         result = await build_outbound_headers(incoming, server)
 
-        assert _get_header(result, "MCP-Protocol-Version") == "2025-11-25"
+        assert _get_header(result, "MCP-Protocol-Version") == PROTOCOL_VERSION
 
     @pytest.mark.asyncio
     async def test_mcp_protocol_version_not_overwritten_if_present(self) -> None:

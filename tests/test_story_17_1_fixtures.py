@@ -6,6 +6,12 @@ import httpx
 import pytest
 
 from mcp_hub.config import AuthConfig, BasicAuthConfig, Settings, StorageConfig
+from mcp_hub.mcp.constants import (
+    BACKWARD_COMPAT_PROTOCOL_VERSION,
+    METHOD_NOT_FOUND,
+    PROTOCOL_VERSION,
+    STATELESS_PROTOCOL_VERSION,
+)
 
 from tests.conftest import FakeMCPServer
 
@@ -95,6 +101,45 @@ class TestFixtures:
         assert fake_mcp_server.handler_call_count == 1
 
     @pytest.mark.asyncio
+    async def test_fake_mcp_server_default_speaks_current_version(
+        self, fake_mcp_server: FakeMCPServer
+    ) -> None:
+        import aiohttp
+
+        async with aiohttp.ClientSession() as session:
+            request_body = {"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {}}
+            async with session.post(f"{fake_mcp_server.base_url}/", json=request_body) as response:
+                body = await response.json()
+                assert body["result"]["protocolVersion"] == PROTOCOL_VERSION
+
+    @pytest.mark.asyncio
+    async def test_fake_mcp_server_version_is_parameterizable(self) -> None:
+        import aiohttp
+
+        server = FakeMCPServer(protocol_version=BACKWARD_COMPAT_PROTOCOL_VERSION)
+        base_url = await server.start()
+        try:
+            async with aiohttp.ClientSession() as session:
+                request_body = {"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {}}
+                async with session.post(f"{base_url}/", json=request_body) as response:
+                    body = await response.json()
+                    assert body["result"]["protocolVersion"] == BACKWARD_COMPAT_PROTOCOL_VERSION
+        finally:
+            await server.stop()
+
+    @pytest.mark.asyncio
+    async def test_fake_mcp_server_legacy_rejects_server_discover(
+        self, fake_mcp_server: FakeMCPServer
+    ) -> None:
+        import aiohttp
+
+        async with aiohttp.ClientSession() as session:
+            request_body = {"jsonrpc": "2.0", "id": 1, "method": "server/discover", "params": {}}
+            async with session.post(f"{fake_mcp_server.base_url}/", json=request_body) as response:
+                body = await response.json()
+                assert body["error"]["code"] == METHOD_NOT_FOUND
+
+    @pytest.mark.asyncio
     async def test_fake_mcp_server_tears_down_cleanly(self, fake_mcp_server: FakeMCPServer) -> None:
         import aiohttp
 
@@ -110,3 +155,50 @@ class TestFixtures:
             async with aiohttp.ClientSession() as session:
                 async with session.get(f"{base_url}/health") as response:
                     pass
+
+
+class TestStatelessFakeMCPServer:
+    """The 2026-07-28 revision: no initialize handshake, `server/discover` instead."""
+
+    @pytest.mark.asyncio
+    async def test_rejects_initialize(self, fake_stateless_mcp_server: FakeMCPServer) -> None:
+        import aiohttp
+
+        async with aiohttp.ClientSession() as session:
+            request_body = {"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {}}
+            async with session.post(
+                f"{fake_stateless_mcp_server.base_url}/", json=request_body
+            ) as response:
+                body = await response.json()
+                assert body["error"]["code"] == METHOD_NOT_FOUND
+
+    @pytest.mark.asyncio
+    async def test_answers_server_discover(self, fake_stateless_mcp_server: FakeMCPServer) -> None:
+        import aiohttp
+
+        async with aiohttp.ClientSession() as session:
+            request_body = {"jsonrpc": "2.0", "id": 1, "method": "server/discover", "params": {}}
+            async with session.post(
+                f"{fake_stateless_mcp_server.base_url}/", json=request_body
+            ) as response:
+                body = await response.json()
+                result = body["result"]
+                assert STATELESS_PROTOCOL_VERSION in result["protocolVersions"]
+                assert result["serverInfo"]["name"] == "fake-mcp-server"
+
+    @pytest.mark.asyncio
+    async def test_list_results_carry_result_type_and_cache_fields(
+        self, fake_stateless_mcp_server: FakeMCPServer
+    ) -> None:
+        import aiohttp
+
+        async with aiohttp.ClientSession() as session:
+            request_body = {"jsonrpc": "2.0", "id": 1, "method": "tools/list", "params": {}}
+            async with session.post(
+                f"{fake_stateless_mcp_server.base_url}/", json=request_body
+            ) as response:
+                body = await response.json()
+                result = body["result"]
+                assert result["resultType"] == "complete"
+                assert isinstance(result["ttlMs"], int)
+                assert result["cacheScope"] in ("public", "private")

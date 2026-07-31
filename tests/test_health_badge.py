@@ -318,6 +318,48 @@ class TestHealthBadge:
         assert "MCP 2025-06-18 - supported" in response.text
         assert "bg-emerald-100" in response.text
 
+    @pytest_asyncio.fixture
+    async def stateless_version_server(self, app):
+        server = create_test_server(
+            server_id="stateless-version-server",
+            healthy=True,
+            last_checked=datetime(2024, 1, 1, 12, 0, 0, tzinfo=timezone.utc),
+            mcp_protocol_version="2026-07-28",
+            mcp_conformant=True,
+        )
+        await app.state.registry.register(server)
+        return server
+
+    def test_mcp_protocol_version_supported_stateless(
+        self, client: TestClient, stateless_version_server: RegisteredServer
+    ) -> None:
+        response = client.get(f"/api/servers/{stateless_version_server.id}/health-status")
+
+        assert response.status_code == 200
+        assert "MCP 2026-07-28 - supported" in response.text
+        assert "bg-emerald-100" in response.text
+
+    @pytest_asyncio.fixture
+    async def newer_version_server(self, app):
+        server = create_test_server(
+            server_id="newer-version-server",
+            healthy=True,
+            last_checked=datetime(2024, 1, 1, 12, 0, 0, tzinfo=timezone.utc),
+            mcp_protocol_version="2099-01-01",
+            mcp_conformant=False,
+        )
+        await app.state.registry.register(server)
+        return server
+
+    def test_mcp_protocol_version_newer_than_hub(
+        self, client: TestClient, newer_version_server: RegisteredServer
+    ) -> None:
+        response = client.get(f"/api/servers/{newer_version_server.id}/health-status")
+
+        assert response.status_code == 200
+        assert "MCP 2099-01-01 - newer than hub" in response.text
+        assert "bg-amber-100" in response.text
+
     def test_mcp_protocol_version_unsupported_shows_amber(
         self, client: TestClient, unhealthy_server: RegisteredServer
     ) -> None:

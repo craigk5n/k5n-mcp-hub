@@ -1,6 +1,6 @@
 import pytest
 
-from mcp_hub.mcp.constants import PROTOCOL_VERSION
+from mcp_hub.mcp.constants import PROTOCOL_VERSION, STATELESS_PROTOCOL_VERSION
 from mcp_hub.mcp.jsonrpc import (
     build_call_tool_request,
     build_initialize_request,
@@ -119,6 +119,80 @@ class TestValidateRequest:
             validate_request(b"not json")
 
 
+class TestValidateRequestVersionAware:
+    def test_ping_valid_without_version(self) -> None:
+        result = validate_request({"jsonrpc": "2.0", "method": "ping", "id": 1})
+        assert result == []
+
+    def test_ping_valid_for_handshake_version(self) -> None:
+        result = validate_request(
+            {"jsonrpc": "2.0", "method": "ping", "id": 1},
+            protocol_version=PROTOCOL_VERSION,
+        )
+        assert result == []
+
+    def test_ping_warns_for_stateless_version(self) -> None:
+        result = validate_request(
+            {"jsonrpc": "2.0", "method": "ping", "id": 1},
+            protocol_version=STATELESS_PROTOCOL_VERSION,
+        )
+        method_errors = [e for e in result if e.field == "method"]
+        assert len(method_errors) == 1
+        assert method_errors[0].severity == "warning"
+
+    def test_initialize_warns_for_stateless_version(self) -> None:
+        result = validate_request(
+            {"jsonrpc": "2.0", "method": "initialize", "id": 1},
+            protocol_version=STATELESS_PROTOCOL_VERSION,
+        )
+        method_errors = [e for e in result if e.field == "method"]
+        assert len(method_errors) == 1
+        assert method_errors[0].severity == "warning"
+
+    def test_logging_set_level_warns_for_stateless_version(self) -> None:
+        result = validate_request(
+            {"jsonrpc": "2.0", "method": "logging/setLevel", "id": 1},
+            protocol_version=STATELESS_PROTOCOL_VERSION,
+        )
+        method_errors = [e for e in result if e.field == "method"]
+        assert len(method_errors) == 1
+
+    def test_server_discover_valid_for_stateless_version(self) -> None:
+        result = validate_request(
+            {"jsonrpc": "2.0", "method": "server/discover", "id": 1},
+            protocol_version=STATELESS_PROTOCOL_VERSION,
+        )
+        assert result == []
+
+    def test_server_discover_warns_for_handshake_version(self) -> None:
+        result = validate_request(
+            {"jsonrpc": "2.0", "method": "server/discover", "id": 1},
+            protocol_version=PROTOCOL_VERSION,
+        )
+        method_errors = [e for e in result if e.field == "method"]
+        assert len(method_errors) == 1
+        assert method_errors[0].severity == "warning"
+
+    def test_server_discover_valid_without_version(self) -> None:
+        """No negotiated version → union behavior: methods from any revision pass."""
+        result = validate_request({"jsonrpc": "2.0", "method": "server/discover", "id": 1})
+        assert result == []
+
+    def test_subscriptions_listen_valid_for_stateless_version(self) -> None:
+        result = validate_request(
+            {"jsonrpc": "2.0", "method": "subscriptions/listen", "id": 1},
+            protocol_version=STATELESS_PROTOCOL_VERSION,
+        )
+        assert result == []
+
+    def test_unknown_version_uses_union(self) -> None:
+        result = validate_request(
+            {"jsonrpc": "2.0", "method": "ping", "id": 1},
+            protocol_version="2099-01-01",
+        )
+        assert result == []
+
+
 class TestValidateResponse:
     def test_response_with_both_result_and_error_returns_error(self) -> None:
         result = validate_response({"jsonrpc": "2.0", "result": {}, "error": {}})
@@ -160,3 +234,42 @@ class TestValidateResponse:
     def test_invalid_json_raises_value_error(self) -> None:
         with pytest.raises(ValueError):
             validate_response(b"not json")
+
+
+class TestValidateResponseResultType:
+    def test_result_without_result_type_is_valid(self) -> None:
+        """Spec rule: results from earlier-protocol servers that omit resultType
+        MUST be treated as 'complete' — never flagged."""
+        result = validate_response({"jsonrpc": "2.0", "result": {"tools": []}, "id": 1})
+        assert result == []
+
+    def test_result_type_complete_is_valid(self) -> None:
+        result = validate_response(
+            {"jsonrpc": "2.0", "result": {"resultType": "complete", "tools": []}, "id": 1}
+        )
+        assert result == []
+
+    def test_result_type_input_required_is_valid(self) -> None:
+        result = validate_response(
+            {
+                "jsonrpc": "2.0",
+                "result": {"resultType": "input_required", "inputRequests": []},
+                "id": 1,
+            }
+        )
+        assert result == []
+
+    def test_unknown_result_type_warns(self) -> None:
+        result = validate_response({"jsonrpc": "2.0", "result": {"resultType": "bogus"}, "id": 1})
+        type_errors = [e for e in result if e.field == "result.resultType"]
+        assert len(type_errors) == 1
+        assert type_errors[0].severity == "warning"
+
+    def test_non_string_result_type_warns(self) -> None:
+        result = validate_response({"jsonrpc": "2.0", "result": {"resultType": 7}, "id": 1})
+        type_errors = [e for e in result if e.field == "result.resultType"]
+        assert len(type_errors) == 1
+
+    def test_non_dict_result_is_not_inspected(self) -> None:
+        result = validate_response({"jsonrpc": "2.0", "result": "ok", "id": 1})
+        assert result == []

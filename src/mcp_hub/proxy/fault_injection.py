@@ -5,6 +5,7 @@ from typing import Any
 from fastapi import Response
 from starlette.datastructures import Headers
 
+from mcp_hub.mcp.constants import METHOD_NOT_FOUND
 from mcp_hub.models.server import RegisteredServer
 
 DEFAULT_FAULT_TIMEOUT_MS = 5000
@@ -78,7 +79,7 @@ async def apply_fault_injection(
 
         error_response = {
             "jsonrpc": "2.0",
-            "error": {"code": -32601, "message": "Method not found"},
+            "error": {"code": METHOD_NOT_FOUND, "message": "Method not found"},
             "id": request_id,
         }
         return Response(

@@ -29,6 +29,8 @@
 <span title="Server speaks MCP {{ server.mcp_protocol_version }}, which this hub supports. Supported: {{ supported_versions }}." class="bg-emerald-100 text-emerald-800 border border-emerald-200 px-2 py-1 rounded text-xs">✓ MCP {{ server.mcp_protocol_version }} - supported</span>
 {% elif vstatus == 'outdated' %}
 <span title="Server speaks MCP {{ server.mcp_protocol_version }}, older than the versions this hub supports ({{ supported_versions }}). It still works, but consider upgrading the server." class="bg-amber-100 text-amber-900 border border-amber-200 px-2 py-1 rounded text-xs">⚠ MCP {{ server.mcp_protocol_version }} - outdated</span>
+{% elif vstatus == 'newer' %}
+<span title="Server speaks MCP {{ server.mcp_protocol_version }}, a newer revision than this hub supports ({{ supported_versions }}). Core operations should still work via version negotiation, but features from the newer spec may not." class="bg-amber-100 text-amber-900 border border-amber-200 px-2 py-1 rounded text-xs">⚠ MCP {{ server.mcp_protocol_version }} - newer than hub</span>
 {% else %}
 <span title="Server speaks MCP {{ server.mcp_protocol_version }}, which this hub doesn't recognize. Supported: {{ supported_versions }}." class="bg-amber-100 text-amber-900 border border-amber-200 px-2 py-1 rounded text-xs">⚠ MCP {{ server.mcp_protocol_version }} - unsupported</span>
 {% endif %}
