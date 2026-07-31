@@ -1,5 +1,7 @@
+import json
 import logging
 import time
+from contextlib import AsyncExitStack
 from typing import AsyncGenerator, Protocol
 
 import httpx
@@ -8,7 +10,7 @@ from fastapi.responses import StreamingResponse
 
 from mcp_hub.config import TraceConfig
 from mcp_hub.mcp.auth import apply_server_auth
-from mcp_hub.mcp.constants import resolve_protocol_version
+from mcp_hub.mcp.constants import STATELESS_PROTOCOL_VERSION, resolve_protocol_version
 from mcp_hub.models.server import RegisteredServer
 from mcp_hub.proxy.fault_injection import apply_fault_injection
 from mcp_hub.proxy.url import compose_backend_url
@@ -41,6 +43,7 @@ async def build_outbound_headers(
     server: RegisteredServer,
     *,
     allow_private_networks: bool = False,
+    body: bytes | None = None,
 ) -> dict[str, str]:
     """Build outbound headers for the MCP reverse proxy from incoming request headers.
 
@@ -49,12 +52,16 @@ async def build_outbound_headers(
     2. Deletes Host (httpx sets it).
     3. Deletes incoming Authorization header — hub credentials must NEVER be forwarded.
     4. Injects MCP-Protocol-Version if not already present.
-    5. Applies server-side auth via apply_server_auth (adds Bearer token if configured).
-    6. Preserves X-MCP-Target-Server for diagnostics.
+    5. For stateless (2026-07-28) backends, injects the required Mcp-Method /
+       Mcp-Name headers derived from the JSON-RPC ``body`` — only when the client
+       didn't set them.
+    6. Applies server-side auth via apply_server_auth (adds Bearer token if configured).
+    7. Preserves X-MCP-Target-Server for diagnostics.
 
     Args:
         incoming_headers: The incoming request headers.
         server: The registered server to proxy to.
+        body: The request body, used to derive Mcp-Method/Mcp-Name for stateless backends.
 
     Returns:
         A dict of outbound headers to send to the backend.
@@ -79,9 +86,33 @@ async def build_outbound_headers(
     if not _has_header(outbound, "MCP-Protocol-Version"):
         outbound["MCP-Protocol-Version"] = resolve_protocol_version(server.mcp_protocol_version)
 
+    if (server.mcp_protocol_version or "").strip() == STATELESS_PROTOCOL_VERSION and body:
+        _inject_stateless_request_headers(outbound, body)
+
     await apply_server_auth(outbound, server, allow_private_networks=allow_private_networks)
 
     return outbound
+
+
+def _inject_stateless_request_headers(outbound: dict[str, str], body: bytes) -> None:
+    """Fill in the standard request headers 2026-07-28 requires on POSTs
+    (``Mcp-Method``, and ``Mcp-Name`` for named calls), derived from the JSON-RPC
+    body. Client-supplied values always win."""
+    try:
+        parsed = json.loads(body)
+    except (json.JSONDecodeError, UnicodeDecodeError):
+        return
+    if not isinstance(parsed, dict):
+        return
+
+    method = parsed.get("method")
+    if isinstance(method, str) and method and not _has_header(outbound, "Mcp-Method"):
+        outbound["Mcp-Method"] = method
+
+    params = parsed.get("params")
+    name = params.get("name") if isinstance(params, dict) else None
+    if isinstance(name, str) and name and not _has_header(outbound, "Mcp-Name"):
+        outbound["Mcp-Name"] = name
 
 
 async def proxy_request(
@@ -165,93 +196,38 @@ async def proxy_request(
     )
 
     outbound_headers = await build_outbound_headers(
-        dict(request.headers), srv, allow_private_networks=allow_private_networks
+        dict(request.headers),
+        srv,
+        allow_private_networks=allow_private_networks,
+        body=request_body,
     )
 
+    # The backend connection must outlive this function: the response body is
+    # streamed to the client by Starlette AFTER we return, so the client/stream
+    # context managers are held on an AsyncExitStack that the body generator
+    # closes when the stream ends.
+    stack = AsyncExitStack()
     try:
         # Pin the backend connection to a validated IP (SSRF/DNS-rebinding defense) and
         # never follow redirects (a 3xx to an internal URL would bypass the pin). A
         # local-first hub opts into loopback/LAN backends via allow_private_networks.
-        async with httpx.AsyncClient(
-            timeout=httpx.Timeout(connect=10.0, read=None, write=None, pool=None),
-            follow_redirects=False,
-            transport=SafePinnedTransport(allow_private_networks=allow_private_networks),
-        ) as client:
-            async with client.stream(
+        client = await stack.enter_async_context(
+            httpx.AsyncClient(
+                timeout=httpx.Timeout(connect=10.0, read=None, write=None, pool=None),
+                follow_redirects=False,
+                transport=SafePinnedTransport(allow_private_networks=allow_private_networks),
+            )
+        )
+        resp = await stack.enter_async_context(
+            client.stream(
                 method=request.method,
                 url=outbound_url,
                 content=request_body,
                 headers=outbound_headers,
-            ) as resp:
-                if verbose:
-                    capture_sse = settings.capture_sse
-                    content_type = resp.headers.get("content-type")
-                    should_capture = capture_sse or not is_sse_content_type(content_type)
-
-                    if should_capture:
-                        response_chunks: list[bytes] = []
-                        async for chunk in resp.aiter_bytes():
-                            response_chunks.append(chunk)
-                        response_body = truncate_body(
-                            b"".join(response_chunks), settings.body_limit
-                        )
-
-                        elapsed_ms = (time.perf_counter() - start_time) * 1000
-                        entry = Entry(
-                            timestamp=request_start_timestamp,
-                            server_id=srv.id,
-                            operation="proxy",
-                            http_method=request.method,
-                            url=incoming_url,
-                            outbound_url=outbound_url,
-                            status=resp.status_code,
-                            duration_ms=elapsed_ms,
-                            error="",
-                            request_headers=request_headers,
-                            response_headers=sanitize_headers(dict(resp.headers)),
-                            request_body=captured_request_body,
-                            response_body=response_body,
-                        )
-                        trace_recorder.add(entry)
-
-                        async def stream_response_body() -> AsyncGenerator[bytes, None]:
-                            for chunk in response_chunks:
-                                yield chunk
-
-                        return StreamingResponse(
-                            stream_response_body(),
-                            status_code=resp.status_code,
-                            headers=dict(resp.headers),
-                            media_type=resp.headers.get("content-type"),
-                        )
-
-                elapsed_ms = (time.perf_counter() - start_time) * 1000
-
-                if not verbose:
-                    entry = Entry(
-                        timestamp=request_start_timestamp,
-                        server_id=srv.id,
-                        operation="proxy",
-                        http_method=request.method,
-                        url=incoming_url,
-                        outbound_url=outbound_url,
-                        status=resp.status_code,
-                        duration_ms=elapsed_ms,
-                        error="",
-                    )
-                    trace_recorder.add(entry)
-
-                async def stream_response_body() -> AsyncGenerator[bytes, None]:
-                    async for chunk in resp.aiter_bytes():
-                        yield chunk
-
-                return StreamingResponse(
-                    stream_response_body(),
-                    status_code=resp.status_code,
-                    headers=dict(resp.headers),
-                    media_type=resp.headers.get("content-type"),
-                )
+            )
+        )
     except (httpx.ConnectError, httpx.ConnectTimeout, httpx.RemoteProtocolError) as e:
+        await stack.aclose()
         logger.error(f"Backend unreachable: {e}")
         elapsed_ms = (time.perf_counter() - start_time) * 1000
         entry = Entry(
@@ -270,3 +246,65 @@ async def proxy_request(
             content="Backend unreachable",
             status_code=502,
         )
+    except BaseException:
+        await stack.aclose()
+        raise
+
+    content_type = resp.headers.get("content-type")
+    # Tee the stream into the trace instead of draining it first: a long-lived
+    # stream (e.g. 2026-07-28 subscriptions/listen) would otherwise never reach
+    # the client while verbose capture buffered it to end-of-stream.
+    should_capture = verbose and (settings.capture_sse or not is_sse_content_type(content_type))
+
+    if not verbose:
+        elapsed_ms = (time.perf_counter() - start_time) * 1000
+        entry = Entry(
+            timestamp=request_start_timestamp,
+            server_id=srv.id,
+            operation="proxy",
+            http_method=request.method,
+            url=incoming_url,
+            outbound_url=outbound_url,
+            status=resp.status_code,
+            duration_ms=elapsed_ms,
+            error="",
+        )
+        trace_recorder.add(entry)
+
+    async def stream_response_body() -> AsyncGenerator[bytes, None]:
+        # Capture at most body_limit + 1 bytes so truncate_body can tell an
+        # exactly-at-limit body from an over-limit one and add its marker.
+        captured = bytearray()
+        cap = settings.body_limit + 1
+        try:
+            async for chunk in resp.aiter_bytes():
+                if should_capture and len(captured) < cap:
+                    captured.extend(chunk[: cap - len(captured)])
+                yield chunk
+        finally:
+            if should_capture:
+                elapsed_ms = (time.perf_counter() - start_time) * 1000
+                entry = Entry(
+                    timestamp=request_start_timestamp,
+                    server_id=srv.id,
+                    operation="proxy",
+                    http_method=request.method,
+                    url=incoming_url,
+                    outbound_url=outbound_url,
+                    status=resp.status_code,
+                    duration_ms=elapsed_ms,
+                    error="",
+                    request_headers=request_headers,
+                    response_headers=sanitize_headers(dict(resp.headers)),
+                    request_body=captured_request_body,
+                    response_body=truncate_body(bytes(captured), settings.body_limit),
+                )
+                trace_recorder.add(entry)
+            await stack.aclose()
+
+    return StreamingResponse(
+        stream_response_body(),
+        status_code=resp.status_code,
+        headers=dict(resp.headers),
+        media_type=content_type,
+    )

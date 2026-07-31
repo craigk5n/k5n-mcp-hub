@@ -194,11 +194,11 @@ clients that don't set them.
 
 - TDD: extend `tests/test_proxy_handler.py` first.
 - Acceptance criteria:
-  - [ ] For POSTs to 2026-07-28 backends, the proxy injects `Mcp-Method` (and
+  - [x] For POSTs to 2026-07-28 backends, the proxy injects `Mcp-Method` (and
         `Mcp-Name` where derivable from the JSON-RPC body) only when absent —
         mirroring the existing `MCP-Protocol-Version` injection at
         `proxy/handler.py:79-80`.
-  - [ ] Client-supplied headers are never overwritten; legacy backends see no
+  - [x] Client-supplied headers are never overwritten; legacy backends see no
         new headers.
 
 **Story 3.2 — Long-lived stream safety for `subscriptions/listen`**
@@ -208,15 +208,15 @@ As a trace user, I want verbose tracing to not buffer unbounded streams.
 - TDD: add a proxy test with a never-ending SSE body first (RED: current code
   at `proxy/handler.py:187-226` drains the whole stream before responding).
 - Acceptance criteria:
-  - [ ] With `trace_verbose` + `capture_sse` on, streamed responses are teed
+  - [x] With `trace_verbose` + `capture_sse` on, streamed responses are teed
         with a capture cap (reuse `trace.body_limit`) instead of drained;
         first bytes reach the client without waiting for stream close.
-  - [ ] Captured trace marks truncation explicitly.
+  - [x] Captured trace marks truncation explicitly.
 
 **Story 3.3 — Treat `Mcp-Session-Id` as sensitive in traces** *(legacy path)*
 
 - Acceptance criteria:
-  - [ ] `mcp-session-id` added to `SENSITIVE_HEADERS` in `trace/recorder.py`;
+  - [x] `mcp-session-id` added to `SENSITIVE_HEADERS` in `trace/recorder.py`;
         redacted in trace UI and API output; test added.
 
 ### Epic 4 — SDK upgrade & advanced features *(blocked: stable `mcp` SDK release with 2026-07-28 support)*

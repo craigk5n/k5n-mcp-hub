@@ -21,6 +21,8 @@ SENSITIVE_HEADERS = frozenset(
         "x-auth-token",
         "x-access-token",
         "x-amz-security-token",
+        # Grants access to an established MCP session on pre-2026-07-28 servers.
+        "mcp-session-id",
     }
 )
 

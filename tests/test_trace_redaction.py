@@ -68,3 +68,19 @@ def test_sensitive_headers_set_is_lowercase() -> None:
     assert all(name == name.lower() for name in SENSITIVE_HEADERS)
     assert "x-mcp-token" in SENSITIVE_HEADERS
     assert "authorization" in SENSITIVE_HEADERS
+
+
+def test_sanitize_trace_headers_redacts_mcp_session_id() -> None:
+    # Session ids grant access to an established MCP session on legacy servers —
+    # treat them like any other credential in traces.
+    result = sanitize_trace_headers({"Mcp-Session-Id": "sess-abc-123"})
+    assert result["Mcp-Session-Id"] == "****"
+
+
+def test_sanitize_headers_redacts_mcp_session_id() -> None:
+    result = sanitize_headers({"MCP-SESSION-ID": "sess-abc-123"})
+    assert result["MCP-SESSION-ID"] == "[REDACTED]"
+
+
+def test_mcp_session_id_in_sensitive_set() -> None:
+    assert "mcp-session-id" in SENSITIVE_HEADERS

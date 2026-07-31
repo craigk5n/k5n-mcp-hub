@@ -155,6 +155,65 @@ class TestBuildOutboundHeaders:
         assert _get_header(result, "Authorization") is None
 
 
+class TestRequiredHeaderInjection:
+    """2026-07-28 requires Mcp-Method (and Mcp-Name for named calls) on Streamable
+    HTTP POSTs; the proxy fills them in for clients that don't, on stateless
+    backends only."""
+
+    def _stateless_server(self) -> RegisteredServer:
+        return make_server(mcp_protocol_version="2026-07-28")
+
+    @pytest.mark.asyncio
+    async def test_injects_mcp_method_and_name_for_stateless_backend(self) -> None:
+        body = b'{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"echo","arguments":{}}}'
+        result = await build_outbound_headers(
+            httpx.Headers({}), self._stateless_server(), body=body
+        )
+
+        assert _get_header(result, "Mcp-Method") == "tools/call"
+        assert _get_header(result, "Mcp-Name") == "echo"
+
+    @pytest.mark.asyncio
+    async def test_mcp_name_omitted_when_not_derivable(self) -> None:
+        body = b'{"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}'
+        result = await build_outbound_headers(
+            httpx.Headers({}), self._stateless_server(), body=body
+        )
+
+        assert _get_header(result, "Mcp-Method") == "tools/list"
+        assert _get_header(result, "Mcp-Name") is None
+
+    @pytest.mark.asyncio
+    async def test_client_supplied_headers_never_overwritten(self) -> None:
+        body = b'{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"echo"}}'
+        incoming = httpx.Headers({"Mcp-Method": "client-set", "Mcp-Name": "client-name"})
+        result = await build_outbound_headers(incoming, self._stateless_server(), body=body)
+
+        assert _get_header(result, "Mcp-Method") == "client-set"
+        assert _get_header(result, "Mcp-Name") == "client-name"
+
+    @pytest.mark.asyncio
+    async def test_legacy_backend_gets_no_new_headers(self) -> None:
+        body = b'{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"echo"}}'
+        server = make_server(mcp_protocol_version="2025-11-25")
+        result = await build_outbound_headers(httpx.Headers({}), server, body=body)
+
+        assert _get_header(result, "Mcp-Method") is None
+        assert _get_header(result, "Mcp-Name") is None
+
+    @pytest.mark.asyncio
+    async def test_invalid_json_body_injects_nothing(self) -> None:
+        result = await build_outbound_headers(
+            httpx.Headers({}), self._stateless_server(), body=b"{not json"
+        )
+        assert _get_header(result, "Mcp-Method") is None
+
+    @pytest.mark.asyncio
+    async def test_no_body_injects_nothing(self) -> None:
+        result = await build_outbound_headers(httpx.Headers({}), self._stateless_server())
+        assert _get_header(result, "Mcp-Method") is None
+
+
 class TestProxyRequest:
     @pytest.fixture
     def mock_registry(self):
@@ -512,7 +571,13 @@ class TestTraceRecording:
                 pass
 
         with patch("mcp_hub.proxy.handler.httpx.AsyncClient", return_value=MockClient()):
-            await proxy_request(mock_request, mock_registry, trace_recorder, trace_config)
+            response = await proxy_request(
+                mock_request, mock_registry, trace_recorder, trace_config
+            )
+            # Tee semantics: the trace entry is recorded when the stream ends,
+            # so consume the body before asserting.
+            async for _ in response.body_iterator:
+                pass
 
         entry = trace_recorder.add.call_args[0][0]
         assert entry.request_headers.get("Authorization") == "[REDACTED]"
@@ -575,7 +640,13 @@ class TestTraceRecording:
                 pass
 
         with patch("mcp_hub.proxy.handler.httpx.AsyncClient", return_value=MockClient()):
-            await proxy_request(mock_request, mock_registry, trace_recorder, trace_config)
+            response = await proxy_request(
+                mock_request, mock_registry, trace_recorder, trace_config
+            )
+            # Tee semantics: the trace entry is recorded when the stream ends,
+            # so consume the body before asserting.
+            async for _ in response.body_iterator:
+                pass
 
         entry = trace_recorder.add.call_args[0][0]
         assert entry.request_body == b'{"jsonrpc":"2.0","id":1}'
@@ -645,7 +716,13 @@ class TestTraceRecording:
                 pass
 
         with patch("mcp_hub.proxy.handler.httpx.AsyncClient", return_value=MockClient()):
-            await proxy_request(mock_request, mock_registry, trace_recorder, trace_config)
+            response = await proxy_request(
+                mock_request, mock_registry, trace_recorder, trace_config
+            )
+            # Tee semantics: the trace entry is recorded when the stream ends,
+            # so consume the body before asserting.
+            async for _ in response.body_iterator:
+                pass
 
         entry = trace_recorder.add.call_args[0][0]
         assert len(entry.request_body) <= 114
@@ -669,3 +746,138 @@ class AsyncIteratorMock:
 
     def __anext__(self):
         raise StopAsyncIteration
+
+
+class TestStreamingTraceCapture:
+    """Verbose trace capture must tee a streamed response, not drain it: the first
+    bytes reach the client before the backend closes the stream, and the captured
+    trace body is capped at trace.body_limit with an explicit truncation marker."""
+
+    def _mock_request(self):
+        mock_request = MagicMock()
+        mock_request.headers = {"X-MCP-Target-Server": "test-server"}
+        mock_request.method = "POST"
+        mock_request.url.path = "/mcp"
+        mock_request.url.query = None
+        mock_request.url.__str__ = lambda self: "http://example.com/mcp"
+
+        async def mock_stream():
+            yield b'{"jsonrpc":"2.0","id":1,"method":"subscriptions/listen"}'
+
+        mock_request.stream = mock_stream
+        return mock_request
+
+    def _mock_client(self, mock_response):
+        class MockAsyncContextManager:
+            def __init__(self, response):
+                self.response = response
+
+            async def __aenter__(self):
+                return self.response
+
+            async def __aexit__(self, exc_type, exc_val, exc_tb):
+                pass
+
+        class MockClient:
+            def stream(self, method, url, content, headers):
+                return MockAsyncContextManager(mock_response)
+
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, exc_type, exc_val, exc_tb):
+                pass
+
+        return MockClient()
+
+    @pytest.mark.asyncio
+    async def test_first_chunk_reaches_client_before_stream_closes(self) -> None:
+        import asyncio
+
+        release = asyncio.Event()
+
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.headers = httpx.Headers({"content-type": "text/event-stream"})
+
+        async def gated_aiter_bytes():
+            yield b"data: one\n\n"
+            # The backend holds the stream open until the client saw the first
+            # chunk — a drain-first proxy deadlocks here (bounded by the timeout).
+            await asyncio.wait_for(release.wait(), timeout=3)
+            yield b"data: two\n\n"
+
+        mock_response.aiter_bytes = gated_aiter_bytes
+
+        registry = MagicMock()
+        registry.get = AsyncMock(
+            return_value=RegisteredServer(
+                id="test-server", url="http://backend.example.com", trace_verbose=True
+            )
+        )
+        trace_recorder = MagicMock()
+        trace_config = TraceConfig(capture_sse=True, body_limit=10000)
+
+        with patch(
+            "mcp_hub.proxy.handler.httpx.AsyncClient", return_value=self._mock_client(mock_response)
+        ):
+            response = await asyncio.wait_for(
+                proxy_request(self._mock_request(), registry, trace_recorder, trace_config),
+                timeout=1.0,
+            )
+
+            iterator = response.body_iterator
+            first = await asyncio.wait_for(iterator.__anext__(), timeout=1.0)
+            assert first == b"data: one\n\n"
+
+            release.set()
+            second = await asyncio.wait_for(iterator.__anext__(), timeout=1.0)
+            assert second == b"data: two\n\n"
+
+            with pytest.raises(StopAsyncIteration):
+                await iterator.__anext__()
+
+        # The trace entry is recorded once the stream ends, with the full teed body.
+        trace_recorder.add.assert_called_once()
+        entry = trace_recorder.add.call_args[0][0]
+        assert b"data: one" in entry.response_body
+        assert b"data: two" in entry.response_body
+
+    @pytest.mark.asyncio
+    async def test_capture_is_capped_but_client_gets_full_stream(self) -> None:
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.headers = httpx.Headers({"content-type": "text/event-stream"})
+
+        chunks = [b"x" * 50, b"y" * 50, b"z" * 50]
+
+        async def mock_aiter_bytes():
+            for chunk in chunks:
+                yield chunk
+
+        mock_response.aiter_bytes = mock_aiter_bytes
+
+        registry = MagicMock()
+        registry.get = AsyncMock(
+            return_value=RegisteredServer(
+                id="test-server", url="http://backend.example.com", trace_verbose=True
+            )
+        )
+        trace_recorder = MagicMock()
+        trace_config = TraceConfig(capture_sse=True, body_limit=60)
+
+        with patch(
+            "mcp_hub.proxy.handler.httpx.AsyncClient", return_value=self._mock_client(mock_response)
+        ):
+            response = await proxy_request(
+                self._mock_request(), registry, trace_recorder, trace_config
+            )
+            received = b""
+            async for chunk in response.body_iterator:
+                received += chunk
+
+        assert received == b"".join(chunks), "client must receive the full stream"
+
+        entry = trace_recorder.add.call_args[0][0]
+        assert entry.response_body.endswith(b"...[truncated]")
+        assert len(entry.response_body) <= 60 + len(b"...[truncated]")
