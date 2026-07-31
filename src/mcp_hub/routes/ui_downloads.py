@@ -8,8 +8,9 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import Response
 from jinja2 import TemplateNotFound
 
-from mcp_hub.mcp.constants import PROTOCOL_VERSION
+from mcp_hub.mcp.constants import PROTOCOL_VERSION, STATELESS_PROTOCOL_VERSION
 from mcp_hub.mcp.jsonrpc import build_call_tool_request, build_initialize_request
+from mcp_hub.mcp.stateless import stateless_meta
 from mcp_hub.models import RegisteredServer
 from mcp_hub.registry.service import Registry
 from mcp_hub.routes.ui_invoke import build_tool_args
@@ -89,6 +90,7 @@ def build_template_context(
     template_type: str = "shell",
 ) -> dict[str, Any]:
     protocol_version = srv.mcp_protocol_version or PROTOCOL_VERSION
+    is_stateless = protocol_version.strip() == STATELESS_PROTOCOL_VERSION
 
     init_body = build_initialize_request(
         request_id="1",
@@ -98,7 +100,9 @@ def build_template_context(
     init_body["params"]["protocolVersion"] = protocol_version
     init_body_json = json.dumps(init_body)
 
-    call_body = build_call_tool_request(tool_name, args, request_id="3")
+    call_body = build_call_tool_request(tool_name, args, request_id="1" if is_stateless else "3")
+    if is_stateless:
+        call_body["params"]["_meta"] = stateless_meta()
     call_body_json = json.dumps(call_body)
 
     if mode == "direct" and srv.auth_type == "bearer" and srv.bearer_token:
@@ -148,6 +152,7 @@ def build_template_context(
         "is_hub": str(is_hub).lower(),
         "target_server_id": target_server_id,
         "is_streamable": str(is_streamable).lower(),
+        "is_stateless": str(is_stateless).lower(),
         "ca_bundle": ca_bundle,
     }
 

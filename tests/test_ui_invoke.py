@@ -200,3 +200,79 @@ class TestInvokeRoute:
 
         assert response.status_code == 404
         assert response.json()["detail"] == "Server not found"
+
+
+class TestStatelessInvoke:
+    """2026-07-28 servers get a single stateless tools/call POST — no initialize,
+    no notifications/initialized, no Mcp-Session-Id."""
+
+    def _make_app(self):
+        from mcp_hub.app import create_app
+        from mcp_hub.config import SecurityConfig, Settings, StorageConfig
+
+        return create_app(
+            Settings(
+                storage=StorageConfig(type="inmemory"),
+                security=SecurityConfig(allow_private_networks=True),
+            )
+        )
+
+    async def _register(self, app, fake, protocol_version: str) -> None:
+        from mcp_hub.models.server import RegisteredServer
+
+        await app.state.registry.register(
+            RegisteredServer(
+                id="fake-srv",
+                url=f"{fake.base_url}/",
+                name="Fake",
+                mcp_protocol_version=protocol_version,
+            )
+        )
+
+    @pytest.mark.asyncio
+    async def test_stateless_server_invoked_with_single_post(self, fake_stateless_mcp_server):
+        import httpx
+
+        app = self._make_app()
+        await self._register(app, fake_stateless_mcp_server, "2026-07-28")
+
+        async with httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=app), base_url="http://test"
+        ) as client:
+            response = await client.post("/ui/invoke/fake-srv/echo", data={"msg": "hi"})
+
+        assert response.status_code == 200
+        assert "ok" in response.text
+
+        assert fake_stateless_mcp_server.handler_call_count == 1, "must be one POST, no handshake"
+        body = fake_stateless_mcp_server.last_request_body
+        assert body["method"] == "tools/call"
+        assert body["params"]["name"] == "echo"
+        assert body["params"]["arguments"] == {"msg": "hi"}
+        meta = body["params"]["_meta"]
+        assert meta["io.modelcontextprotocol/protocolVersion"] == "2026-07-28"
+
+        headers = fake_stateless_mcp_server.last_request_headers
+        assert headers.get("Mcp-Method") == "tools/call"
+        assert headers.get("MCP-Protocol-Version") == "2026-07-28"
+        assert "Mcp-Session-Id" not in headers
+
+    @pytest.mark.asyncio
+    async def test_legacy_server_keeps_three_step_flow(self, fake_mcp_server):
+        import httpx
+
+        app = self._make_app()
+        await self._register(app, fake_mcp_server, "2025-11-25")
+
+        async with httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=app), base_url="http://test"
+        ) as client:
+            response = await client.post("/ui/invoke/fake-srv/echo", data={"msg": "hi"})
+
+        assert response.status_code == 200
+        assert "ok" in response.text
+        # initialize + notifications/initialized + tools/call
+        assert fake_mcp_server.handler_call_count == 3
+        body = fake_mcp_server.last_request_body
+        assert body["method"] == "tools/call"
+        assert "_meta" not in body["params"]

@@ -277,3 +277,81 @@ class TestInitializeRoute:
         # 2025-03-26 isn't in this hub's supported set, so it's recorded as non-conformant —
         # the badge shows "outdated/unsupported", not "unknown".
         assert updated.mcp_conformant is False
+
+
+class TestDiscoverMode:
+    """For 2026-07-28 servers the panel issues `server/discover` instead of the
+    removed `initialize` handshake."""
+
+    def _make_app(self):
+        from mcp_hub.app import create_app
+        from mcp_hub.config import SecurityConfig, Settings, StorageConfig
+
+        return create_app(
+            Settings(
+                storage=StorageConfig(type="inmemory"),
+                security=SecurityConfig(allow_private_networks=True),
+            )
+        )
+
+    @pytest.mark.asyncio
+    async def test_stateless_server_gets_server_discover(self, fake_stateless_mcp_server) -> None:
+        import httpx
+
+        from mcp_hub.models.server import RegisteredServer
+
+        app = self._make_app()
+        await app.state.registry.register(
+            RegisteredServer(
+                id="sl-init",
+                url=f"{fake_stateless_mcp_server.base_url}/",
+                name="Fake",
+                mcp_protocol_version="2026-07-28",
+            )
+        )
+
+        async with httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=app), base_url="http://test"
+        ) as client:
+            response = await client.get("/ui/server/sl-init/initialize")
+
+        assert response.status_code == 200
+        assert "Discover" in response.text
+        assert "2026-07-28" in response.text
+
+        body = fake_stateless_mcp_server.last_request_body
+        assert body is not None
+        assert body["method"] == "server/discover"
+        assert "_meta" in body["params"]
+
+        headers = fake_stateless_mcp_server.last_request_headers
+        assert headers.get("Mcp-Method") == "server/discover"
+
+        srv = await app.state.registry.get("sl-init")
+        assert srv.mcp_protocol_version == "2026-07-28"
+
+    @pytest.mark.asyncio
+    async def test_legacy_server_still_gets_initialize(self, fake_mcp_server) -> None:
+        import httpx
+
+        from mcp_hub.models.server import RegisteredServer
+
+        app = self._make_app()
+        await app.state.registry.register(
+            RegisteredServer(
+                id="lg-init",
+                url=f"{fake_mcp_server.base_url}/",
+                name="Fake",
+                mcp_protocol_version="2025-11-25",
+            )
+        )
+
+        async with httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=app), base_url="http://test"
+        ) as client:
+            response = await client.get("/ui/server/lg-init/initialize")
+
+        assert response.status_code == 200
+        body = fake_mcp_server.last_request_body
+        assert body is not None
+        assert body["method"] == "initialize"

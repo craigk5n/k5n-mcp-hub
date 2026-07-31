@@ -11,7 +11,9 @@ from mcp_hub.config import HealthCheckConfig, TraceConfig
 from mcp_hub.health.parser import HealthParser
 from mcp_hub.health.url import build_health_url
 from mcp_hub.mcp.auth import apply_server_auth
+from mcp_hub.mcp.constants import STATELESS_PROTOCOL_VERSION
 from mcp_hub.mcp.sdk_client import MCPClient, MCPClientError
+from mcp_hub.mcp.stateless import StatelessMCPClient
 from mcp_hub.models.server import RegisteredServer
 from mcp_hub.registry.service import Registry
 from mcp_hub.trace import TraceEntry, TraceRecorder, utcnow
@@ -189,10 +191,7 @@ class HealthChecker:
 
         if not healthy:
             try:
-                mcp_client = MCPClient(
-                    srv.url, server=srv, allow_private_networks=self._allow_private_networks
-                )
-                await mcp_client.ping(timeout=10)
+                await self._mcp_probe(srv)
                 healthy = True
                 uptime = 0
             except MCPClientError as e:
@@ -231,3 +230,21 @@ class HealthChecker:
             logger.info(
                 "Auto-unregistered server %s after %d consecutive failures", srv.id, new_fails
             )
+
+    async def _mcp_probe(self, srv: RegisteredServer) -> None:
+        """MCP-level liveness probe, used when the HTTP /health endpoint isn't available.
+
+        Stateless (2026-07-28) servers have no ``ping`` — and no ``initialize``, which is
+        what the legacy ping actually performs — so they are probed with ``server/discover``,
+        the spec's designated up-front probe."""
+        if (srv.mcp_protocol_version or "").strip() == STATELESS_PROTOCOL_VERSION:
+            stateless_client = StatelessMCPClient(
+                srv.url, server=srv, allow_private_networks=self._allow_private_networks
+            )
+            await stateless_client.discover(timeout=10)
+            return
+
+        mcp_client = MCPClient(
+            srv.url, server=srv, allow_private_networks=self._allow_private_networks
+        )
+        await mcp_client.ping(timeout=10)

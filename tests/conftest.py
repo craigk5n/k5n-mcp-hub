@@ -91,6 +91,13 @@ class FakeMCPServer:
         self.protocol_version = protocol_version
         self.handler_called: bool = False
         self.handler_call_count: int = 0
+        # Capabilities served by the list endpoints; tests mutate these directly.
+        self.tools: list[dict[str, Any]] = []
+        self.prompts: list[dict[str, Any]] = []
+        self.resources: list[dict[str, Any]] = []
+        # Last JSON-RPC request seen, for asserting on wire shape (_meta, headers).
+        self.last_request_body: dict[str, Any] | None = None
+        self.last_request_headers: dict[str, str] | None = None
         self._app: aiohttp.web.Application | None = None
         self._runner: aiohttp.web.AppRunner | None = None
         self._site: aiohttp.web.TCPSite | None = None
@@ -132,14 +139,19 @@ class FakeMCPServer:
                 status=400,
             )
 
+        self.last_request_body = body
+        self.last_request_headers = dict(request.headers)
+
         request_id = body.get("id")
         method = body.get("method")
 
         response: dict[str, Any] = {"jsonrpc": "2.0", "id": request_id}
         stateless = self.protocol_version == STATELESS_PROTOCOL_VERSION
 
+        served = {"tools": self.tools, "prompts": self.prompts, "resources": self.resources}
+
         def list_result(key: str) -> dict[str, Any]:
-            result: dict[str, Any] = {key: []}
+            result: dict[str, Any] = {key: served[key]}
             if stateless:
                 result.update({"resultType": "complete", "ttlMs": 60000, "cacheScope": "private"})
             return result
@@ -162,6 +174,13 @@ class FakeMCPServer:
             response["result"] = list_result("resources")
         elif method == "prompts/list":
             response["result"] = list_result("prompts")
+        elif method == "tools/call":
+            result: dict[str, Any] = {"content": [{"type": "text", "text": "ok"}]}
+            if stateless:
+                result["resultType"] = "complete"
+            response["result"] = result
+        elif method == "notifications/initialized" and not stateless:
+            return aiohttp.web.Response(status=202)
         else:
             response["error"] = {"code": METHOD_NOT_FOUND, "message": "Method not found"}
 

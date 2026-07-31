@@ -153,6 +153,12 @@ RESULT_TYPE_COMPLETE = "complete"
 RESULT_TYPE_INPUT_REQUIRED = "input_required"
 VALID_RESULT_TYPES = frozenset({RESULT_TYPE_COMPLETE, RESULT_TYPE_INPUT_REQUIRED})
 
+# ``_meta`` keys every stateless (2026-07-28) request carries in place of the
+# removed initialize handshake.
+META_PROTOCOL_VERSION = "io.modelcontextprotocol/protocolVersion"
+META_CLIENT_CAPABILITIES = "io.modelcontextprotocol/clientCapabilities"
+META_CLIENT_INFO = "io.modelcontextprotocol/clientInfo"
+
 MCP_CLIENT_NAME = "mcp_hub"
 MCP_CLIENT_VERSION = "0.1.0"
 MCP_DISCOVERY_INTERVAL_SECONDS = 30

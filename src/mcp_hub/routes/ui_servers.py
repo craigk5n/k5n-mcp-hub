@@ -43,14 +43,7 @@ async def _probe_server_mcp_info(
 
                 server = await registry.get(server_id)
                 if server is not None:
-                    updated = False
-                    if server.mcp_protocol_version != protocol_version:
-                        server.mcp_protocol_version = protocol_version
-                        updated = True
-                    if server.mcp_transport != transport:
-                        server.mcp_transport = transport
-                        updated = True
-                    server.mcp_conformant = is_supported_protocol_version(protocol_version)
+                    updated = server.record_protocol_metadata(protocol_version, transport)
 
                     if updated:
                         await registry.register(server)

@@ -2,21 +2,56 @@ import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 from typing import Any
 
+from mcp_hub.mcp.constants import (
+    METHOD_NOT_FOUND,
+    PROTOCOL_VERSION,
+    STATELESS_PROTOCOL_VERSION,
+)
 from mcp_hub.mcp.discovery import DiscoveryService, extract_list_payload
-from mcp_hub.mcp.sdk_client import InitializeResult
+from mcp_hub.mcp.sdk_client import InitializeResult, MCPClientError
+from mcp_hub.mcp.stateless import DiscoverResult
 from mcp_hub.models.server import RegisteredServer
 from mcp_hub.registry.service import Registry
+
+from tests.conftest import FakeMCPServer
 
 
 def make_server(
     id: str = "test-id",
     url: str = "https://test.example.com/mcp",
+    # Recorded handshake version → discovery goes straight to the legacy SDK
+    # path (no stateless probe), which is what the pre-2026 tests exercise.
+    mcp_protocol_version: str = PROTOCOL_VERSION,
 ) -> RegisteredServer:
     return RegisteredServer(
         id=id,
         url=url,
         name="Test Server",
+        mcp_protocol_version=mcp_protocol_version,
     )
+
+
+class MockStatelessClient:
+    """Stand-in for StatelessMCPClient in unit tests (no network)."""
+
+    instantiated = 0
+
+    def __init__(
+        self,
+        base_url: str,
+        *,
+        server: RegisteredServer | None = None,
+        allow_private_networks: bool = False,
+    ) -> None:
+        type(self).instantiated += 1
+        self.base_url = base_url
+        self.server = server
+
+    async def discover(self, timeout: float = 30.0) -> DiscoverResult:
+        raise MCPClientError("Method not found", kind="discover", jsonrpc_code=METHOD_NOT_FOUND)
+
+    async def list(self, method: str, timeout: float = 30.0) -> Any:
+        raise AssertionError("list() must not be called after a failed discover()")
 
 
 class MockClientSession:
@@ -295,3 +330,115 @@ class TestDiscoveryService:
         assert server.mcp_conformant is True
         assert server.mcp_transport == "http"
         assert server.last_capability_sync is not None
+
+
+class TestStatelessDiscovery:
+    @pytest.mark.asyncio
+    async def test_discovers_stateless_server_end_to_end(
+        self, fake_stateless_mcp_server: FakeMCPServer
+    ) -> None:
+        fake_stateless_mcp_server.tools = [
+            {"name": "echo", "inputSchema": {"type": "object", "properties": {}}}
+        ]
+        registry = MockRegistry()
+        service = DiscoveryService(registry, allow_private_networks=True)  # type: ignore[arg-type]
+        server = make_server(
+            id="stateless-1",
+            url=fake_stateless_mcp_server.base_url,
+            mcp_protocol_version="",
+        )
+
+        await service.discover_immediately(server, timeout=5.0)
+
+        assert server.mcp_protocol_version == STATELESS_PROTOCOL_VERSION
+        assert server.mcp_conformant is True
+        assert server.tools == fake_stateless_mcp_server.tools
+        assert server.schema_conformant is True
+        assert server.last_capability_sync is not None
+        assert registry._registered, "discovery must persist the server"
+
+    @pytest.mark.asyncio
+    async def test_falls_back_to_initialize_on_method_not_found(self) -> None:
+        tools_response = [{"name": "t", "inputSchema": {"type": "object", "properties": {}}}]
+
+        class LegacyClient(MockMCPClient):
+            def __init__(
+                self,
+                base_url: str,
+                *,
+                server: RegisteredServer | None = None,
+                allow_private_networks: bool = False,
+            ) -> None:
+                super().__init__(
+                    base_url, server=server, tools=tools_response, prompts=[], resources=[]
+                )
+
+        registry = MockRegistry()
+        service = DiscoveryService(registry)  # type: ignore[arg-type]
+        server = make_server(id="unknown-1", mcp_protocol_version="")
+
+        with (
+            patch("mcp_hub.mcp.discovery.StatelessMCPClient", MockStatelessClient),
+            patch("mcp_hub.mcp.discovery.MCPClient", LegacyClient),
+        ):
+            before = MockStatelessClient.instantiated
+            await service.discover_immediately(server)
+            assert MockStatelessClient.instantiated == before + 1, "probe must run first"
+
+        assert server.mcp_protocol_version == "2025-11-25"
+        assert server.mcp_conformant is True
+        assert server.tools == tools_response
+
+    @pytest.mark.asyncio
+    async def test_probe_skipped_for_recorded_handshake_version(self) -> None:
+        class LegacyClient(MockMCPClient):
+            def __init__(
+                self,
+                base_url: str,
+                *,
+                server: RegisteredServer | None = None,
+                allow_private_networks: bool = False,
+            ) -> None:
+                super().__init__(
+                    base_url,
+                    server=server,
+                    tools=[{"name": "t", "inputSchema": {"type": "object", "properties": {}}}],
+                    prompts=[],
+                    resources=[],
+                )
+
+        registry = MockRegistry()
+        service = DiscoveryService(registry)  # type: ignore[arg-type]
+        server = make_server(id="legacy-1", mcp_protocol_version=PROTOCOL_VERSION)
+
+        with (
+            patch("mcp_hub.mcp.discovery.StatelessMCPClient", MockStatelessClient),
+            patch("mcp_hub.mcp.discovery.MCPClient", LegacyClient),
+        ):
+            before = MockStatelessClient.instantiated
+            await service.discover_immediately(server)
+            assert MockStatelessClient.instantiated == before, "no probe for known legacy"
+
+    @pytest.mark.asyncio
+    async def test_stateless_recorded_server_skips_sdk_path(
+        self, fake_stateless_mcp_server: FakeMCPServer
+    ) -> None:
+        fake_stateless_mcp_server.tools = [
+            {"name": "echo", "inputSchema": {"type": "object", "properties": {}}}
+        ]
+        registry = MockRegistry()
+        service = DiscoveryService(registry, allow_private_networks=True)  # type: ignore[arg-type]
+        server = make_server(
+            id="stateless-2",
+            url=fake_stateless_mcp_server.base_url,
+            mcp_protocol_version=STATELESS_PROTOCOL_VERSION,
+        )
+
+        class ExplodingSDKClient:
+            def __init__(self, *args: Any, **kwargs: Any) -> None:
+                raise AssertionError("SDK client must not be used for stateless servers")
+
+        with patch("mcp_hub.mcp.discovery.MCPClient", ExplodingSDKClient):
+            await service.discover_immediately(server, timeout=5.0)
+
+        assert server.tools == fake_stateless_mcp_server.tools

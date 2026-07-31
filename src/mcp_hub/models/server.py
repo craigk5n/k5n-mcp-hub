@@ -113,6 +113,34 @@ class RegisteredServer(BaseModel):
     def serialize_datetime(self, dt: datetime | None) -> str | None:
         return _utc_datetime_serializer(dt)
 
+    def record_protocol_metadata(
+        self,
+        protocol_version: str | None,
+        transport: Literal["http", "sse", ""] | None = None,
+    ) -> bool:
+        """Record a negotiated/advertised MCP protocol version (and optionally the
+        transport), keeping ``mcp_conformant`` in sync.
+
+        The single write path for this trio — discovery, the background UI probe,
+        the Initialize panel, and Invoke all funnel through here so the fields
+        can't drift. Returns True when anything changed (callers persist then)."""
+        from mcp_hub.mcp.constants import is_supported_protocol_version
+
+        changed = False
+        version = (protocol_version or "").strip()
+        if version:
+            if self.mcp_protocol_version != version:
+                self.mcp_protocol_version = version
+                changed = True
+            conformant = is_supported_protocol_version(version)
+            if self.mcp_conformant is not conformant:
+                self.mcp_conformant = conformant
+                changed = True
+        if transport and self.mcp_transport != transport:
+            self.mcp_transport = transport
+            changed = True
+        return changed
+
     def sanitize_for_api(self) -> "RegisteredServer":
         return self.model_copy(
             update={

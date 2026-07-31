@@ -365,3 +365,64 @@ class TestToolScriptPythonTemplate:
         }
         result = self._render(jinja_env, ctx)
         assert "TARGET_SERVER = None" in result
+
+
+class TestStatelessToolScripts:
+    @pytest.fixture
+    def jinja_env(self) -> Environment:
+        loader = FileSystemLoader("src/mcp_hub/templates")
+        return Environment(loader=loader, autoescape=select_autoescape())
+
+    @pytest.fixture
+    def stateless_context(self) -> dict:
+        return {
+            "base_url": "http://localhost:8000/mcp",
+            "init_body": '{"jsonrpc":"2.0","method":"initialize","params":{},"id":1}',
+            "call_body": '{"jsonrpc":"2.0","method":"tools/call","params":{"name":"echo","arguments":{},"_meta":{"io.modelcontextprotocol/protocolVersion":"2026-07-28"}},"id":1}',
+            "auth_header_value": "",
+            "auth_type": "",
+            "basic_username": "",
+            "protocol_version": "2026-07-28",
+            "tool_name": "echo",
+            "is_hub": "false",
+            "target_server_id": "srv-1",
+            "is_streamable": "true",
+            "is_stateless": "true",
+            "ca_bundle": "",
+        }
+
+    def test_stateless_shell_script_passes_bash_syntax_check(
+        self, jinja_env: Environment, stateless_context: dict
+    ) -> None:
+        result = jinja_env.get_template("tool_script.sh.j2").render(**stateless_context)
+        proc = subprocess.run(["bash", "-n"], input=result, capture_output=True, text=True)
+        assert proc.returncode == 0, f"bash -n failed: {proc.stderr}"
+        assert "Initializing MCP session" not in result
+        assert "Mcp-Method: tools/call" in result
+
+    def test_stateless_python_script_compiles(
+        self, jinja_env: Environment, stateless_context: dict
+    ) -> None:
+        result = jinja_env.get_template("tool_script.py.j2").render(**stateless_context)
+        compile(result, "tool_script.py", "exec")
+        assert "Initializing MCP session" not in result
+        assert '"Mcp-Method"' in result
+
+    def test_legacy_python_script_still_compiles(self, jinja_env: Environment) -> None:
+        context = {
+            "base_url": "http://localhost:8000/mcp",
+            "init_body": '{"jsonrpc":"2.0","method":"initialize","params":{},"id":1}',
+            "call_body": '{"jsonrpc":"2.0","method":"tools/call","params":{"name":"echo","arguments":{}},"id":3}',
+            "auth_header_value": "",
+            "auth_type": "",
+            "basic_username": "",
+            "protocol_version": "2025-11-25",
+            "tool_name": "echo",
+            "is_hub": "false",
+            "target_server_id": "srv-1",
+            "is_streamable": "false",
+            "ca_bundle": "",
+        }
+        result = jinja_env.get_template("tool_script.py.j2").render(**context)
+        compile(result, "tool_script.py", "exec")
+        assert "Initializing MCP session" in result

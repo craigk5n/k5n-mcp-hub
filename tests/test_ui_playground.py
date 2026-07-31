@@ -322,3 +322,40 @@ def test_playground_401_returns_auth_hint() -> None:
         assert response.status_code == 200
         assert "invalid_token" in response.text or "WWW-Authenticate" in response.text
         assert "401" in response.text
+
+
+class TestPlaygroundStatelessMode:
+    def _client_with_server(self, protocol_version: str) -> TestClient:
+        app = create_app()
+        registry: Registry = app.state.registry
+        server = RegisteredServer(
+            id="pg-version-server",
+            url="http://localhost:8000/mcp",
+            name="Test Server",
+            mcp_protocol_version=protocol_version,
+        )
+        asyncio.run(registry.register(server))
+        return TestClient(app, raise_server_exceptions=False)
+
+    def test_stateless_server_shows_discover_sample_and_meta(self) -> None:
+        client = self._client_with_server("2026-07-28")
+        response = client.get("/ui/server/pg-version-server/playground")
+
+        assert response.status_code == 200
+        assert "server/discover" in response.text
+        assert "io.modelcontextprotocol/protocolVersion" in response.text
+        # Session IDs were removed in 2026-07-28; the field is marked legacy-only.
+        assert "legacy" in response.text.lower()
+
+    def test_stateless_server_prefills_protocol_version(self) -> None:
+        client = self._client_with_server("2026-07-28")
+        response = client.get("/ui/server/pg-version-server/playground")
+        assert 'value="2026-07-28"' in response.text
+
+    def test_legacy_server_has_no_stateless_hints(self) -> None:
+        client = self._client_with_server("2025-11-25")
+        response = client.get("/ui/server/pg-version-server/playground")
+
+        assert response.status_code == 200
+        assert "server/discover" not in response.text
+        assert "legacy" not in response.text.lower()

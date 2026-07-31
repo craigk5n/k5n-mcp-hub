@@ -5,6 +5,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import HTMLResponse
 
 from mcp_hub.mcp.auth import apply_server_auth
+from mcp_hub.mcp.constants import STATELESS_PROTOCOL_VERSION
 from mcp_hub.mcp.oauth import format_auth_challenge, parse_www_authenticate
 from mcp_hub.mcp.sse import extract_sse_data
 from mcp_hub.registry.service import Registry
@@ -29,16 +30,19 @@ async def get_playground(
     if server is None:
         raise HTTPException(status_code=404, detail="Server not found")
 
+    stateless = (server.mcp_protocol_version or "").strip() == STATELESS_PROTOCOL_VERSION
+
     template = templates.get_template("playground.html")
     html = await template.render_async(
         server_id=server.id,
         url=server.url,
         request_body="",
         session_id="",
-        protocol_version="",
+        protocol_version=STATELESS_PROTOCOL_VERSION if stateless else "",
         accept_sse=False,
         error="",
         parse_error="",
+        stateless=stateless,
     )
     return HTMLResponse(content=html)
 
@@ -81,6 +85,7 @@ async def post_playground(
             accept_sse=accept_sse,
             error="request body is required",
             parse_error="",
+            stateless=(server.mcp_protocol_version or "").strip() == STATELESS_PROTOCOL_VERSION,
         )
         return HTMLResponse(content=html)
 
@@ -166,5 +171,6 @@ async def post_playground(
         response_body=response_body,
         parsed_body=parsed_body,
         auth_hint=auth_hint,
+        stateless=(server.mcp_protocol_version or "").strip() == STATELESS_PROTOCOL_VERSION,
     )
     return HTMLResponse(content=html)

@@ -8,9 +8,10 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import HTMLResponse
 
 from mcp_hub.mcp.auth import apply_server_auth
-from mcp_hub.mcp.constants import is_supported_protocol_version
-from mcp_hub.mcp.jsonrpc import build_initialize_request
+from mcp_hub.mcp.constants import METHOD_SERVER_DISCOVER, STATELESS_PROTOCOL_VERSION
+from mcp_hub.mcp.jsonrpc import build_initialize_request, build_request
 from mcp_hub.mcp.oauth import format_auth_challenge, parse_www_authenticate
+from mcp_hub.mcp.stateless import stateless_meta
 from mcp_hub.models.server import RegisteredServer
 from mcp_hub.registry.service import Registry
 from mcp_hub.trace.recorder import (
@@ -78,6 +79,13 @@ def _extract_protocol_version(headers: dict[str, str], body: dict[str, Any]) -> 
         return str(pv)
     if "protocolVersion" in result:
         return str(result["protocolVersion"])
+    # server/discover advertises a list instead of a single negotiated version.
+    versions = result.get("protocolVersions")
+    if isinstance(versions, list) and versions:
+        normalized = [str(v) for v in versions]
+        if STATELESS_PROTOCOL_VERSION in normalized:
+            return STATELESS_PROTOCOL_VERSION
+        return max(normalized)
     return ""
 
 
@@ -143,12 +151,22 @@ async def get_initialize(
     if srv is None:
         raise HTTPException(status_code=404, detail="Server not found")
 
-    init_body = _build_init_body(request_id=1)
+    # 2026-07-28 servers have no initialize handshake — inspect via server/discover.
+    stateless = (srv.mcp_protocol_version or "").strip() == STATELESS_PROTOCOL_VERSION
+    operation = "Discover" if stateless else "Initialize"
 
     headers: dict[str, str] = {
         "Content-Type": "application/json",
         "Accept": "application/json, text/event-stream",
     }
+
+    if stateless:
+        discover_request = build_request(METHOD_SERVER_DISCOVER, "1", {"_meta": stateless_meta()})
+        init_body = json.dumps(discover_request).encode("utf-8")
+        headers["MCP-Protocol-Version"] = STATELESS_PROTOCOL_VERSION
+        headers["Mcp-Method"] = METHOD_SERVER_DISCOVER
+    else:
+        init_body = _build_init_body(request_id=1)
 
     original_oauth_status = srv.oauth_token_status
 
@@ -228,19 +246,7 @@ async def get_initialize(
     # Persist what the handshake revealed so the server card's badges match what Initialize
     # shows. Previously only the transport was saved, so a manually-inspected server kept
     # showing "MCP version unknown" even though Initialize had negotiated a version.
-    metadata_changed = False
-    if detected_transport and srv.mcp_transport != detected_transport:
-        srv.mcp_transport = detected_transport
-        metadata_changed = True
-    if protocol_version:
-        if srv.mcp_protocol_version != protocol_version:
-            srv.mcp_protocol_version = protocol_version
-            metadata_changed = True
-        conformant = is_supported_protocol_version(protocol_version)
-        if srv.mcp_conformant != conformant:
-            srv.mcp_conformant = conformant
-            metadata_changed = True
-    if metadata_changed:
+    if srv.record_protocol_metadata(protocol_version, detected_transport):
         await registry.register(srv)
 
     auth_hint = ""
@@ -272,6 +278,7 @@ async def get_initialize(
 
     template = templates.get_template("initialize.html")
     html = await template.render_async(
+        operation=operation,
         server_id=server_id,
         url=srv.url,
         request_body=init_body.decode("utf-8"),

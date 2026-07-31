@@ -210,3 +210,45 @@ class TestFaultInjection:
         restored = FaultInjection.model_validate_json(json_str)
         assert fi.enabled == restored.enabled
         assert fi.timeout_millis == restored.timeout_millis
+
+
+class TestRecordProtocolMetadata:
+    def _server(self, **kwargs) -> RegisteredServer:
+        return RegisteredServer(id="s1", url="http://test.example.com", **kwargs)
+
+    def test_records_version_and_conformance(self) -> None:
+        srv = self._server()
+        changed = srv.record_protocol_metadata("2026-07-28")
+        assert changed is True
+        assert srv.mcp_protocol_version == "2026-07-28"
+        assert srv.mcp_conformant is True
+
+    def test_records_transport(self) -> None:
+        srv = self._server()
+        changed = srv.record_protocol_metadata("2025-11-25", transport="sse")
+        assert changed is True
+        assert srv.mcp_transport == "sse"
+
+    def test_unknown_version_marks_nonconformant(self) -> None:
+        srv = self._server()
+        changed = srv.record_protocol_metadata("2024-11-05")
+        assert changed is True
+        assert srv.mcp_conformant is False
+
+    def test_no_change_returns_false(self) -> None:
+        srv = self._server(
+            mcp_protocol_version="2025-11-25", mcp_conformant=True, mcp_transport="sse"
+        )
+        changed = srv.record_protocol_metadata("2025-11-25", transport="sse")
+        assert changed is False
+
+    def test_empty_version_is_ignored(self) -> None:
+        srv = self._server(mcp_protocol_version="2025-11-25", mcp_conformant=True)
+        changed = srv.record_protocol_metadata("")
+        assert changed is False
+        assert srv.mcp_protocol_version == "2025-11-25"
+
+    def test_whitespace_version_is_stripped(self) -> None:
+        srv = self._server()
+        srv.record_protocol_metadata(" 2025-06-18 ")
+        assert srv.mcp_protocol_version == "2025-06-18"

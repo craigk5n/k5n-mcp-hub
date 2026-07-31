@@ -518,3 +518,131 @@ class TestPingRateLimit:
         assert updated is not None
         assert updated.healthy is False
         assert updated.rate_limited is False
+
+
+class TestStatelessHealthProbe:
+    """2026-07-28 servers have no `ping` (or `initialize`) — the MCP fallback probe
+    must be `server/discover` for them, while legacy servers keep the ping probe."""
+
+    def _mock_http_client(self) -> AsyncMock:
+        mock_client = AsyncMock(spec=httpx.AsyncClient)
+        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+        mock_client.__aexit__ = AsyncMock(return_value=None)
+        return mock_client
+
+    def _stateless_server(self) -> RegisteredServer:
+        return RegisteredServer(
+            id="sl",
+            url="https://sl.example.com/mcp",
+            supports_health_endpoint=False,
+            mcp_protocol_version="2026-07-28",
+        )
+
+    @pytest.mark.asyncio
+    async def test_stateless_server_probed_via_server_discover(self) -> None:
+        checker, storage = make_checker([self._stateless_server()])
+
+        class FakeStatelessClient:
+            def __init__(self, *args: object, **kwargs: object) -> None:
+                pass
+
+            async def discover(self, timeout: float = 10) -> object:
+                return object()
+
+        class ExplodingSDKClient:
+            def __init__(self, *args: object, **kwargs: object) -> None:
+                raise AssertionError("legacy ping must not run for stateless servers")
+
+        with (
+            patch(
+                "mcp_hub.health.checker.httpx.AsyncClient", return_value=self._mock_http_client()
+            ),
+            patch("mcp_hub.health.checker.StatelessMCPClient", FakeStatelessClient),
+            patch("mcp_hub.health.checker.MCPClient", ExplodingSDKClient),
+        ):
+            await checker.check_all_once()
+
+        updated = await storage.get("sl")
+        assert updated is not None
+        assert updated.healthy is True
+
+    @pytest.mark.asyncio
+    async def test_stateless_probe_429_marks_degraded(self) -> None:
+        checker, storage = make_checker([self._stateless_server()])
+
+        class RateLimitedStatelessClient:
+            def __init__(self, *args: object, **kwargs: object) -> None:
+                pass
+
+            async def discover(self, timeout: float = 10) -> object:
+                raise MCPClientError("HTTP 429", kind="discover", status_code=429)
+
+        with (
+            patch(
+                "mcp_hub.health.checker.httpx.AsyncClient", return_value=self._mock_http_client()
+            ),
+            patch("mcp_hub.health.checker.StatelessMCPClient", RateLimitedStatelessClient),
+        ):
+            await checker.check_all_once()
+
+        updated = await storage.get("sl")
+        assert updated is not None
+        assert updated.healthy is True
+        assert updated.rate_limited is True
+
+    @pytest.mark.asyncio
+    async def test_stateless_probe_failure_stays_unhealthy(self) -> None:
+        checker, storage = make_checker([self._stateless_server()])
+
+        class DownStatelessClient:
+            def __init__(self, *args: object, **kwargs: object) -> None:
+                pass
+
+            async def discover(self, timeout: float = 10) -> object:
+                raise MCPClientError("connection refused", kind="discover")
+
+        with (
+            patch(
+                "mcp_hub.health.checker.httpx.AsyncClient", return_value=self._mock_http_client()
+            ),
+            patch("mcp_hub.health.checker.StatelessMCPClient", DownStatelessClient),
+        ):
+            await checker.check_all_once()
+
+        updated = await storage.get("sl")
+        assert updated is not None
+        assert updated.healthy is False
+
+    @pytest.mark.asyncio
+    async def test_legacy_server_still_uses_ping(self) -> None:
+        server = RegisteredServer(
+            id="lg",
+            url="https://lg.example.com/mcp",
+            supports_health_endpoint=False,
+            mcp_protocol_version="2025-11-25",
+        )
+        checker, storage = make_checker([server])
+
+        class FakePingClient:
+            def __init__(self, *args: object, **kwargs: object) -> None:
+                pass
+
+            async def ping(self, timeout: float = 10) -> None:
+                return None
+
+        class ExplodingStatelessClient:
+            def __init__(self, *args: object, **kwargs: object) -> None:
+                raise AssertionError("stateless probe must not run for legacy servers")
+
+        with (
+            patch(
+                "mcp_hub.health.checker.httpx.AsyncClient", return_value=self._mock_http_client()
+            ),
+            patch("mcp_hub.health.checker.MCPClient", FakePingClient),
+            patch("mcp_hub.health.checker.StatelessMCPClient", ExplodingStatelessClient),
+        ):
+            await checker.check_all_once()
+
+        updated = await storage.get("lg")
+        assert updated is not None
+        assert updated.healthy is True

@@ -9,12 +9,14 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import HTMLResponse
 
 from mcp_hub.mcp.auth import apply_server_auth
+from mcp_hub.mcp.constants import STATELESS_PROTOCOL_VERSION
 from mcp_hub.mcp.jsonrpc import (
     build_call_tool_request,
     build_initialized_notification,
     build_initialize_request,
 )
 from mcp_hub.mcp.sse import extract_sse_data
+from mcp_hub.mcp.stateless import stateless_meta
 from mcp_hub.registry.service import Registry
 from mcp_hub.trace.recorder import (
     TraceEntry,
@@ -214,65 +216,77 @@ async def invoke_tool(
     network_error = ""
     call_body_bytes = b""
 
+    stateless = (srv.mcp_protocol_version or "").strip() == STATELESS_PROTOCOL_VERSION
+
     try:
         async with httpx.AsyncClient(
             transport=SafePinnedTransport(allow_private_networks=_allow_private)
         ) as client:
-            init_body = build_initialize_request(
-                request_id="1",
-                client_name="k5n-mcp-hub-ui",
-                client_version="0.1.0",
-            )
-            init_body_bytes = json.dumps(init_body).encode("utf-8")
+            if stateless:
+                # 2026-07-28: no handshake, no session — one self-contained POST whose
+                # params._meta carries the protocol version and client identity.
+                headers["MCP-Protocol-Version"] = STATELESS_PROTOCOL_VERSION
+                headers["Mcp-Method"] = "tools/call"
+                trace_outbound_headers = headers.copy()
 
-            init_response = await client.post(
-                srv.url,
-                content=init_body_bytes,
-                headers=headers,
-                timeout=30.0,
-            )
+                call_body = build_call_tool_request(tool_name, tool_args, request_id=1)
+                call_body["params"]["_meta"] = stateless_meta()
+            else:
+                init_body = build_initialize_request(
+                    request_id="1",
+                    client_name="k5n-mcp-hub-ui",
+                    client_version="0.1.0",
+                )
+                init_body_bytes = json.dumps(init_body).encode("utf-8")
 
-            session_id = init_response.headers.get("Mcp-Session-Id", "")
-            protocol_version = init_response.headers.get("Mcp-Protocol-Version", "")
+                init_response = await client.post(
+                    srv.url,
+                    content=init_body_bytes,
+                    headers=headers,
+                    timeout=30.0,
+                )
 
-            if not protocol_version:
-                try:
-                    init_result = init_response.json()
-                    protocol_version = str(init_result.get("result", {}).get("protocolVersion", ""))
-                except json.JSONDecodeError:
-                    pass
+                session_id = init_response.headers.get("Mcp-Session-Id", "")
+                protocol_version = init_response.headers.get("Mcp-Protocol-Version", "")
 
-            if protocol_version and protocol_version != srv.mcp_protocol_version:
-                srv.mcp_protocol_version = protocol_version
-                await registry.register(srv)
+                if not protocol_version:
+                    try:
+                        init_result = init_response.json()
+                        protocol_version = str(
+                            init_result.get("result", {}).get("protocolVersion", "")
+                        )
+                    except json.JSONDecodeError:
+                        pass
 
-            content_type = init_response.headers.get("Content-Type", "")
-            transport: Literal["http", "sse", ""] = (
-                "sse" if content_type and "text/event-stream" in content_type.lower() else "http"
-            )
+                content_type = init_response.headers.get("Content-Type", "")
+                transport: Literal["http", "sse", ""] = (
+                    "sse"
+                    if content_type and "text/event-stream" in content_type.lower()
+                    else "http"
+                )
 
-            if transport != srv.mcp_transport:
-                srv.mcp_transport = transport
-                await registry.register(srv)
+                if srv.record_protocol_metadata(protocol_version, transport):
+                    await registry.register(srv)
 
-            if session_id:
-                headers["Mcp-Session-Id"] = session_id
-            if protocol_version:
-                headers["MCP-Protocol-Version"] = protocol_version
+                if session_id:
+                    headers["Mcp-Session-Id"] = session_id
+                if protocol_version:
+                    headers["MCP-Protocol-Version"] = protocol_version
 
-            trace_outbound_headers = headers.copy()
+                trace_outbound_headers = headers.copy()
 
-            notif_body = build_initialized_notification()
-            notif_body_bytes = json.dumps(notif_body).encode("utf-8")
+                notif_body = build_initialized_notification()
+                notif_body_bytes = json.dumps(notif_body).encode("utf-8")
 
-            await client.post(
-                srv.url,
-                content=notif_body_bytes,
-                headers=headers,
-                timeout=30.0,
-            )
+                await client.post(
+                    srv.url,
+                    content=notif_body_bytes,
+                    headers=headers,
+                    timeout=30.0,
+                )
 
-            call_body = build_call_tool_request(tool_name, tool_args, request_id=3)
+                call_body = build_call_tool_request(tool_name, tool_args, request_id=3)
+
             call_body_bytes = json.dumps(call_body).encode("utf-8")
 
             call_response = await client.post(

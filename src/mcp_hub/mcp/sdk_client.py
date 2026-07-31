@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Callable, Literal
 
 from mcp_hub.mcp.auth import apply_server_auth
-from mcp_hub.mcp.constants import resolve_protocol_version
+from mcp_hub.mcp.constants import METHOD_NOT_FOUND, resolve_protocol_version
 from mcp_hub.models.server import RegisteredServer
 
 if TYPE_CHECKING:
@@ -48,14 +48,23 @@ class MCPClientError(Exception):
         self,
         message: str,
         *,
-        kind: Literal["handshake", "list", "ping", "transport"],
+        kind: Literal["handshake", "list", "ping", "transport", "discover"],
         status_code: int | None = None,
+        jsonrpc_code: int | None = None,
     ) -> None:
         super().__init__(message)
         self.kind = kind
         # HTTP status of the underlying failure when one can be recovered (e.g. 429). Lets the
         # health checker tell "server rate-limited us" apart from "server is down".
         self.status_code = status_code
+        # JSON-RPC error code when the server answered with an error object.
+        self.jsonrpc_code = jsonrpc_code
+
+    @property
+    def is_method_not_found(self) -> bool:
+        """The server answered but doesn't implement the method — the signal that a
+        stateless ``server/discover`` probe should fall back to ``initialize``."""
+        return self.jsonrpc_code == METHOD_NOT_FOUND or self.status_code in (404, 405)
 
 
 # One MCP connection per server at a time. The streamable-HTTP transport issues several

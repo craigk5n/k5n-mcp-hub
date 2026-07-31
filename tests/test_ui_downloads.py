@@ -665,3 +665,64 @@ class TestDownloadPythonEndpoint:
         assert response.status_code == 200
         content = response.text
         assert "http://example.com/mcp" in content
+
+
+class TestStatelessDownloads:
+    """Scripts for 2026-07-28 servers use the stateless single-POST flow —
+    no initialize handshake, `_meta` in the call params, Mcp-Method header."""
+
+    def _download(self, path: str) -> str:
+        server = RegisteredServer(
+            id="srv-sl",
+            url="http://example.com/mcp",
+            name="Stateless Server",
+            mcp_transport="sse",
+            mcp_protocol_version="2026-07-28",
+        )
+        app = create_app()
+        asyncio.run(app.state.registry.register(server))
+        client = TestClient(app, raise_server_exceptions=False)
+        response = client.post(
+            path,
+            data={"mode": "direct"},
+            headers=make_basic_auth_header("admin", "admin123"),
+        )
+        assert response.status_code == 200
+        return response.text
+
+    def test_shell_script_is_stateless(self) -> None:
+        content = self._download("/ui/server/srv-sl/tool-download/echo")
+        assert "Initializing MCP session" not in content
+        assert (
+            "notifications/initialized" not in content
+            or "INITED_BODY" not in content.split("build_auth_header")[-1]
+        )
+        assert "Mcp-Method: tools/call" in content
+        assert "io.modelcontextprotocol/protocolVersion" in content
+        assert "2026-07-28" in content
+
+    def test_python_script_is_stateless(self) -> None:
+        content = self._download("/ui/server/srv-sl/tool-download-python/echo")
+        assert "Initializing MCP session" not in content
+        assert '"Mcp-Method"' in content
+        assert "io.modelcontextprotocol/protocolVersion" in content
+
+    def test_legacy_server_scripts_unchanged(self) -> None:
+        server = RegisteredServer(
+            id="srv-lg",
+            url="http://example.com/mcp",
+            name="Legacy Server",
+            mcp_transport="http",
+            mcp_protocol_version="2025-11-25",
+        )
+        app = create_app()
+        asyncio.run(app.state.registry.register(server))
+        client = TestClient(app, raise_server_exceptions=False)
+        response = client.post(
+            "/ui/server/srv-lg/tool-download/echo",
+            data={"mode": "direct"},
+            headers=make_basic_auth_header("admin", "admin123"),
+        )
+        assert response.status_code == 200
+        assert "Initializing MCP session" in response.text
+        assert "io.modelcontextprotocol/protocolVersion" not in response.text

@@ -128,16 +128,16 @@ As a hub operator, I want discovery to detect and record 2026-07-28 servers.
   fixture (RED: discovery against a stateless server currently fails/records
   nothing).
 - Acceptance criteria:
-  - [ ] Discovery tries `server/discover` first; on method-not-found falls back
+  - [x] Discovery tries `server/discover` first; on method-not-found falls back
         to the existing `initialize` handshake (`mcp/discovery.py`,
         `mcp/sdk_client.py`).
-  - [ ] Negotiated/advertised version stored in
+  - [x] Negotiated/advertised version stored in
         `RegisteredServer.mcp_protocol_version` from either path; the four
         writer code paths (discovery, ui_servers, ui_initialize, ui_invoke)
         share one helper so they can't drift.
-  - [ ] `tools/prompts/resources` lists fetched statelessly (single POST with
+  - [x] `tools/prompts/resources` lists fetched statelessly (single POST with
         `_meta` version/capabilities) for 2026-07-28 servers.
-  - [ ] Register-merge behavior preserved (empty lists don't clobber
+  - [x] Register-merge behavior preserved (empty lists don't clobber
         previously discovered ones).
 
 **Story 2.2 — Health checks without `ping`**
@@ -147,10 +147,10 @@ As a hub operator, I want health checks to work for stateless servers, where
 
 - TDD: extend `tests/` health-checker tests first.
 - Acceptance criteria:
-  - [ ] For 2026-07-28 servers the fallback probe is `server/discover`
+  - [x] For 2026-07-28 servers the fallback probe is `server/discover`
         (replacing the current full-`initialize` probe in
         `sdk_client.py:346-367` / `health/checker.py:190-213`).
-  - [ ] Legacy servers keep the existing probe; 429 → "degraded" behavior
+  - [x] Legacy servers keep the existing probe; 429 → "degraded" behavior
         unchanged.
 
 **Story 2.3 — Stateless request mode in the UI (invoke, playground, initialize panel)**
@@ -159,24 +159,24 @@ As a UI user, I want to exercise 2026-07-28 servers without a handshake.
 
 - TDD: extend `tests/test_ui_playground.py` / ui_invoke tests first.
 - Acceptance criteria:
-  - [ ] `ui_invoke.py` skips `initialize`/`initialized` and sends
+  - [x] `ui_invoke.py` skips `initialize`/`initialized` and sends
         `io.modelcontextprotocol/protocolVersion` (+ client info/capabilities)
         in `_meta` when the server's stored version is 2026-07-28.
-  - [ ] Playground exposes the `_meta` version fields; session-id field hidden
+  - [x] Playground exposes the `_meta` version fields; session-id field hidden
         or marked legacy-only for stateless servers.
-  - [ ] The "Initialize" inspection panel gains a "Discover" mode that issues
+  - [x] The "Initialize" inspection panel gains a "Discover" mode that issues
         `server/discover` and persists the advertised version (reusing the
         Story 2.1 helper).
-  - [ ] Legacy servers keep today's exact three-step flow (regression tests).
+  - [x] Legacy servers keep today's exact three-step flow (regression tests).
 
 **Story 2.4 — Generated client scripts support stateless mode**
 
 - TDD: extend the downloads/tool-script tests first.
 - Acceptance criteria:
-  - [ ] `tool_script.py.j2` / `tool_script.sh.j2` emit the stateless single-POST
+  - [x] `tool_script.py.j2` / `tool_script.sh.j2` emit the stateless single-POST
         flow when the server's recorded version is 2026-07-28, and the legacy
         3-step flow otherwise.
-  - [ ] `tests/test_readme.py` and documented commands stay accurate.
+  - [x] `tests/test_readme.py` and documented commands stay accurate.
 
 **Story 2.5 — Honor `ttlMs` cache hints in discovery pacing** *(nice-to-have)*
 
