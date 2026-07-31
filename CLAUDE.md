@@ -59,7 +59,7 @@ Settings are Pydantic models in `config.py`. Note the storage-type validator nor
 
 - `registry/` — `Registry` (MCP servers) and `AgentRegistry`, thin async services over a storage strategy. Register merges: re-registering a server with empty tools/prompts/resources preserves the previously discovered ones.
 - `storage/` — `StorageStrategy` protocol with `InMemoryStorage` (default), a JSON-file backend, plus fixture/memory helpers. Swap backend via config, not code.
-- `mcp/` — the MCP protocol layer: `discovery.py` (periodic tool/prompt/resource discovery via `sdk_client.MCPClient`), `jsonrpc.py`, `sse.py`, `oauth.py`, `auth.py` (per-server auth application), `validation.py`, `schema_refs.py`, `constants.py` (protocol version).
+- `mcp/` — the MCP protocol layer: `discovery.py` (periodic tool/prompt/resource discovery; probes `server/discover` first, falls back to the `initialize` handshake via `sdk_client.MCPClient`, honors `ttlMs` pacing hints), `stateless.py` (hand-rolled client for the stateless 2026-07-28 revision — the pinned `mcp<2` SDK only speaks handshake revisions; lifting that pin is TODO.md Story 4.1), `jsonrpc.py`, `sse.py`, `oauth.py`, `auth.py` (per-server auth application), `validation.py`, `schema_refs.py`, `constants.py` (protocol versions and per-revision method sets).
 - `proxy/` — reverse-proxies MCP calls to registered backends: `handler.py` streams responses (incl. SSE), `url.py` composes backend URLs, `fault_injection.py` injects latency/errors for testing.
 - `health/` — background health checker with configurable interval, timeout, failure threshold, and optional auto-unregister.
 - `trace/` — `TraceRecorder` captures request/response entries with header sanitization and body truncation (`trace.body_limit`).

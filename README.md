@@ -66,6 +66,26 @@ Configuration is loaded from `config.yaml` at the repository root. Environment v
 - **Bare env var** (highest priority): `SERVER_HTTP_PORT` sets the HTTP port directly.
 - **Nested prefix**: Variables with the `MCPHUB_` prefix use `__` as a separator for nested keys. For example, `MCPHUB_SERVER__HTTP_PORT` sets `server.http_port`.
 
+## MCP protocol support
+
+The hub speaks three MCP protocol revisions and negotiates per server:
+
+- **2026-07-28** — the *stateless* revision: no `initialize` handshake or sessions.
+  The hub probes these servers with `server/discover`, fetches capabilities via
+  self-contained JSON-RPC POSTs carrying the spec's `_meta` keys, health-checks
+  them with `server/discover` (the `ping` method no longer exists), and honors
+  `ttlMs` freshness hints when pacing background discovery. The reverse proxy
+  fills in the required `Mcp-Method`/`Mcp-Name` headers for clients that omit
+  them, and generated tool scripts use the single-POST stateless flow.
+- **2025-11-25** and **2025-06-18** — the handshake revisions: the classic
+  `initialize` → `notifications/initialized` flow with `Mcp-Session-Id` support.
+
+Discovery records each server's negotiated revision and the admin UI shows it as
+a badge: **supported**, **outdated** (older than anything the hub supports, e.g.
+`2024-11-05` — still usable), or **newer than hub** (a revision the hub doesn't
+know yet). Traffic proxied through the hub echoes whatever version the client
+and server agreed on, so servers on other revisions still work through the proxy.
+
 ## Registering a server
 
 Register a server with the **Add Server** button on the home page (or `POST /v1/register`). This works for both local backends and remote hosted MCP servers (for example X's server at `https://api.x.com/mcp`, using a bearer token for auth).

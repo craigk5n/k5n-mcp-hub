@@ -14,7 +14,10 @@ classifiers = [
     "Programming Language :: Python :: 3.12",
 ]
 dependencies = [
-    "mcp>=1.0",
+    # mcp 2.0 renamed the client APIs this codebase uses (streamablehttp_client,
+    # InitializeResult camelCase attrs, callable ClientNotification). Lifting the
+    # pin and adopting the 2.0 stateless client is TODO.md Story 4.1.
+    "mcp>=1.0,<2",
     "python-multipart>=0.0.9",
     "pydantic>=2.0",
     "pydantic-settings>=2.0",

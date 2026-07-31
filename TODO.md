@@ -219,7 +219,14 @@ As a trace user, I want verbose tracing to not buffer unbounded streams.
   - [x] `mcp-session-id` added to `SENSITIVE_HEADERS` in `trace/recorder.py`;
         redacted in trace UI and API output; test added.
 
-### Epic 4 — SDK upgrade & advanced features *(blocked: stable `mcp` SDK release with 2026-07-28 support)*
+### Epic 4 — SDK upgrade & advanced features *(UNBLOCKED: `mcp` 2.0.0 is out)*
+
+> **2026-07-31:** `mcp` 2.0.0 shipped on PyPI with the 2026-07-28 APIs — and
+> renamed the client APIs this codebase uses (`streamablehttp_client` →
+> `streamable_http_client`, `InitializeResult.serverInfo` → `server_info`,
+> `ClientNotification` no longer callable), which broke CI's clean-install
+> mypy gate. `pyproject.toml` now pins `mcp>=1.0,<2`; Story 4.1 lifts the pin
+> and adopts the 2.0 client.
 
 **Story 4.1 — Adopt the official SDK's stateless client**
 
