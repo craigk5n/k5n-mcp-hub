@@ -1,18 +1,34 @@
 # k5n-mcp-hub
 
+**An MCP gateway that calls downstream servers as the user who called it, not as one shared service account.**
+
 <img src="k5n-mcp-hub-icon.svg" alt="k5n-mcp-hub logo" width="96" align="right">
 
 [![CI](https://github.com/craigk5n/k5n-mcp-hub/actions/workflows/ci.yml/badge.svg)](https://github.com/craigk5n/k5n-mcp-hub/actions/workflows/ci.yml)
 
 ## Overview
 
-k5n-mcp-hub is a gateway and management hub for MCP (Model Context Protocol) servers, built with Python and FastAPI.
+k5n-mcp-hub is a gateway and management hub for MCP (Model Context Protocol) servers,
+built with Python and FastAPI.
 
-It has two halves. The **gateway** sits on the request path: it reverse-proxies MCP
-calls, and can authenticate the caller and exchange their token for one scoped to the
-downstream server, so a backend sees *which user* is asking rather than just "the hub".
-The **management hub** is everything around that: server discovery, health monitoring,
-capability inspection, request tracing, fault injection, and an admin web UI.
+### What makes it different: per-user identity
+
+Most MCP proxies forward a single shared credential. Every backend then sees the same
+identity no matter who is asking, so nothing downstream can authorize per user, and an
+audit trail records only "the gateway called us".
+
+This hub validates the caller's own access token and exchanges it
+([RFC 8693](https://datatracker.ietf.org/doc/html/rfc8693)) for one whose audience is
+the target server. The backend sees **alice**, with the hub named as the broker — so it
+can apply that user's permissions and log who actually asked. Tokens are audience-bound
+and never passed through, which is what the MCP authorization spec requires of a
+gateway. See [On-behalf-of](#on-behalf-of-rfc-8693-token-exchange).
+
+### The rest
+
+Around the gateway sits a management plane: server discovery, health monitoring,
+capability inspection, request tracing, **fault injection** for exercising how your
+client handles a slow or broken MCP server, and an admin web UI.
 
 <p align="center">
   <img src="docs/admin-ui.png" alt="The k5n-mcp-hub admin UI showing a registered server with its health status, tools, and expanded capabilities panel" width="900">

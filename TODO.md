@@ -570,4 +570,8 @@ Still open for an exposed/multi-tenant deployment:
 - [ ] Interop with the official MCP registry API (import/export).
 - [ ] Emit OpenTelemetry traces/metrics alongside `/metrics`.
 - [ ] Support stdio MCP servers (currently HTTP-only).
-- [ ] Lead with fault injection as the headline differentiator.
+- [x] Positioning decided (2026-09-05): **on-behalf-of is the headline
+      differentiator**, and the README leads with it. Fault injection stays a
+      secondary one — it is the strongest *testing* feature, but per-user identity is
+      what distinguishes the hub in production, where most MCP proxies forward a
+      single shared credential.

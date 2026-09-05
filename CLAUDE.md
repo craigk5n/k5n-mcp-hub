@@ -4,7 +4,9 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What this is
 
-k5n-mcp-hub is a registry and management hub for MCP (Model Context Protocol) servers, built with Python + FastAPI — discovery, health monitoring, request tracing, fault injection, a reverse proxy, and an admin UI. It was originally built using the agent-dev-team tool.
+k5n-mcp-hub is a gateway and management hub for MCP (Model Context Protocol) servers, built with Python + FastAPI. It was originally built using the agent-dev-team tool.
+
+The **headline differentiator is on-behalf-of**: with `auth.type: jwt` and a server registered `auth_type: obo`, the hub validates the caller's access token and exchanges it (RFC 8693) for one whose audience is the downstream server, so the backend sees the actual user rather than one shared service identity. Design decisions live in `docs/adr/`; a Keycloak-backed demonstration lives in `e2e/`. Around that gateway sits the management plane: discovery, health monitoring, request tracing, fault injection, a reverse proxy, and an admin UI.
 
 > **Treat the public contract as stable.** Before changing any route path, response header, JSON field name, or on-disk storage shape, assume a client depends on it. `tests/test_readme.py` even asserts the README's documented commands stay accurate.
 
