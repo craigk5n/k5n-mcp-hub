@@ -12,6 +12,7 @@ import hashlib
 import hmac
 import json
 import time
+from datetime import datetime, timezone
 from typing import Any
 from unittest.mock import MagicMock
 
@@ -355,3 +356,17 @@ class TestSSRFSafety:
         strategy_for(jwks)
 
         assert jwks.fetch_count == 0
+
+
+class TestSubjectExpiry:
+    @pytest.mark.asyncio
+    async def test_principal_carries_the_token_expiry(self, signing_key, jwks) -> None:
+        # mcp.obo_cache clamps an exchanged token's lifetime to this.
+        result = await strategy_for(jwks).authenticate(
+            bearer_request(_token(signing_key, expires_in=120))
+        )
+
+        assert result is not None
+        assert result.expires_at is not None
+        remaining = (result.expires_at - datetime.now(timezone.utc)).total_seconds()
+        assert 100 < remaining <= 120

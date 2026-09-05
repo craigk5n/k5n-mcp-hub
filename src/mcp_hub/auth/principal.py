@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from datetime import datetime
 
 # Subject of the principal produced under `auth.type: none` — authenticated by
 # policy rather than by identity.
@@ -24,6 +25,9 @@ class Principal:
     scopes: frozenset[str] = field(default_factory=frozenset)
     token: str = ""
     is_anonymous: bool = False
+    # When the presented token expires. An exchanged token must never outlive it
+    # (mcp.obo_cache), or the hub keeps acting for a user whose session has ended.
+    expires_at: datetime | None = None
 
     @classmethod
     def anonymous(cls) -> Principal:
@@ -46,5 +50,5 @@ class Principal:
         return (
             f"Principal(subject={self.subject!r}, issuer={self.issuer!r}, "
             f"scopes={sorted(self.scopes)!r}, token={'<redacted>' if self.token else ''!r}, "
-            f"is_anonymous={self.is_anonymous!r})"
+            f"is_anonymous={self.is_anonymous!r}, expires_at={self.expires_at!r})"
         )

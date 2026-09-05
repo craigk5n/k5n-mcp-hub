@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import time
+from datetime import datetime, timezone
 from typing import Any, Iterable, Mapping
 
 import httpx
@@ -260,4 +261,14 @@ class JWTBearerStrategy:
             issuer=str(claims.get("iss") or ""),
             scopes=scopes,
             token=token,
+            expires_at=_expiry_from_claims(claims),
         )
+
+
+def _expiry_from_claims(claims: Mapping[str, Any]) -> datetime | None:
+    """The `exp` claim as an aware datetime. Already validated by jwt.decode, which
+    requires it, so this only has to convert."""
+    try:
+        return datetime.fromtimestamp(int(claims["exp"]), tz=timezone.utc)
+    except (KeyError, TypeError, ValueError, OverflowError, OSError):
+        return None
