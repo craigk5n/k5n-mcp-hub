@@ -25,7 +25,7 @@ server:
 # Controls how server registry data is persisted.
 storage:
   # type: Storage backend. Options: inmemory, json, redis.
-  type: inmemory
+  type: json
 
   # json: (Commented out) JSON file-based storage configuration.
   # json:

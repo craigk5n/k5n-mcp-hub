@@ -65,7 +65,7 @@ CI (`.forgejo/workflows/ci.yml`) additionally runs the suite in a **fresh isolat
 
 ## Configuration
 
-Loaded from `config.yaml` at repo root (all values there mirror the built-in defaults). Two env-override patterns:
+Loaded from `config.yaml` at repo root. Values there mirror the built-in defaults with one exception: `storage.type` is `json`, so a repo checkout persists its registry to `mcp_servers.json` across restarts instead of losing it. The Pydantic default is still `inmemory`, which is what an installed CLI gets when it finds no `config.yaml`. Two env-override patterns:
 
 - **Bare var** (highest priority): `SERVER_HTTP_PORT=8080`.
 - **`MCPHUB_` prefix, `__` as nesting separator**: `MCPHUB_AUTH__BASIC_AUTH__REGISTER_PASS=x` → `auth.basic_auth.register_pass`, `MCPHUB_STORAGE__TYPE=json`.
