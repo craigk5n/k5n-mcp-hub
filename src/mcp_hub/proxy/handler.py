@@ -8,6 +8,7 @@ import httpx
 from fastapi import Request, Response
 from fastapi.responses import StreamingResponse
 
+from mcp_hub.auth.caller import CallerIdentity, caller_from_request
 from mcp_hub.config import TraceConfig
 from mcp_hub.mcp.auth import apply_server_auth
 from mcp_hub.mcp.constants import STATELESS_PROTOCOL_VERSION, resolve_protocol_version
@@ -42,6 +43,7 @@ async def build_outbound_headers(
     incoming_headers: httpx.Headers | dict[str, str],
     server: RegisteredServer,
     *,
+    caller: CallerIdentity,
     allow_private_networks: bool = False,
     body: bytes | None = None,
 ) -> dict[str, str]:
@@ -89,7 +91,9 @@ async def build_outbound_headers(
     if (server.mcp_protocol_version or "").strip() == STATELESS_PROTOCOL_VERSION and body:
         _inject_stateless_request_headers(outbound, body)
 
-    await apply_server_auth(outbound, server, allow_private_networks=allow_private_networks)
+    await apply_server_auth(
+        outbound, server, caller=caller, allow_private_networks=allow_private_networks
+    )
 
     return outbound
 
@@ -198,6 +202,7 @@ async def proxy_request(
     outbound_headers = await build_outbound_headers(
         dict(request.headers),
         srv,
+        caller=caller_from_request(request),
         allow_private_networks=allow_private_networks,
         body=request_body,
     )

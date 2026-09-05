@@ -10,6 +10,7 @@ import pytest
 
 from mcp_hub.mcp.auth import TokenCache, apply_server_auth
 from mcp_hub.models.server import RegisteredServer
+from mcp_hub.auth.caller import SERVICE_IDENTITY
 
 
 def make_oauth_server(token_url: str) -> RegisteredServer:
@@ -53,7 +54,7 @@ async def test_apply_server_auth_records_ssrf_block_as_token_error() -> None:
     server = make_oauth_server("http://127.0.0.1:9/token")
     headers: dict[str, str] = {}
 
-    await apply_server_auth(headers, server, allow_private_networks=False)
+    await apply_server_auth(headers, server, caller=SERVICE_IDENTITY, allow_private_networks=False)
 
     assert "Authorization" not in headers
     assert server.oauth_token_status == "error"

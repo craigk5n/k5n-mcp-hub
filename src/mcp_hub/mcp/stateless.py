@@ -15,6 +15,7 @@ import json
 from dataclasses import dataclass, field
 from typing import Any
 
+from mcp_hub.auth.caller import CallerIdentity
 from mcp_hub.mcp.auth import apply_server_auth
 from mcp_hub.mcp.constants import (
     MCP_CLIENT_NAME,
@@ -60,9 +61,11 @@ class StatelessMCPClient:
         *,
         server: RegisteredServer | None = None,
         allow_private_networks: bool = False,
+        caller: CallerIdentity,
     ) -> None:
         self.base_url = base_url
         self.server = server
+        self._caller = caller
         self._allow_private_networks = allow_private_networks
         self._request_counter = 0
 
@@ -90,7 +93,10 @@ class StatelessMCPClient:
         }
         if self.server is not None:
             await apply_server_auth(
-                headers, self.server, allow_private_networks=self._allow_private_networks
+                headers,
+                self.server,
+                caller=self._caller,
+                allow_private_networks=self._allow_private_networks,
             )
 
         self._request_counter += 1

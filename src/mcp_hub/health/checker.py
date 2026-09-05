@@ -10,6 +10,7 @@ import httpx
 from mcp_hub.config import HealthCheckConfig, TraceConfig
 from mcp_hub.health.parser import HealthParser
 from mcp_hub.health.url import build_health_url
+from mcp_hub.auth.caller import SERVICE_IDENTITY
 from mcp_hub.mcp.auth import apply_server_auth
 from mcp_hub.mcp.constants import STATELESS_PROTOCOL_VERSION
 from mcp_hub.mcp.sdk_client import MCPClient, MCPClientError
@@ -53,7 +54,10 @@ async def check_service_health(
 ) -> HealthCheckResult:
     health_url = build_health_url(server.url)
     headers: dict[str, str] = {}
-    await apply_server_auth(headers, server, allow_private_networks=allow_private_networks)
+    # No user in scope on a timer-driven probe (ADR 0004).
+    await apply_server_auth(
+        headers, server, caller=SERVICE_IDENTITY, allow_private_networks=allow_private_networks
+    )
 
     start_time = time.perf_counter()
     error_message = ""
@@ -239,12 +243,18 @@ class HealthChecker:
         the spec's designated up-front probe."""
         if (srv.mcp_protocol_version or "").strip() == STATELESS_PROTOCOL_VERSION:
             stateless_client = StatelessMCPClient(
-                srv.url, server=srv, allow_private_networks=self._allow_private_networks
+                srv.url,
+                server=srv,
+                allow_private_networks=self._allow_private_networks,
+                caller=SERVICE_IDENTITY,
             )
             await stateless_client.discover(timeout=10)
             return
 
         mcp_client = MCPClient(
-            srv.url, server=srv, allow_private_networks=self._allow_private_networks
+            srv.url,
+            server=srv,
+            allow_private_networks=self._allow_private_networks,
+            caller=SERVICE_IDENTITY,
         )
         await mcp_client.ping(timeout=10)

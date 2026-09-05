@@ -8,6 +8,7 @@ import httpx
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import HTMLResponse
 
+from mcp_hub.auth.caller import caller_from_request
 from mcp_hub.mcp.auth import apply_server_auth
 from mcp_hub.mcp.constants import STATELESS_PROTOCOL_VERSION
 from mcp_hub.mcp.jsonrpc import (
@@ -200,7 +201,9 @@ async def invoke_tool(
     }
 
     original_oauth_status = srv.oauth_token_status
-    await apply_server_auth(headers, srv, allow_private_networks=_allow_private)
+    await apply_server_auth(
+        headers, srv, caller=caller_from_request(request), allow_private_networks=_allow_private
+    )
 
     if srv.oauth_token_status != original_oauth_status:
         await registry.register(srv)

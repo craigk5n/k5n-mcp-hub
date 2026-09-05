@@ -42,6 +42,7 @@ class MockStatelessClient:
         *,
         server: RegisteredServer | None = None,
         allow_private_networks: bool = False,
+        caller: object = None,
     ) -> None:
         type(self).instantiated += 1
         self.base_url = base_url
@@ -108,6 +109,7 @@ class MockMCPClient:
         prompts: list[dict[str, Any]] | None = None,
         resources: list[dict[str, Any]] | None = None,
         raise_list_error: str | None = None,
+        caller: object = None,
     ) -> None:
         self.base_url = base_url
         self.server = server
@@ -203,6 +205,7 @@ class TestDiscoveryService:
                 *,
                 server: RegisteredServer | None = None,
                 allow_private_networks: bool = False,
+                caller: object = None,
             ) -> None:
                 super().__init__(
                     base_url, server=server, tools=tools_response, prompts=[], resources=[]
@@ -229,6 +232,7 @@ class TestDiscoveryService:
                 *,
                 server: RegisteredServer | None = None,
                 allow_private_networks: bool = False,
+                caller: object = None,
             ) -> None:
                 super().__init__(base_url, server=server, tools=[], prompts=[], resources=[])
 
@@ -252,6 +256,7 @@ class TestDiscoveryService:
                 *,
                 server: RegisteredServer | None = None,
                 allow_private_networks: bool = False,
+                caller: object = None,
             ) -> None:
                 super().__init__(base_url, server=server)
 
@@ -291,6 +296,7 @@ class TestDiscoveryService:
                 *,
                 server: RegisteredServer | None = None,
                 allow_private_networks: bool = False,
+                caller: object = None,
             ) -> None:
                 super().__init__(base_url, server=server)
                 if "test1" in base_url:
@@ -313,6 +319,7 @@ class TestDiscoveryService:
                 *,
                 server: RegisteredServer | None = None,
                 allow_private_networks: bool = False,
+                caller: object = None,
             ) -> None:
                 super().__init__(
                     base_url, server=server, tools=tools_response, prompts=[], resources=[]
@@ -368,6 +375,7 @@ class TestStatelessDiscovery:
                 *,
                 server: RegisteredServer | None = None,
                 allow_private_networks: bool = False,
+                caller: object = None,
             ) -> None:
                 super().__init__(
                     base_url, server=server, tools=tools_response, prompts=[], resources=[]
@@ -398,6 +406,7 @@ class TestStatelessDiscovery:
                 *,
                 server: RegisteredServer | None = None,
                 allow_private_networks: bool = False,
+                caller: object = None,
             ) -> None:
                 super().__init__(
                     base_url,

@@ -6,6 +6,7 @@ from mcp_hub.proxy import build_outbound_headers, proxy_request
 from mcp_hub.models.server import RegisteredServer, FaultInjection
 from mcp_hub.mcp.constants import BACKWARD_COMPAT_PROTOCOL_VERSION, PROTOCOL_VERSION
 from mcp_hub.config import TraceConfig
+from mcp_hub.auth.caller import SERVICE_IDENTITY
 
 
 def make_server(
@@ -36,7 +37,7 @@ class TestBuildOutboundHeaders:
         server = make_server(bearer_token="server-token")
         incoming = httpx.Headers({"Authorization": "Bearer incoming-token", "Other": "header"})
 
-        result = await build_outbound_headers(incoming, server)
+        result = await build_outbound_headers(incoming, server, caller=SERVICE_IDENTITY)
 
         assert (
             _get_header(result, "Authorization") is None
@@ -48,7 +49,7 @@ class TestBuildOutboundHeaders:
         server = make_server(bearer_token="my-secret-token")
         incoming = httpx.Headers({})
 
-        result = await build_outbound_headers(incoming, server)
+        result = await build_outbound_headers(incoming, server, caller=SERVICE_IDENTITY)
 
         assert _get_header(result, "Authorization") == "Bearer my-secret-token"
 
@@ -57,7 +58,7 @@ class TestBuildOutboundHeaders:
         server = make_server()
         incoming = httpx.Headers({})
 
-        result = await build_outbound_headers(incoming, server)
+        result = await build_outbound_headers(incoming, server, caller=SERVICE_IDENTITY)
 
         assert _get_header(result, "MCP-Protocol-Version") == PROTOCOL_VERSION
 
@@ -66,7 +67,7 @@ class TestBuildOutboundHeaders:
         server = make_server(mcp_protocol_version=BACKWARD_COMPAT_PROTOCOL_VERSION)
         incoming = httpx.Headers({})
 
-        result = await build_outbound_headers(incoming, server)
+        result = await build_outbound_headers(incoming, server, caller=SERVICE_IDENTITY)
 
         assert _get_header(result, "MCP-Protocol-Version") == BACKWARD_COMPAT_PROTOCOL_VERSION
 
@@ -75,7 +76,7 @@ class TestBuildOutboundHeaders:
         server = make_server(mcp_protocol_version=BACKWARD_COMPAT_PROTOCOL_VERSION)
         incoming = httpx.Headers({"MCP-Protocol-Version": PROTOCOL_VERSION})
 
-        result = await build_outbound_headers(incoming, server)
+        result = await build_outbound_headers(incoming, server, caller=SERVICE_IDENTITY)
 
         assert _get_header(result, "MCP-Protocol-Version") == PROTOCOL_VERSION
 
@@ -85,7 +86,7 @@ class TestBuildOutboundHeaders:
         custom_version = "2024-01-01"
         incoming = httpx.Headers({"MCP-Protocol-Version": custom_version})
 
-        result = await build_outbound_headers(incoming, server)
+        result = await build_outbound_headers(incoming, server, caller=SERVICE_IDENTITY)
 
         assert _get_header(result, "MCP-Protocol-Version") == custom_version
 
@@ -94,7 +95,7 @@ class TestBuildOutboundHeaders:
         server = make_server()
         incoming = httpx.Headers({"X-MCP-Target-Server": "my-server"})
 
-        result = await build_outbound_headers(incoming, server)
+        result = await build_outbound_headers(incoming, server, caller=SERVICE_IDENTITY)
 
         assert _get_header(result, "X-MCP-Target-Server") == "my-server"
 
@@ -103,7 +104,7 @@ class TestBuildOutboundHeaders:
         server = make_server()
         incoming = httpx.Headers({"Host": "example.com", "Other": "value"})
 
-        result = await build_outbound_headers(incoming, server)
+        result = await build_outbound_headers(incoming, server, caller=SERVICE_IDENTITY)
 
         assert _get_header(result, "Host") is None
 
@@ -112,7 +113,7 @@ class TestBuildOutboundHeaders:
         server = make_server(bearer_token="")
         incoming = httpx.Headers({})
 
-        result = await build_outbound_headers(incoming, server)
+        result = await build_outbound_headers(incoming, server, caller=SERVICE_IDENTITY)
 
         assert _get_header(result, "Authorization") is None
 
@@ -127,7 +128,7 @@ class TestBuildOutboundHeaders:
             }
         )
 
-        result = await build_outbound_headers(incoming, server)
+        result = await build_outbound_headers(incoming, server, caller=SERVICE_IDENTITY)
 
         assert _get_header(result, "Accept") == "application/json"
         assert _get_header(result, "Content-Type") == "application/json"
@@ -138,7 +139,7 @@ class TestBuildOutboundHeaders:
         server = make_server(bearer_token="dict-token")
         incoming = {"Accept": "application/json"}
 
-        result = await build_outbound_headers(incoming, server)
+        result = await build_outbound_headers(incoming, server, caller=SERVICE_IDENTITY)
 
         assert _get_header(result, "Authorization") == "Bearer dict-token"
         assert _get_header(result, "Accept") == "application/json"
@@ -150,7 +151,7 @@ class TestBuildOutboundHeaders:
         server = make_server(bearer_token="")
         incoming = httpx.Headers({"Authorization": "Bearer should-be-removed"})
 
-        result = await build_outbound_headers(incoming, server)
+        result = await build_outbound_headers(incoming, server, caller=SERVICE_IDENTITY)
 
         assert _get_header(result, "Authorization") is None
 
@@ -167,7 +168,10 @@ class TestRequiredHeaderInjection:
     async def test_injects_mcp_method_and_name_for_stateless_backend(self) -> None:
         body = b'{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"echo","arguments":{}}}'
         result = await build_outbound_headers(
-            httpx.Headers({}), self._stateless_server(), body=body
+            httpx.Headers({}),
+            self._stateless_server(),
+            body=body,
+            caller=SERVICE_IDENTITY,
         )
 
         assert _get_header(result, "Mcp-Method") == "tools/call"
@@ -177,7 +181,10 @@ class TestRequiredHeaderInjection:
     async def test_mcp_name_omitted_when_not_derivable(self) -> None:
         body = b'{"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}'
         result = await build_outbound_headers(
-            httpx.Headers({}), self._stateless_server(), body=body
+            httpx.Headers({}),
+            self._stateless_server(),
+            body=body,
+            caller=SERVICE_IDENTITY,
         )
 
         assert _get_header(result, "Mcp-Method") == "tools/list"
@@ -187,7 +194,9 @@ class TestRequiredHeaderInjection:
     async def test_client_supplied_headers_never_overwritten(self) -> None:
         body = b'{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"echo"}}'
         incoming = httpx.Headers({"Mcp-Method": "client-set", "Mcp-Name": "client-name"})
-        result = await build_outbound_headers(incoming, self._stateless_server(), body=body)
+        result = await build_outbound_headers(
+            incoming, self._stateless_server(), body=body, caller=SERVICE_IDENTITY
+        )
 
         assert _get_header(result, "Mcp-Method") == "client-set"
         assert _get_header(result, "Mcp-Name") == "client-name"
@@ -196,7 +205,9 @@ class TestRequiredHeaderInjection:
     async def test_legacy_backend_gets_no_new_headers(self) -> None:
         body = b'{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"echo"}}'
         server = make_server(mcp_protocol_version="2025-11-25")
-        result = await build_outbound_headers(httpx.Headers({}), server, body=body)
+        result = await build_outbound_headers(
+            httpx.Headers({}), server, body=body, caller=SERVICE_IDENTITY
+        )
 
         assert _get_header(result, "Mcp-Method") is None
         assert _get_header(result, "Mcp-Name") is None
@@ -204,13 +215,18 @@ class TestRequiredHeaderInjection:
     @pytest.mark.asyncio
     async def test_invalid_json_body_injects_nothing(self) -> None:
         result = await build_outbound_headers(
-            httpx.Headers({}), self._stateless_server(), body=b"{not json"
+            httpx.Headers({}),
+            self._stateless_server(),
+            body=b"{not json",
+            caller=SERVICE_IDENTITY,
         )
         assert _get_header(result, "Mcp-Method") is None
 
     @pytest.mark.asyncio
     async def test_no_body_injects_nothing(self) -> None:
-        result = await build_outbound_headers(httpx.Headers({}), self._stateless_server())
+        result = await build_outbound_headers(
+            httpx.Headers({}), self._stateless_server(), caller=SERVICE_IDENTITY
+        )
         assert _get_header(result, "Mcp-Method") is None
 
 

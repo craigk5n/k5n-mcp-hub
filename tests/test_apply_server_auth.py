@@ -6,6 +6,7 @@ import httpx
 
 from mcp_hub.mcp.auth import TokenCache, DEFAULT_TOKEN_CACHE, apply_server_auth
 from mcp_hub.models.server import RegisteredServer
+from mcp_hub.auth.caller import SERVICE_IDENTITY
 
 
 def make_server(
@@ -41,7 +42,7 @@ class TestApplyServerAuth:
         server = make_server(bearer_token="abc")
         headers: dict[str, str] = {}
 
-        await apply_server_auth(headers, server)
+        await apply_server_auth(headers, server, caller=SERVICE_IDENTITY)
 
         assert headers.get("Authorization") == "Bearer abc"
         assert server.oauth_token_status == ""
@@ -52,7 +53,7 @@ class TestApplyServerAuth:
         server = make_server(bearer_token="  abc  ")
         headers: dict[str, str] = {}
 
-        await apply_server_auth(headers, server)
+        await apply_server_auth(headers, server, caller=SERVICE_IDENTITY)
 
         assert headers.get("Authorization") == "Bearer abc"
 
@@ -61,7 +62,7 @@ class TestApplyServerAuth:
         server = make_server(bearer_token="   ")
         headers: dict[str, str] = {}
 
-        await apply_server_auth(headers, server)
+        await apply_server_auth(headers, server, caller=SERVICE_IDENTITY)
 
         assert "Authorization" not in headers
 
@@ -70,7 +71,7 @@ class TestApplyServerAuth:
         server = make_server(auth_type="basic", basic_username="admin", basic_password="hunter2")
         headers: dict[str, str] = {}
 
-        await apply_server_auth(headers, server)
+        await apply_server_auth(headers, server, caller=SERVICE_IDENTITY)
 
         expected = base64.b64encode(b"admin:hunter2").decode("ascii")
         assert headers.get("Authorization") == f"Basic {expected}"
@@ -84,7 +85,7 @@ class TestApplyServerAuth:
         server = make_server(basic_username="admin", basic_password="TVBz CtEB XKhm 4F2A 42wO y47Y")
         headers: dict[str, str] = {}
 
-        await apply_server_auth(headers, server)
+        await apply_server_auth(headers, server, caller=SERVICE_IDENTITY)
 
         expected = base64.b64encode(b"admin:TVBz CtEB XKhm 4F2A 42wO y47Y").decode("ascii")
         assert headers.get("Authorization") == f"Basic {expected}"
@@ -94,7 +95,7 @@ class TestApplyServerAuth:
         server = make_server(basic_username="  admin  ", basic_password="  secret\n")
         headers: dict[str, str] = {}
 
-        await apply_server_auth(headers, server)
+        await apply_server_auth(headers, server, caller=SERVICE_IDENTITY)
 
         expected = base64.b64encode(b"admin:secret").decode("ascii")
         assert headers.get("Authorization") == f"Basic {expected}"
@@ -104,7 +105,7 @@ class TestApplyServerAuth:
         server = make_server(basic_username="admin", basic_password="secret")
         headers: dict[str, str] = {}
 
-        await apply_server_auth(headers, server)
+        await apply_server_auth(headers, server, caller=SERVICE_IDENTITY)
 
         assert "X-MCP-Token" not in headers
 
@@ -113,7 +114,7 @@ class TestApplyServerAuth:
         server = make_server(auth_type="basic", basic_username="  ", basic_password="")
         headers: dict[str, str] = {}
 
-        await apply_server_auth(headers, server)
+        await apply_server_auth(headers, server, caller=SERVICE_IDENTITY)
 
         assert "Authorization" not in headers
 
@@ -126,7 +127,7 @@ class TestApplyServerAuth:
         )
         headers: dict[str, str] = {}
 
-        await apply_server_auth(headers, server)
+        await apply_server_auth(headers, server, caller=SERVICE_IDENTITY)
 
         assert headers.get("Authorization") == "Bearer my-bearer-token"
 
@@ -150,7 +151,7 @@ class TestApplyServerAuth:
         mock_client.post = AsyncMock(return_value=mock_response)
 
         headers: dict[str, str] = {}
-        await apply_server_auth(headers, server, client=mock_client)
+        await apply_server_auth(headers, server, caller=SERVICE_IDENTITY, client=mock_client)
 
         assert headers.get("Authorization") == "Bearer oauth-token-123"
         assert server.oauth_token_status == "ok"
@@ -174,7 +175,9 @@ class TestApplyServerAuth:
 
         headers: dict[str, str] = {}
         cache = TokenCache()
-        await apply_server_auth(headers, server, token_cache=cache, client=mock_client)
+        await apply_server_auth(
+            headers, server, caller=SERVICE_IDENTITY, token_cache=cache, client=mock_client
+        )
 
         assert headers.get("Authorization") == "Bearer token-from-url"
         assert server.oauth_token_status == "ok"
@@ -197,7 +200,9 @@ class TestApplyServerAuth:
 
         headers: dict[str, str] = {}
         cache = TokenCache()
-        await apply_server_auth(headers, server, token_cache=cache, client=mock_client)
+        await apply_server_auth(
+            headers, server, caller=SERVICE_IDENTITY, token_cache=cache, client=mock_client
+        )
 
         assert headers.get("Authorization") == "Bearer token-from-metadata"
         assert server.oauth_token_status == "ok"
@@ -216,7 +221,9 @@ class TestApplyServerAuth:
 
         headers: dict[str, str] = {}
         cache = TokenCache()
-        await apply_server_auth(headers, server, token_cache=cache, client=mock_client)
+        await apply_server_auth(
+            headers, server, caller=SERVICE_IDENTITY, token_cache=cache, client=mock_client
+        )
 
         assert "Authorization" not in headers
         assert server.oauth_token_status == "error"
@@ -241,7 +248,9 @@ class TestApplyServerAuth:
 
         headers: dict[str, str] = {}
         cache = TokenCache()
-        await apply_server_auth(headers, server, token_cache=cache, client=mock_client)
+        await apply_server_auth(
+            headers, server, caller=SERVICE_IDENTITY, token_cache=cache, client=mock_client
+        )
 
         assert "Authorization" not in headers
         assert server.oauth_token_status == "error"
@@ -252,7 +261,7 @@ class TestApplyServerAuth:
         server = make_server()
         headers: dict[str, str] = {"Existing": "header"}
 
-        await apply_server_auth(headers, server)
+        await apply_server_auth(headers, server, caller=SERVICE_IDENTITY)
 
         assert "Authorization" not in headers
         assert headers == {"Existing": "header"}
@@ -270,7 +279,7 @@ class TestApplyServerAuth:
         mock_client = AsyncMock(spec=httpx.AsyncClient)
 
         headers: dict[str, str] = {}
-        await apply_server_auth(headers, server, client=mock_client)
+        await apply_server_auth(headers, server, caller=SERVICE_IDENTITY, client=mock_client)
 
         assert headers.get("Authorization") == "Bearer my-bearer-token"
         assert mock_client.post.call_count == 0
@@ -280,7 +289,7 @@ class TestApplyServerAuth:
         server = make_server(bearer_token="abc")
         headers = httpx.Headers()
 
-        await apply_server_auth(headers, server)
+        await apply_server_auth(headers, server, caller=SERVICE_IDENTITY)
 
         assert headers.get("Authorization") == "Bearer abc"
 
@@ -303,7 +312,9 @@ class TestApplyServerAuth:
         mock_client.post = AsyncMock(return_value=mock_response)
 
         headers: dict[str, str] = {}
-        await apply_server_auth(headers, server, token_cache=custom_cache, client=mock_client)
+        await apply_server_auth(
+            headers, server, caller=SERVICE_IDENTITY, token_cache=custom_cache, client=mock_client
+        )
 
         assert headers.get("Authorization") == "Bearer custom-cache-token"
         assert server.oauth_token_status == "ok"

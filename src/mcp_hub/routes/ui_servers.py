@@ -10,6 +10,7 @@ from mcp_hub.mcp.constants import (
     supported_protocol_versions_str,
 )
 from mcp_hub.mcp.sdk_client import MCPClient
+from mcp_hub.auth.caller import SERVICE_IDENTITY
 from mcp_hub.registry.service import Registry
 
 logger = logging.getLogger(__name__)
@@ -34,7 +35,11 @@ async def _probe_server_mcp_info(
     server_id: str, url: str, registry: Registry, *, allow_private_networks: bool = False
 ) -> None:
     try:
-        async with MCPClient(url, allow_private_networks=allow_private_networks) as client:
+        # Fire-and-forget background probe: the request that scheduled it may already
+        # be gone, and its results are shared across users (ADR 0004).
+        async with MCPClient(
+            url, allow_private_networks=allow_private_networks, caller=SERVICE_IDENTITY
+        ) as client:
             await client.handshake()
             if client.initialize_result is not None:
                 result = client.initialize_result

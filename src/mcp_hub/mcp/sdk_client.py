@@ -5,6 +5,7 @@ from contextlib import AsyncExitStack
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Callable, Literal
 
+from mcp_hub.auth.caller import CallerIdentity
 from mcp_hub.mcp.auth import apply_server_auth
 from mcp_hub.mcp.constants import METHOD_NOT_FOUND, resolve_protocol_version
 from mcp_hub.models.server import RegisteredServer
@@ -150,9 +151,11 @@ class MCPClient:
         *,
         server: RegisteredServer | None = None,
         allow_private_networks: bool = False,
+        caller: CallerIdentity,
     ) -> None:
         self.base_url = base_url
         self._allow_private_networks = allow_private_networks
+        self._caller = caller
         self.server = server
         self._session: ClientSession | None = None
         self._initialize_result: InitializeResult | None = None
@@ -193,7 +196,10 @@ class MCPClient:
         headers: dict[str, str] = {}
         if self.server:
             await apply_server_auth(
-                headers, self.server, allow_private_networks=self._allow_private_networks
+                headers,
+                self.server,
+                caller=self._caller,
+                allow_private_networks=self._allow_private_networks,
             )
 
         if "MCP-Protocol-Version" not in headers:
@@ -362,6 +368,7 @@ class MCPClient:
                 self.base_url,
                 server=self.server,
                 allow_private_networks=self._allow_private_networks,
+                caller=self._caller,
             ) as client:
                 await client.handshake(timeout=timeout)
         except MCPClientError as e:

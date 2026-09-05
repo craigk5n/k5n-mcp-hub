@@ -6,6 +6,7 @@ from typing import cast
 
 import httpx
 
+from mcp_hub.auth.caller import CallerIdentity
 from mcp_hub.models.server import RegisteredServer
 from mcp_hub.mcp.oauth import token_endpoint_from_metadata
 from mcp_hub.utils import SafePinnedTransport
@@ -102,11 +103,18 @@ async def apply_server_auth(
     headers: httpx.Headers | dict[str, str],
     server: RegisteredServer,
     *,
+    caller: CallerIdentity,
     token_cache: TokenCache = DEFAULT_TOKEN_CACHE,
     client: httpx.AsyncClient | None = None,
     allow_private_networks: bool = False,
 ) -> None:
     """Apply server authentication to the given headers.
+
+    ``caller`` is required, never defaulted (ADR 0004): pass the request's
+    ``Principal``, or ``SERVICE_IDENTITY`` for a background call with no user in
+    scope. Nothing reads it yet — Epic 6's on-behalf-of rule is what consumes it —
+    but making the choice explicit now means a later call site cannot silently
+    inherit the service identity for a user's request.
 
     Mutates the given headers in place to add an Authorization header where appropriate.
     Also mutates server.oauth_token_status and server.oauth_token_error; callers must

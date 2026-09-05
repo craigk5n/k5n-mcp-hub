@@ -9,6 +9,7 @@ from mcp_hub.mcp.constants import (
     MCP_DISCOVERY_INTERVAL_SECONDS,
     STATELESS_PROTOCOL_VERSION,
 )
+from mcp_hub.auth.caller import SERVICE_IDENTITY
 from mcp_hub.mcp.sdk_client import MCPClient, MCPClientError
 from mcp_hub.mcp.stateless import StatelessMCPClient
 from mcp_hub.mcp.validation import validate_tool_schemas
@@ -96,7 +97,10 @@ class DiscoveryService:
         support it (or can't be reached that way), so the caller falls back to the
         `initialize` handshake."""
         client = StatelessMCPClient(
-            server.url, server=server, allow_private_networks=self._allow_private_networks
+            server.url,
+            server=server,
+            allow_private_networks=self._allow_private_networks,
+            caller=SERVICE_IDENTITY,
         )
         try:
             discovered = await client.discover(timeout=timeout)
@@ -152,7 +156,10 @@ class DiscoveryService:
         # Handshake revisions carry no ttl hints; drop any stale pacing entry.
         self._poll_not_before.pop(server.id, None)
         async with MCPClient(
-            server.url, server=server, allow_private_networks=self._allow_private_networks
+            server.url,
+            server=server,
+            allow_private_networks=self._allow_private_networks,
+            caller=SERVICE_IDENTITY,
         ) as client:
             # Bound every network call by `timeout`. Previously this argument was ignored and
             # each sub-call fell back to its own 30s default, so a slow/hanging backend could

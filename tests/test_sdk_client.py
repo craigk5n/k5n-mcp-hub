@@ -5,6 +5,7 @@ from typing import Any
 
 from mcp_hub.mcp.sdk_client import MCPClient, MCPClientError, InitializeResult
 from mcp_hub.models.server import RegisteredServer
+from mcp_hub.auth.caller import SERVICE_IDENTITY
 
 
 def make_server(
@@ -74,7 +75,7 @@ async def test_handshake_returns_initialize_result_with_protocol_version() -> No
         mock_get.return_value = lambda url, **kwargs: mock_context_manager()
 
         with patch("mcp.client.session.ClientSession", return_value=mock_session):
-            client = MCPClient("http://localhost:3000/mcp")
+            client = MCPClient("http://localhost:3000/mcp", caller=SERVICE_IDENTITY)
 
             with patch.object(
                 client,
@@ -112,7 +113,7 @@ def mock_context_manager() -> Any:
 async def test_list_tools_returns_list_of_tool_dicts() -> None:
     mock_session: Any = MockClientSession()
 
-    client = MCPClient("http://localhost:3000/mcp")
+    client = MCPClient("http://localhost:3000/mcp", caller=SERVICE_IDENTITY)
     client._session = mock_session
 
     result = await client.list("tools/list")
@@ -126,7 +127,7 @@ async def test_list_tools_returns_list_of_tool_dicts() -> None:
 async def test_list_prompts_returns_list() -> None:
     mock_session = MockClientSession()
 
-    client = MCPClient("http://localhost:3000/mcp")
+    client = MCPClient("http://localhost:3000/mcp", caller=SERVICE_IDENTITY)
     client._session = mock_session  # type: ignore[assignment]
 
     result = await client.list("prompts/list")
@@ -140,7 +141,7 @@ async def test_list_prompts_returns_list() -> None:
 async def test_list_resources_returns_list() -> None:
     mock_session = MockClientSession()
 
-    client = MCPClient("http://localhost:3000/mcp")
+    client = MCPClient("http://localhost:3000/mcp", caller=SERVICE_IDENTITY)
     client._session = mock_session  # type: ignore[assignment]
 
     result = await client.list("resources/list")
@@ -152,7 +153,7 @@ async def test_list_resources_returns_list() -> None:
 
 @pytest.mark.asyncio
 async def test_list_without_handshake_raises_error() -> None:
-    client = MCPClient("http://localhost:3000/mcp")
+    client = MCPClient("http://localhost:3000/mcp", caller=SERVICE_IDENTITY)
 
     with pytest.raises(MCPClientError) as exc_info:
         await client.list("tools/list")
@@ -164,7 +165,7 @@ async def test_list_without_handshake_raises_error() -> None:
 async def test_list_invalid_method_raises_error() -> None:
     mock_session = MockClientSession()
 
-    client = MCPClient("http://localhost:3000/mcp")
+    client = MCPClient("http://localhost:3000/mcp", caller=SERVICE_IDENTITY)
     client._session = mock_session  # type: ignore[assignment]
 
     with pytest.raises(MCPClientError) as exc_info:
@@ -175,7 +176,7 @@ async def test_list_invalid_method_raises_error() -> None:
 
 @pytest.mark.asyncio
 async def test_ping_unreachable_url_raises_mcp_client_error() -> None:
-    client = MCPClient("http://localhost:19999/nonexistent")
+    client = MCPClient("http://localhost:19999/nonexistent", caller=SERVICE_IDENTITY)
 
     with pytest.raises(MCPClientError) as exc_info:
         await client.ping(timeout=1.0)
@@ -223,7 +224,7 @@ async def test_client_context_manager() -> None:
         mock_get.return_value = lambda url, **kwargs: mock_context_manager()
 
         with patch("mcp.client.session.ClientSession", return_value=mock_session):
-            async with MCPClient("http://localhost:3000/mcp") as client:
+            async with MCPClient("http://localhost:3000/mcp", caller=SERVICE_IDENTITY) as client:
                 result = await client.handshake()
                 assert isinstance(result, InitializeResult)
                 assert result.protocol_version == "2025-11-25"
@@ -236,7 +237,7 @@ async def test_bearer_token_in_headers() -> None:
     from mcp_hub.mcp.auth import apply_server_auth
 
     test_headers: dict[str, str] = {}
-    await apply_server_auth(test_headers, server)
+    await apply_server_auth(test_headers, server, caller=SERVICE_IDENTITY)
 
     assert "Authorization" in test_headers
     assert test_headers["Authorization"] == "Bearer test-token-123"

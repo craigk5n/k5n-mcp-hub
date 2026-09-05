@@ -377,13 +377,13 @@ so I can obtain a token without out-of-band configuration.
 **Story 5.5 — Thread the principal to the outbound call sites**
 
 - Acceptance criteria:
-  - [ ] `apply_server_auth` takes an explicit caller-identity argument that is
+  - [x] `apply_server_auth` takes an explicit caller-identity argument that is
         **required, not defaulted** — a plumbing bug must be a type error, never a
         silent downgrade to the service identity (ADR 0004).
-  - [ ] All eight call sites pass it: `proxy/handler.py:92`, `health/checker.py:56`,
+  - [x] All eight call sites pass it: `proxy/handler.py:92`, `health/checker.py:56`,
         `sdk_client.py:195`, `stateless.py:92`, `ui_invoke.py:203`,
         `ui_initialize.py:173`, `ui_playground.py:111`, and discovery.
-  - [ ] Existing behavior for non-OBO servers is unchanged; the full suite passes
+  - [x] Existing behavior for non-OBO servers is unchanged; the full suite passes
         with no test modified except for the new required argument.
 
 ### Epic 6 — RFC 8693 token exchange

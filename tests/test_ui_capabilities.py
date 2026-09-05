@@ -32,6 +32,7 @@ class MockMCPClient:
         *,
         server: RegisteredServer | None = None,
         tools: list[dict[str, Any]] | None = None,
+        caller: object = None,
     ) -> None:
         self.base_url = base_url
         self.server = server

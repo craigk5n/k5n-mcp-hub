@@ -9,6 +9,7 @@ from fastapi.responses import HTMLResponse, PlainTextResponse, Response
 
 from mcp_hub.mcp.discovery import DiscoveryService
 from mcp_hub.mcp.schema_refs import resolve_tool_schema_refs
+from mcp_hub.auth.caller import CallerIdentity, caller_from_request
 from mcp_hub.mcp.sdk_client import MCPClient
 from mcp_hub.mcp.validation import validate_tool_schemas
 from mcp_hub.models.server import RegisteredServer
@@ -66,6 +67,7 @@ async def get_server_tools(
     else:
         tools, prompts, resources, error_message = await _fetch_live_capabilities(
             server,
+            caller=caller_from_request(request),
             allow_private_networks=request.app.state.settings.security.allow_private_networks,
         )
         cached = False
@@ -170,6 +172,7 @@ async def get_server_capabilities(
     else:
         tools, prompts, resources, error_message = await _fetch_live_capabilities(
             server,
+            caller=caller_from_request(request),
             allow_private_networks=request.app.state.settings.security.allow_private_networks,
         )
         cached = False
@@ -207,6 +210,7 @@ async def get_server_capabilities(
 async def _fetch_live_capabilities(
     server: RegisteredServer,
     *,
+    caller: CallerIdentity,
     allow_private_networks: bool = False,
 ) -> tuple[list[Any], list[Any], list[Any], str]:
     tools: list[Any] = []
@@ -217,7 +221,10 @@ async def _fetch_live_capabilities(
 
     try:
         async with MCPClient(
-            server.url, server=server, allow_private_networks=allow_private_networks
+            server.url,
+            server=server,
+            allow_private_networks=allow_private_networks,
+            caller=caller,
         ) as client:
             await client.handshake(timeout=12)
 
