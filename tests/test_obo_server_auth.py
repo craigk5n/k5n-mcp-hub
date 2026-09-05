@@ -272,3 +272,100 @@ class TestOtherServersAreUntouched:
         assert headers["Authorization"] == "Bearer tok"
         assert headers["X-MCP-Token"] == "tok"
         assert exchange.seen == []  # type: ignore[attr-defined]
+
+
+class TestServiceCredentialDetection:
+    """Story 6.5: what the background paths can and cannot act as."""
+
+    @pytest.mark.parametrize(
+        "overrides",
+        [
+            {"bearer_token": "tok"},
+            {"basic_username": "u", "basic_password": "p"},
+            {},  # the obo_server fixture already carries oauth client credentials
+        ],
+        ids=["bearer", "basic", "client-credentials"],
+    )
+    def test_service_credential_is_detected(self, overrides: dict) -> None:
+        from mcp_hub.mcp.auth import has_service_credential
+
+        assert has_service_credential(obo_server(**overrides)) is True
+
+    def test_obo_only_server_has_no_service_credential(self) -> None:
+        from mcp_hub.mcp.auth import has_service_credential, needs_user_identity
+
+        bare = obo_server(oauth_client_id="", oauth_client_secret="")
+
+        assert has_service_credential(bare) is False
+        assert needs_user_identity(bare) is True
+
+    def test_non_obo_server_never_needs_a_user(self) -> None:
+        from mcp_hub.mcp.auth import needs_user_identity
+
+        assert needs_user_identity(RegisteredServer(id="s", url="http://x")) is False
+
+
+class TestBackgroundDegradation:
+    @pytest.mark.asyncio
+    async def test_health_skips_the_mcp_probe_when_it_cannot_authenticate(self) -> None:
+        # Probing would draw a 401 and mark a reachable server unhealthy.
+        from unittest.mock import AsyncMock, MagicMock, patch
+
+        import mcp_hub.health.checker as checker
+
+        bare = obo_server(oauth_client_id="", oauth_client_secret="")
+        instance = checker.HealthChecker.__new__(checker.HealthChecker)
+        instance._allow_private_networks = False  # type: ignore[attr-defined]
+
+        with patch.object(checker, "MCPClient") as mcp_client:
+            with patch.object(checker, "StatelessMCPClient") as stateless:
+                await checker.HealthChecker._mcp_probe(instance, bare)
+
+        mcp_client.assert_not_called()
+        stateless.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_health_still_probes_when_a_service_credential_exists(self) -> None:
+        from unittest.mock import AsyncMock, MagicMock, patch
+
+        import mcp_hub.health.checker as checker
+
+        instance = checker.HealthChecker.__new__(checker.HealthChecker)
+        instance._allow_private_networks = False  # type: ignore[attr-defined]
+
+        with patch.object(checker, "MCPClient") as mcp_client:
+            mcp_client.return_value.ping = AsyncMock()
+            await checker.HealthChecker._mcp_probe(instance, obo_server(bearer_token="tok"))
+
+        mcp_client.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_discovery_skips_a_server_it_cannot_authenticate_to(self) -> None:
+        from unittest.mock import AsyncMock, MagicMock
+
+        from mcp_hub.mcp.discovery import DiscoveryService
+
+        bare = obo_server(oauth_client_id="", oauth_client_secret="")
+        registry = MagicMock()
+        registry.list = AsyncMock(return_value=[bare])
+
+        service = DiscoveryService(registry)
+        service.discover_immediately = AsyncMock()  # type: ignore[method-assign]
+        await service.poll_once()
+
+        service.discover_immediately.assert_not_called()  # type: ignore[attr-defined]
+
+    @pytest.mark.asyncio
+    async def test_discovery_still_runs_with_a_service_credential(self) -> None:
+        from unittest.mock import AsyncMock, MagicMock
+
+        from mcp_hub.mcp.discovery import DiscoveryService
+
+        registry = MagicMock()
+        registry.list = AsyncMock(return_value=[obo_server(bearer_token="tok")])
+
+        service = DiscoveryService(registry)
+        service.discover_immediately = AsyncMock()  # type: ignore[method-assign]
+        await service.poll_once()
+
+        service.discover_immediately.assert_awaited_once()  # type: ignore[attr-defined]

@@ -10,6 +10,7 @@ from mcp_hub.mcp.constants import (
     STATELESS_PROTOCOL_VERSION,
 )
 from mcp_hub.auth.caller import SERVICE_IDENTITY
+from mcp_hub.mcp.auth import needs_user_identity
 from mcp_hub.mcp.sdk_client import MCPClient, MCPClientError
 from mcp_hub.mcp.stateless import StatelessMCPClient
 from mcp_hub.mcp.validation import validate_tool_schemas
@@ -235,6 +236,16 @@ class DiscoveryService:
         due = [s for s in servers if now >= self._poll_not_before.get(s.id, 0.0)]
 
         async def discover_server(server: RegisteredServer) -> None:
+            if needs_user_identity(server):
+                # Capabilities are cached on the shared server record, so discovering
+                # them under some arbitrary user would show one person's tool list to
+                # everyone. With no service identity available, skip (ADR 0004).
+                logger.debug(
+                    "skipping discovery for %s: on-behalf-of only, capabilities need "
+                    "a user session",
+                    server.id,
+                )
+                return
             try:
                 await self.discover_immediately(server)
             except Exception as e:

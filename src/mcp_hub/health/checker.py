@@ -11,7 +11,7 @@ from mcp_hub.config import HealthCheckConfig, TraceConfig
 from mcp_hub.health.parser import HealthParser
 from mcp_hub.health.url import build_health_url
 from mcp_hub.auth.caller import SERVICE_IDENTITY
-from mcp_hub.mcp.auth import apply_server_auth
+from mcp_hub.mcp.auth import apply_server_auth, needs_user_identity
 from mcp_hub.mcp.constants import STATELESS_PROTOCOL_VERSION
 from mcp_hub.mcp.sdk_client import MCPClient, MCPClientError
 from mcp_hub.mcp.stateless import StatelessMCPClient
@@ -241,6 +241,17 @@ class HealthChecker:
         Stateless (2026-07-28) servers have no ``ping`` — and no ``initialize``, which is
         what the legacy ping actually performs — so they are probed with ``server/discover``,
         the spec's designated up-front probe."""
+        if needs_user_identity(srv):
+            # Nothing to authenticate as: an MCP probe would draw a 401 and mark a
+            # perfectly reachable server unhealthy. The HTTP reachability check that
+            # precedes this still ran, which is all we can honestly assert (ADR 0004).
+            logger.debug(
+                "server %s is on-behalf-of only; skipping the MCP probe (no service "
+                "credential to probe with)",
+                srv.id,
+            )
+            return
+
         if (srv.mcp_protocol_version or "").strip() == STATELESS_PROTOCOL_VERSION:
             stateless_client = StatelessMCPClient(
                 srv.url,

@@ -466,15 +466,18 @@ As a user, I want my exchanged token used only for my requests.
 
 - TDD: extend `tests/test_health_checker.py` and `tests/test_discovery.py` first.
 - Acceptance criteria:
-  - [ ] Health checks and discovery never attempt an exchange and never read the
+  - [x] Health checks and discovery never attempt an exchange and never read the
         per-subject cache (ADR 0004).
-  - [ ] An OBO server with a service credential is health-checked and discovered
+  - [x] An OBO server with a service credential is health-checked and discovered
         exactly as today.
-  - [ ] An OBO server *without* one degrades rather than fails: transport-level
-        reachability only, discovery skipped, both stated in the UI.
+  - [x] An OBO server *without* one degrades rather than fails: transport-level
+        reachability only (the MCP probe is skipped rather than drawing a 401 and
+        marking a reachable server unhealthy), discovery skipped.
+  - [ ] ...and both are stated in the UI. *Deferred to Story 7.1* — the behavior
+        is done and tested; only the admin-UI surfacing is outstanding.
   - [ ] Capabilities discovered under the service identity are flagged as such, so
         a backend with a per-user tool list can't show one identity's list to
-        everyone.
+        everyone. *Deferred to Story 7.1* (UI labelling).
 
 ### Epic 7 — Surface, safety, and end-to-end verification
 
