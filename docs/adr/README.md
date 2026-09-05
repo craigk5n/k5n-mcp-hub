@@ -13,6 +13,9 @@ Format: `NNNN-short-title.md`, with `Status`, `Context`, `Decision`,
 | [0002](0002-impersonation-default-delegation-opt-in.md) | Impersonation-shaped exchange by default, delegation opt-in | Accepted |
 | [0003](0003-fail-closed-on-token-exchange-failure.md) | Token exchange fails closed | Accepted |
 | [0004](0004-background-paths-use-service-identity.md) | Background paths use the service identity | Accepted |
+| [0005](0005-hub-is-the-mcp-client-in-ema.md) | The hub plays the MCP Client role in Enterprise-Managed Authorization | Accepted |
+| [0006](0006-ema-subject-assertion-source.md) | Where the EMA subject assertion comes from | Accepted |
 
 ADRs 0001–0004 together specify on-behalf-of (OBO) token exchange, tracked as
-Epics 5–7 in [`TODO.md`](../../TODO.md).
+Epics 5–7 in [`TODO.md`](../../TODO.md). ADRs 0005–0006 cover Enterprise-Managed
+Authorization (ID-JAG), tracked as Epic 8.
