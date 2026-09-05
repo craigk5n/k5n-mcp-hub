@@ -32,9 +32,15 @@ class OBOAuthError(Exception):
     look, in the response, exactly like success.
     """
 
-    def __init__(self, message: str, *, detail: str = "") -> None:
+    def __init__(
+        self, message: str, *, detail: str = "", needs_authentication: bool = False
+    ) -> None:
         super().__init__(message)
         self.detail = detail or message
+        # True when the fix is "authenticate", not "reconfigure" — the caller turns
+        # that into a 401 pointing at the hub's protected-resource metadata, rather
+        # than a 502 that tells the client nothing actionable.
+        self.needs_authentication = needs_authentication
 
 
 @dataclass
@@ -239,7 +245,11 @@ async def _apply_obo_auth(
 ) -> None:
     """Exchange the caller's token for one bound to this backend, or fail closed."""
     if not isinstance(caller, Principal) or not caller.can_act_as_obo_subject():
-        raise _obo_failure(server, "no user identity available to act on behalf of")
+        raise _obo_failure(
+            server,
+            "no user identity available to act on behalf of",
+            needs_authentication=True,
+        )
 
     token_url = server.oauth_token_url or token_endpoint_from_metadata(server.oauth_metadata)
     if not token_url:
@@ -258,13 +268,7 @@ async def _apply_obo_auth(
         except Exception as exc:  # noqa: BLE001 - surfaced as an OBO failure
             raise _obo_failure(server, f"could not obtain the hub's actor token: {exc}") from exc
 
-    key = OBOCacheKey(
-        subject=caller.subject,
-        issuer=caller.issuer,
-        server_id=server.id or server.url,
-        audience=server.obo_audience,
-        scope=server.obo_scope,
-    )
+    key = obo_cache_key(server, caller)
 
     async def fetch() -> ExchangedToken:
         return await exchange(
@@ -295,8 +299,37 @@ async def _apply_obo_auth(
     server.obo_error = ""
 
 
-def _obo_failure(server: RegisteredServer, detail: str) -> OBOAuthError:
+def _obo_failure(
+    server: RegisteredServer, detail: str, *, needs_authentication: bool = False
+) -> OBOAuthError:
     server.obo_status = "error"
     server.obo_error = detail
     logger.info("on-behalf-of auth failed for server %s: %s", server.id, detail)
-    return OBOAuthError(f"on-behalf-of auth failed: {detail}", detail=detail)
+    return OBOAuthError(
+        f"on-behalf-of auth failed: {detail}",
+        detail=detail,
+        needs_authentication=needs_authentication,
+    )
+
+
+def obo_cache_key(server: RegisteredServer, caller: Principal) -> OBOCacheKey:
+    return OBOCacheKey(
+        subject=caller.subject,
+        issuer=caller.issuer,
+        server_id=server.id or server.url,
+        audience=server.obo_audience,
+        scope=server.obo_scope,
+    )
+
+
+async def invalidate_obo_token(
+    server: RegisteredServer,
+    caller: Principal,
+    *,
+    obo_cache: OBOTokenCache = DEFAULT_OBO_CACHE,
+) -> None:
+    """Drop this caller's cached token for this server.
+
+    Used when the backend rejects a token that was previously good — the usual cause
+    is rotation or revocation at the IdP, which one re-exchange fixes."""
+    await obo_cache.invalidate(obo_cache_key(server, caller))

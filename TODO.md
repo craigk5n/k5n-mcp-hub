@@ -392,17 +392,17 @@ so I can obtain a token without out-of-band configuration.
 
 - TDD: new `tests/test_token_exchange.py` first.
 - Acceptance criteria:
-  - [ ] `mcp/token_exchange.py` POSTs
+  - [x] `mcp/token_exchange.py` POSTs
         `grant_type=urn:ietf:params:oauth:grant-type:token-exchange` with
         `subject_token`, `subject_token_type`, and `audience` / `resource`
         (RFC 8707), plus optional `scope` and `requested_token_type`.
-  - [ ] `actor_token` / `actor_token_type` are sent only when the server opts into
+  - [x] `actor_token` / `actor_token_type` are sent only when the server opts into
         delegation (ADR 0002); the default request shape works against a stock
         Keycloak 26.2+ with no feature flags.
-  - [ ] Reuses the credential-safe transport pattern already in
+  - [x] Reuses the credential-safe transport pattern already in
         `TokenCache.token` — `SafePinnedTransport` plus `follow_redirects=False`,
         since a 3xx would leak the subject token.
-  - [ ] RFC 6749 error responses (`invalid_grant`, `invalid_target`, …) are parsed
+  - [x] RFC 6749 error responses (`invalid_grant`, `invalid_target`, …) are parsed
         and preserved, not flattened into a generic failure.
 
 **Story 6.2 — Per-subject token cache** *(security-critical)*
@@ -413,15 +413,15 @@ As a user, I want my exchanged token used only for my requests.
   principals, one server; RED against today's per-server key
   (`mcp/auth.py:36`), which hands the first caller's token to the second.
 - Acceptance criteria:
-  - [ ] Cache key is `(subject, issuer, server.id, audience, scope)`. A test
+  - [x] Cache key is `(subject, issuer, server.id, audience, scope)`. A test
         proves Alice's token is never returned for Bob.
-  - [ ] The cache is bounded — LRU or TTL with a configurable maximum. Today's
+  - [x] The cache is bounded — LRU or TTL with a configurable maximum. Today's
         `dict` is unbounded, which under OBO grows with every user seen.
-  - [ ] Entries never outlive the subject token: cached expiry is
+  - [x] Entries never outlive the subject token: cached expiry is
         `min(exchanged_token_exp, subject_token_exp)`.
-  - [ ] Existing `client_credentials` caching keeps its current per-server
+  - [x] Existing `client_credentials` caching keeps its current per-server
         behavior and its current tests.
-  - [ ] Cache contents never reach logs, traces, or `/metrics` — subject values
+  - [x] Cache contents never reach logs, traces, or `/metrics` — subject values
         are hashed if they appear in metric labels at all.
 
 **Story 6.3 — `auth_type: "obo"` server registration**
@@ -429,37 +429,37 @@ As a user, I want my exchanged token used only for my requests.
 - TDD: extend `tests/test_register.py`, `tests/test_models.py`, and
   `tests/test_apply_server_auth.py` first.
 - Acceptance criteria:
-  - [ ] `RegisteredServer` and `RegisterRequest` accept `auth_type: "obo"` plus
+  - [x] `RegisteredServer` and `RegisterRequest` accept `auth_type: "obo"` plus
         `obo_audience`, `obo_resource`, `obo_scope`, `obo_actor_token_source`,
         `obo_status`, `obo_error`.
-  - [ ] A new rule in `apply_server_auth` fires only for `auth_type == "obo"`,
+  - [x] A new rule in `apply_server_auth` fires only for `auth_type == "obo"`,
         ahead of the `client_credentials` branch; every other registration takes
         exactly today's path.
-  - [ ] `sanitize_for_api` scrubs `obo_error`; `sanitize_for_persistence` clears
+  - [x] `sanitize_for_api` scrubs `obo_error`; `sanitize_for_persistence` clears
         `obo_status` / `obo_error`, matching the `oauth_token_*` precedent.
-  - [ ] No user token is ever written to storage — asserted by a test that
+  - [x] No user token is ever written to storage — asserted by a test that
         registers an OBO server, proxies a call, and greps the persisted JSON.
-  - [ ] An OBO server without inbound identity is refused where it's actionable
+  - [x] An OBO server without inbound identity is refused where it's actionable
         and never by refusing to boot (ADR 0001): **registration** is rejected
         while `auth.type` is `none` or `basic`; a **persisted** OBO server is
         marked unusable, logged once, and surfaced in the UI, leaving every other
         server working; a **request** to it returns `401`.
-  - [ ] Regression test: a stored `mcp_servers.json` containing an OBO server does
+  - [x] Regression test: a stored `mcp_servers.json` containing an OBO server does
         not prevent startup under the default `auth.type: none`.
 
 **Story 6.4 — Fail-closed error handling**
 
 - TDD: extend `tests/test_proxy_handler.py` first.
 - Acceptance criteria:
-  - [ ] Exchange failure → `502`, call never made, IdP error surfaced through
+  - [x] Exchange failure → `502`, call never made, IdP error surfaced through
         `format_auth_challenge` (`mcp/oauth.py:152-176`). No fallback to any
         static credential (ADR 0003).
-  - [ ] Backend `401` on a previously-good token → invalidate that cache entry,
+  - [x] Backend `401` on a previously-good token → invalidate that cache entry,
         re-exchange **once**, retry; a second `401` propagates with the backend's
         `WWW-Authenticate` intact.
-  - [ ] A request to an OBO server with no principal → `401` with
+  - [x] A request to an OBO server with no principal → `401` with
         `resource` pointing at the Story 5.4 metadata URL.
-  - [ ] Outcomes recorded on `obo_status` / `obo_error`; the server list badge
+  - [x] Outcomes recorded on `obo_status` / `obo_error`; the server list badge
         reuses the existing `oauth_token_status` vocabulary.
 
 **Story 6.5 — Background paths keep the service identity**

@@ -9,8 +9,10 @@ from fastapi import Request, Response
 from fastapi.responses import StreamingResponse
 
 from mcp_hub.auth.caller import CallerIdentity, caller_from_request
+from mcp_hub.auth.metadata import bearer_challenge
+from mcp_hub.auth.principal import Principal
 from mcp_hub.config import TraceConfig
-from mcp_hub.mcp.auth import apply_server_auth
+from mcp_hub.mcp.auth import OBOAuthError, apply_server_auth, invalidate_obo_token
 from mcp_hub.mcp.constants import STATELESS_PROTOCOL_VERSION, resolve_protocol_version
 from mcp_hub.models.server import RegisteredServer
 from mcp_hub.proxy.fault_injection import apply_fault_injection
@@ -199,13 +201,26 @@ async def proxy_request(
         incoming_query=request.url.query or None,
     )
 
-    outbound_headers = await build_outbound_headers(
-        dict(request.headers),
-        srv,
-        caller=caller_from_request(request),
-        allow_private_networks=allow_private_networks,
-        body=request_body,
-    )
+    caller = caller_from_request(request)
+
+    async def build_headers() -> dict[str, str]:
+        return await build_outbound_headers(
+            dict(request.headers),
+            srv,
+            caller=caller,
+            allow_private_networks=allow_private_networks,
+            body=request_body,
+        )
+
+    try:
+        outbound_headers = await build_headers()
+    except OBOAuthError as exc:
+        # Fail closed (ADR 0003): the backend is never called, and we never fall back
+        # to the server's own credential, which would run this with the hub's broader
+        # rights and look like success.
+        return _obo_failure_response(
+            request, srv, exc, trace_recorder, request_start_timestamp, incoming_url, start_time
+        )
 
     # The backend connection must outlive this function: the response body is
     # streamed to the client by Starlette AFTER we return, so the client/stream
@@ -254,6 +269,46 @@ async def proxy_request(
     except BaseException:
         await stack.aclose()
         raise
+
+    if resp.status_code == 401 and srv.auth_type == "obo" and isinstance(caller, Principal):
+        # The token was good enough to be issued but the backend rejected it —
+        # rotation or revocation at the IdP. Re-exchange exactly once: zero retries
+        # makes ordinary expiry user-visible, unbounded retries turn a broken IdP
+        # into a request amplifier.
+        logger.info("backend rejected the exchanged token for %s; re-exchanging once", srv.id)
+        await stack.aclose()
+        await invalidate_obo_token(srv, caller)
+        try:
+            outbound_headers = await build_headers()
+        except OBOAuthError as exc:
+            return _obo_failure_response(
+                request, srv, exc, trace_recorder, request_start_timestamp, incoming_url, start_time
+            )
+
+        stack = AsyncExitStack()
+        try:
+            client = await stack.enter_async_context(
+                httpx.AsyncClient(
+                    timeout=httpx.Timeout(connect=10.0, read=None, write=None, pool=None),
+                    follow_redirects=False,
+                    transport=SafePinnedTransport(allow_private_networks=allow_private_networks),
+                )
+            )
+            resp = await stack.enter_async_context(
+                client.stream(
+                    method=request.method,
+                    url=outbound_url,
+                    content=request_body,
+                    headers=outbound_headers,
+                )
+            )
+        except (httpx.ConnectError, httpx.ConnectTimeout, httpx.RemoteProtocolError) as e:
+            await stack.aclose()
+            logger.error(f"Backend unreachable on re-exchange: {e}")
+            return Response(content="Backend unreachable", status_code=502)
+        except BaseException:
+            await stack.aclose()
+            raise
 
     content_type = resp.headers.get("content-type")
     # Tee the stream into the trace instead of draining it first: a long-lived
@@ -313,3 +368,45 @@ async def proxy_request(
         headers=dict(resp.headers),
         media_type=content_type,
     )
+
+
+def _obo_failure_response(
+    request: Request,
+    server: RegisteredServer,
+    exc: OBOAuthError,
+    trace_recorder: TraceRecorder,
+    timestamp: object,
+    incoming_url: str,
+    start_time: float,
+) -> Response:
+    """Turn a failed on-behalf-of exchange into an actionable response.
+
+    A missing user identity is a 401 that points at the hub's protected-resource
+    metadata, so a spec-compliant client knows where to authenticate. Anything else
+    is a 502: the hub is configured wrong, and saying so beats a bare 401 that sends
+    the client off to re-authenticate for no reason.
+    """
+    if exc.needs_authentication:
+        settings = getattr(request.app.state, "settings", None)
+        headers = {}
+        if settings is not None and settings.auth.type == "jwt":
+            headers["WWW-Authenticate"] = bearer_challenge(request, settings.auth)
+        status, body = 401, "Unauthorized"
+    else:
+        headers = {}
+        status, body = 502, f"On-behalf-of authentication failed: {exc.detail}"
+
+    trace_recorder.add(
+        Entry(
+            timestamp=timestamp,  # type: ignore[arg-type]
+            server_id=server.id,
+            operation="proxy",
+            http_method=request.method,
+            url=incoming_url,
+            outbound_url="",
+            status=status,
+            duration_ms=(time.perf_counter() - start_time) * 1000,
+            error=exc.detail,
+        )
+    )
+    return Response(content=body, status_code=status, headers=headers)
