@@ -1,6 +1,7 @@
 from mcp_hub.auth.base import Authenticator, auth_required
 from mcp_hub.auth.basic import BasicAuthStrategy
 from mcp_hub.auth.noauth import NoAuthStrategy
+from mcp_hub.auth.principal import ANONYMOUS_SUBJECT, Principal
 from mcp_hub.config import AuthConfig
 
 
@@ -24,9 +25,11 @@ def build_authenticator(settings: AuthConfig) -> Authenticator:
 
 
 __all__ = [
+    "ANONYMOUS_SUBJECT",
     "Authenticator",
     "BasicAuthStrategy",
     "NoAuthStrategy",
+    "Principal",
     "auth_required",
     "build_authenticator",
 ]
