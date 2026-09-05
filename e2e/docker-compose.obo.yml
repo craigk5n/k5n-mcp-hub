@@ -1,0 +1,69 @@
+# End-to-end on-behalf-of stack: a real Keycloak, the hub as an OAuth resource
+# server, and a downstream MCP server that actually validates its tokens.
+#
+#   docker compose -f e2e/docker-compose.obo.yml up --build -d
+#   docker compose -f e2e/docker-compose.obo.yml run --rm e2e
+#
+# Deliberately not part of `pytest`: the default suite needs no Docker and no network.
+services:
+  keycloak:
+    image: quay.io/keycloak/keycloak:26.4
+    command: ["start-dev", "--import-realm"]
+    environment:
+      KC_BOOTSTRAP_ADMIN_USERNAME: admin
+      KC_BOOTSTRAP_ADMIN_PASSWORD: admin
+      # Pin the issuer to the in-network URL. Keycloak derives `iss` from the request
+      # otherwise, and a token minted via localhost would then fail validation inside
+      # the network for a reason that looks like a signature problem.
+      KC_HOSTNAME: http://keycloak:8080
+      KC_HOSTNAME_BACKCHANNEL_DYNAMIC: "false"
+      KC_HTTP_ENABLED: "true"
+    volumes:
+      - ./keycloak/realm-mcp-hub.json:/opt/keycloak/data/import/realm-mcp-hub.json:ro
+    # Published only so you can poke at the admin console; the e2e runner talks to
+    # these services inside the network and needs no host ports at all. Override if
+    # the defaults clash: KEYCLOAK_PORT=... docker compose -f ... up -d
+    ports:
+      - "${KEYCLOAK_PORT:-38085}:8080"
+    healthcheck:
+      test: ["CMD-SHELL", "exec 3<>/dev/tcp/127.0.0.1/8080 && echo -e 'GET /realms/mcp-hub HTTP/1.1\\nHost: localhost\\nConnection: close\\n\\n' >&3 && cat <&3 | head -1 | grep -q 200"]
+      interval: 5s
+      timeout: 5s
+      retries: 40
+
+  mcp-stub:
+    build: ./mcp_stub
+    environment:
+      OIDC_ISSUER: http://keycloak:8080/realms/mcp-hub
+      OIDC_AUDIENCE: mcp-server-files
+      RESOURCE_ID: http://mcp-stub:9100
+    depends_on: [keycloak]
+
+  hub:
+    build:
+      context: ..
+      dockerfile: Dockerfile
+    environment:
+      MCPHUB_AUTH__TYPE: jwt
+      MCPHUB_AUTH__JWT__ISSUER: http://keycloak:8080/realms/mcp-hub
+      MCPHUB_AUTH__JWT__AUDIENCE: k5n-mcp-hub
+      MCPHUB_AUTH__JWT__JWKS_URI: http://keycloak:8080/realms/mcp-hub/protocol/openid-connect/certs
+      # Everything here is on a private Docker network, which the SSRF guard blocks by
+      # default. This is the local-first opt-in the hub already ships for localhost/LAN.
+      MCPHUB_SECURITY__ALLOW_PRIVATE_NETWORKS: "true"
+    ports:
+      - "${HUB_PORT:-38086}:8080"
+    # Plain depends_on, not a health gate: the hub fetches JWKS lazily and must start
+    # even when the IdP is unreachable (ADR 0001). The runner waits for readiness.
+    depends_on: [keycloak]
+
+  e2e:
+    build: ./runner
+    environment:
+      KEYCLOAK: http://keycloak:8080
+      HUB: http://hub:8080
+      STUB: http://mcp-stub:9100
+    depends_on:
+      - hub
+      - mcp-stub
+    profiles: ["test"]

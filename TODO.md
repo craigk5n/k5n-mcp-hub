@@ -518,23 +518,23 @@ mandatory, since IdP error bodies routinely echo token material.
 As a developer, I want to prove the exchange really happens against a real IdP.
 
 - Acceptance criteria:
-  - [ ] `docker-compose.obo.yml` brings up: Keycloak (realm imported from JSON so
+  - [x] `docker-compose.obo.yml` brings up: Keycloak (realm imported from JSON so
         it is reproducible), the hub with `auth.type: jwt`, and a downstream MCP
         stub that **validates JWTs** — rejecting a wrong `aud` with `401` +
         `WWW-Authenticate: Bearer resource="..."` and echoing `sub` / `azp` / `act`.
         Without a validating downstream, nothing proves the exchange did anything;
         the fake server in `tests/conftest.py:128` does no auth at all.
-  - [ ] Realm defines: `mcp-client` (public, PKCE — the agent), `k5n-mcp-hub`
+  - [x] Realm defines: `mcp-client` (public, PKCE — the agent), `k5n-mcp-hub`
         (confidential, **Standard token exchange** switch enabled — this is the
         requesting client, no fine-grained admin permissions needed), and
         `mcp-server-files` as the target audience. Two users, to exercise cache
         isolation for real.
-  - [ ] An e2e script logs in as each user, calls a tool through the proxy, and
+  - [x] An e2e script logs in as each user, calls a tool through the proxy, and
         asserts the downstream saw `sub` = that user and `azp` = the hub
         (verifying ADR 0002's audit-trail claim rather than assuming it).
-  - [ ] Runs as a separate CI job or manually — **not** in `pytest`, so the
+  - [x] Runs as a separate CI job or manually — **not** in `pytest`, so the
         default suite keeps needing no Docker.
-  - [ ] `security.allow_private_networks: true` is already the local default, so
+  - [x] `security.allow_private_networks: true` is already the local default, so
         reaching Keycloak on localhost needs no extra configuration.
 
 > **Sizing:** roughly 25-35 files touched and 8-10 new test modules on top of the
