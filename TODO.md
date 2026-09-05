@@ -498,11 +498,11 @@ mandatory, since IdP error bodies routinely echo token material.
 
 - TDD: extend `tests/test_trace_redaction.py` first.
 - Acceptance criteria:
-  - [ ] Trace bodies redact `access_token`, `refresh_token`, `subject_token`,
+  - [x] Trace bodies redact `access_token`, `refresh_token`, `subject_token`,
         `actor_token`, `id_token`, `client_secret`, and `assertion` in both JSON
         and form-encoded payloads.
-  - [ ] Header redaction (`trace/recorder.py:12-27`) is unchanged.
-  - [ ] A test proves a failed exchange's response body reaches the trace redacted.
+  - [x] Header redaction (`trace/recorder.py:12-27`) is unchanged.
+  - [x] A test proves a failed exchange's response body reaches the trace redacted.
 
 **Story 7.3 — Generated client scripts**
 
@@ -562,9 +562,9 @@ process-global). The three audit follow-ups below are now done — see `AUDIT_lo
 
 Still open for an exposed/multi-tenant deployment:
 
-- [ ] Redact sensitive fields inside trace *bodies* (only headers are redacted today).
-      Tracked in detail as Story 7.2 — OBO promotes this from nice-to-have to required,
-      since IdP error bodies routinely echo token material.
+- [x] Redact sensitive fields inside trace *bodies* (only headers were redacted).
+      Done as Story 7.2: `TraceRecorder.add` redacts OAuth-shaped credential fields in
+      JSON and form bodies, with a textual fallback for truncated ones.
 
 ## Product / usefulness follow-ups (from AUDIT_local.md §3)
 
