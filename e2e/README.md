@@ -12,6 +12,7 @@ involved, and it exists to demonstrate the things only a real IdP can:
 ## Running it
 
 ```bash
+cp e2e/.env.example e2e/.env          # required -- see Credentials below
 docker compose -f e2e/docker-compose.obo.yml up --build -d
 docker compose -f e2e/docker-compose.obo.yml run --rm --build e2e
 docker compose -f e2e/docker-compose.obo.yml down -v
@@ -38,14 +39,19 @@ KEYCLOAK_PORT=39085 HUB_PORT=39086 docker compose -f e2e/docker-compose.obo.yml 
 The committed realm file contains no credentials. The hub's client secret and both
 user passwords are `${...}` placeholders that Keycloak substitutes at import time
 (`KC_SPI_IMPORT_SINGLE_FILE_REPLACE_PLACEHOLDERS=true`), from environment variables
-that compose supplies to both Keycloak and the runner — so the two can't drift.
+compose supplies to both Keycloak and the runner — so the two can't drift.
 
-Dev defaults are declared in `docker-compose.obo.yml`, so the stack runs with no
-setup. To override:
+**`e2e/.env` is required.** There are no defaults anywhere:
 
 ```bash
-cp e2e/.env.example e2e/.env    # then edit; .env is gitignored
+cp e2e/.env.example e2e/.env    # then edit if you like; .env is gitignored
 ```
+
+Compose reads `.env` from the directory holding the compose file, so `e2e/.env` is
+picked up even when you run from the repo root. Without it the command stops
+immediately with the name of the missing variable, rather than substituting empty
+strings and building a realm with blank passwords that fails later and far less
+clearly.
 
 These are not production secrets and never should be — the realm they configure
 exists only while the stack is up. Keeping them out of `realm-mcp-hub.json` is about

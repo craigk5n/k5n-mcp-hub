@@ -19,11 +19,14 @@ services:
       KC_HOSTNAME_BACKCHANNEL_DYNAMIC: "false"
       KC_HTTP_ENABLED: "true"
       # Substitute ${...} placeholders in the imported realm from the environment, so
-      # no credential-shaped strings are committed in realm-mcp-hub.json.
+      # no credential-shaped strings are committed in realm-mcp-hub.json. The `:?`
+      # form fails the whole command with that message when a variable is unset --
+      # compose would otherwise substitute an empty string and build a realm with
+      # blank passwords, which fails later and much less clearly.
       KC_SPI_IMPORT_SINGLE_FILE_REPLACE_PLACEHOLDERS: "true"
-      KC_HUB_CLIENT_SECRET: ${KC_HUB_CLIENT_SECRET:-dev-only-hub-secret}
-      KC_ALICE_PASSWORD: ${KC_ALICE_PASSWORD:-dev-only-alice-password}
-      KC_BOB_PASSWORD: ${KC_BOB_PASSWORD:-dev-only-bob-password}
+      KC_HUB_CLIENT_SECRET: ${KC_HUB_CLIENT_SECRET:?set it in e2e/.env (copy e2e/.env.example)}
+      KC_ALICE_PASSWORD: ${KC_ALICE_PASSWORD:?set it in e2e/.env (copy e2e/.env.example)}
+      KC_BOB_PASSWORD: ${KC_BOB_PASSWORD:?set it in e2e/.env (copy e2e/.env.example)}
     volumes:
       - ./keycloak/realm-mcp-hub.json:/opt/keycloak/data/import/realm-mcp-hub.json:ro
     # Published only so you can poke at the admin console; the e2e runner talks to
@@ -70,9 +73,9 @@ services:
       HUB: http://hub:8080
       STUB: http://mcp-stub:9100
       # The same values Keycloak imported, from the same place, so they can't drift.
-      KC_HUB_CLIENT_SECRET: ${KC_HUB_CLIENT_SECRET:-dev-only-hub-secret}
-      KC_ALICE_PASSWORD: ${KC_ALICE_PASSWORD:-dev-only-alice-password}
-      KC_BOB_PASSWORD: ${KC_BOB_PASSWORD:-dev-only-bob-password}
+      KC_HUB_CLIENT_SECRET: ${KC_HUB_CLIENT_SECRET:?set it in e2e/.env (copy e2e/.env.example)}
+      KC_ALICE_PASSWORD: ${KC_ALICE_PASSWORD:?set it in e2e/.env (copy e2e/.env.example)}
+      KC_BOB_PASSWORD: ${KC_BOB_PASSWORD:?set it in e2e/.env (copy e2e/.env.example)}
     depends_on:
       - hub
       - mcp-stub

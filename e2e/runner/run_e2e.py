@@ -21,10 +21,22 @@ HUB = os.environ.get("HUB", "http://hub:8080").rstrip("/")
 STUB = os.environ.get("STUB", "http://mcp-stub:9100").rstrip("/")
 
 REALM = "mcp-hub"
-# Same values compose injects into Keycloak's realm import, so the two cannot drift.
-HUB_CLIENT_SECRET = os.environ.get("KC_HUB_CLIENT_SECRET", "dev-only-hub-secret")
-ALICE_PASSWORD = os.environ.get("KC_ALICE_PASSWORD", "dev-only-alice-password")
-BOB_PASSWORD = os.environ.get("KC_BOB_PASSWORD", "dev-only-bob-password")
+
+
+def required_env(name: str) -> str:
+    """No default on purpose: falling back here would mean logging in with a value
+    Keycloak never imported, and the resulting 401 would look like a broken exchange
+    rather than missing configuration."""
+    value = os.environ.get(name, "")
+    if not value:
+        raise SystemExit(f"{name} is not set. Copy e2e/.env.example to e2e/.env and fill it in.")
+    return value
+
+
+# The same values compose injects into Keycloak's realm import, so the two can't drift.
+HUB_CLIENT_SECRET = required_env("KC_HUB_CLIENT_SECRET")
+ALICE_PASSWORD = required_env("KC_ALICE_PASSWORD")
+BOB_PASSWORD = required_env("KC_BOB_PASSWORD")
 TOKEN_URL = f"{KEYCLOAK}/realms/{REALM}/protocol/openid-connect/token"
 SERVER_ID = "files"
 

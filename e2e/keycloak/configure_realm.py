@@ -20,14 +20,29 @@ OUTPUT = sys.argv[2] if len(sys.argv) > 2 else ""
 
 REALM = "mcp-hub"
 HUB_CLIENT = "k5n-mcp-hub"
-# Credentials come from the environment so nothing secret-shaped is committed. The
-# defaults exist only so a throwaway local stack runs without setup.
-HUB_SECRET = os.environ.get("KC_HUB_CLIENT_SECRET", "dev-only-hub-secret")
+
+
+def required_env(name: str) -> str:
+    """Read a credential from the environment, or say plainly what is missing.
+
+    Deliberately no default: a fallback would let the realm be built with values
+    nobody chose, and the mismatch would only surface later as an authentication
+    failure that looks like a bug in the exchange."""
+    value = os.environ.get(name, "")
+    if not value:
+        raise SystemExit(
+            f"{name} is not set. Copy e2e/.env.example to e2e/.env and fill it in, "
+            f"or export {name} before running."
+        )
+    return value
+
+
+HUB_SECRET = required_env("KC_HUB_CLIENT_SECRET")
 AGENT_CLIENT = "mcp-client"
 TARGET_CLIENT = "mcp-server-files"
 USERS = {
-    "alice": os.environ.get("KC_ALICE_PASSWORD", "dev-only-alice-password"),
-    "bob": os.environ.get("KC_BOB_PASSWORD", "dev-only-bob-password"),
+    "alice": required_env("KC_ALICE_PASSWORD"),
+    "bob": required_env("KC_BOB_PASSWORD"),
 }
 
 
