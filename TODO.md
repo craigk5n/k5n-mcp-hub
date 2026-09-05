@@ -231,18 +231,18 @@ As a trace user, I want verbose tracing to not buffer unbounded streams.
 **Story 4.1 — Adopt the official SDK's stateless client**
 
 - Acceptance criteria:
-  - [ ] `pyproject.toml` bumps `mcp` to the first stable 2026-07-28 release
+  - [x] `pyproject.toml` bumps `mcp` to the first stable 2026-07-28 release
         (with an upper bound this time); the dual-import fallbacks in
         `_get_streamable_http_client()` (`sdk_client.py:17-34`) are removed if no
         longer needed.
-  - [ ] `sdk_client.py` uses the SDK's stateless transport for 2026-07-28
+  - [x] `sdk_client.py` uses the SDK's stateless transport for 2026-07-28
         servers; the hardcoded `self._transport_type = "sse"` (`:286`) and the
         `InitializedNotification` import inside `handshake()` (`:296-299`) fixed.
 
 > Line numbers above were re-checked 2026-09-05; `:271` and `:283-285` had drifted
 > by ~15 lines after Story 5.5 added the `caller` parameter to this file. Prefer the
 > named symbols over the line numbers — the symbols are what actually pin the work.
-  - [ ] CI's clean-venv gate passes (no undeclared imports).
+  - [x] CI's clean-venv gate passes (no undeclared imports).
 
 **Story 4.2 — Pagination for list endpoints** *(pre-existing gap, more visible now)*
 

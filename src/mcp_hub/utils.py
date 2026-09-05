@@ -9,6 +9,7 @@ from typing import Any, Optional
 from urllib.parse import urlparse
 
 import httpx
+import httpx2
 
 _DOM_ID_UNSAFE = re.compile(r"[^A-Za-z0-9_-]")
 
@@ -96,34 +97,54 @@ async def resolve_pinned_ip(host: str, *, allow_private_networks: bool = False) 
     return pinned
 
 
-class SafePinnedTransport(httpx.AsyncHTTPTransport):
-    """
-    The single SSRF-safe httpx transport for outbound discovery/MCP calls. It resolves
-    and validates the target host, then connects to that exact IP while preserving the
-    original hostname for the ``Host`` header and TLS SNI/certificate verification.
+class _PinnedTransportMixin:
+    """The SSRF pinning itself, independent of which httpx generation sits beneath.
+
+    It resolves and validates the target host, then connects to that exact IP while
+    preserving the original hostname for the ``Host`` header and TLS SNI/certificate
+    verification.
 
     There is no check-then-reconnect TOCTOU here: the connection uses the literal
-    validated IP (``request.url`` is rewritten to it), so httpcore performs no second DNS
-    resolution that a rebind could influence.
+    validated IP (``request.url`` is rewritten to it), so no second DNS resolution
+    happens that a rebind could influence.
+
+    Shared rather than duplicated because the hub now needs this on two client
+    stacks — `mcp` 2.x takes an ``httpx2.AsyncClient`` — and two copies of a security
+    check drift.
     """
+
+    #: The library's own ConnectError, so a refusal surfaces as that stack expects.
+    _connect_error: type[Exception] = ConnectionError
 
     def __init__(self, *args: Any, allow_private_networks: bool = False, **kwargs: Any) -> None:
         super().__init__(*args, **kwargs)
         self._allow_private_networks = allow_private_networks
 
-    async def handle_async_request(self, request: httpx.Request) -> httpx.Response:
+    async def handle_async_request(self, request: Any) -> Any:
         host = request.url.host
         pinned_ip = await resolve_pinned_ip(
             host, allow_private_networks=self._allow_private_networks
         )
         if pinned_ip is None:
-            raise httpx.ConnectError(
+            raise self._connect_error(
                 f"host {host!r} failed SSRF validation (unresolvable or non-public)"
             )
         request.url = request.url.copy_with(host=pinned_ip)
         request.headers["Host"] = host
         request.extensions = {**request.extensions, "sni_hostname": host}
-        return await super().handle_async_request(request)
+        return await super().handle_async_request(request)  # type: ignore[misc]
+
+
+class SafePinnedTransport(_PinnedTransportMixin, httpx.AsyncHTTPTransport):
+    """SSRF-safe transport for the hub's own httpx calls (proxy, health, OAuth)."""
+
+    _connect_error = httpx.ConnectError
+
+
+class SafePinnedHttpx2Transport(_PinnedTransportMixin, httpx2.AsyncHTTPTransport):
+    """SSRF-safe transport for the MCP SDK, which speaks httpx2 from 2.x onward."""
+
+    _connect_error = httpx2.ConnectError
 
 
 def safe_http_client_factory(
@@ -136,10 +157,12 @@ def safe_http_client_factory(
     """
     Build an httpx client that is SSRF-safe by construction: every connection is pinned
     to a validated public IP and redirects are never followed (a 3xx to an internal URL
-    would bypass the pin). The positional signature matches the MCP SDK's
-    ``httpx_client_factory`` (headers/timeout/auth) so it can guard the main
-    server-connection path; bind ``allow_private_networks`` via ``functools.partial`` before
-    handing it to the SDK. Reused for OAuth discovery.
+    would bypass the pin).
+
+    Used for the hub's own outbound calls — reverse proxy, health checks, OAuth and
+    token exchange. The MCP SDK no longer takes a client factory: from `mcp` 2.x it
+    wants an ``httpx2.AsyncClient``, which is what ``safe_httpx2_client_factory``
+    builds.
     """
     kwargs: dict = {
         "follow_redirects": False,
@@ -214,3 +237,30 @@ def sanitize_filename(name: str) -> str:
     sanitized = sanitized.replace("\\", "_")
     sanitized = sanitized.replace("..", "_")
     return re.sub(r"[\x00-\x1f\x7f]", "_", sanitized)
+
+
+def safe_httpx2_client_factory(
+    headers: Optional[dict] = None,
+    timeout: Any = None,
+    *,
+    allow_private_networks: bool = False,
+    event_hooks: Optional[dict] = None,
+) -> httpx2.AsyncClient:
+    """The httpx2 equivalent, for the MCP SDK's streamable-HTTP transport.
+
+    `mcp` 2.x replaced the transport's ``headers`` and ``httpx_client_factory``
+    arguments with a single ``http_client``, so auth headers now ride on the client
+    rather than the call — and the SSRF pin has to come with them, or every SDK call
+    would silently go unpinned.
+    """
+    kwargs: dict = {
+        "follow_redirects": False,
+        "transport": SafePinnedHttpx2Transport(allow_private_networks=allow_private_networks),
+    }
+    if headers is not None:
+        kwargs["headers"] = headers
+    if timeout is not None:
+        kwargs["timeout"] = timeout
+    if event_hooks is not None:
+        kwargs["event_hooks"] = event_hooks
+    return httpx2.AsyncClient(**kwargs)

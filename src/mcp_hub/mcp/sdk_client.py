@@ -3,7 +3,7 @@ from __future__ import annotations
 import asyncio
 from contextlib import AsyncExitStack
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any, Callable, Literal
+from typing import TYPE_CHECKING, Any, Literal
 
 from mcp_hub.auth.caller import CallerIdentity
 from mcp_hub.mcp.auth import apply_server_auth
@@ -15,24 +15,16 @@ if TYPE_CHECKING:
 
 
 def _get_streamable_http_client() -> Any:
-    try:
-        from mcp.client.streamable_http import streamablehttp_client
+    """The SDK's streamable-HTTP transport factory.
 
-        return streamablehttp_client
-    except ImportError:
-        pass
+    Indirected through a function purely so tests can patch it. `mcp` 2.x renamed
+    `streamablehttp_client` to `streamable_http_client` within the same module; the
+    pin in pyproject.toml keeps us on that side of the rename, so there is no
+    fallback to maintain. (The old fallback named `mcp.client.streamablehttp`, a
+    module that has never existed in either major version.)"""
+    from mcp.client.streamable_http import streamable_http_client
 
-    try:
-        from mcp.client.streamablehttp import streamable_http_client
-
-        return streamable_http_client
-    except ImportError:
-        pass
-
-    raise ImportError(
-        "Could not find streamablehttp_client or streamable_http_client "
-        "from mcp.client.streamable_http or mcp.client.streamablehttp"
-    )
+    return streamable_http_client
 
 
 @dataclass
@@ -159,7 +151,9 @@ class MCPClient:
         self.server = server
         self._session: ClientSession | None = None
         self._initialize_result: InitializeResult | None = None
-        self._get_session_id: Callable[[], str | None] | None = None
+        # Captured from the `mcp-session-id` response header (see _open_transport);
+        # `mcp` 2.x no longer yields an accessor for it.
+        self._session_id: str = ""
         self._transport_type: Literal["http", "sse"] = "http"
         self._headers: dict[str, str] = {}
         self._exit_stack: AsyncExitStack | None = None
@@ -209,24 +203,8 @@ class MCPClient:
         self._headers = headers
 
         try:
-            # Pin the outbound connection to a validated public IP (SSRF/DNS-rebinding
-            # defense) when the installed MCP SDK supports a custom httpx client factory.
-            import inspect
+            from mcp_hub.utils import safe_httpx2_client_factory
 
-            import functools
-
-            from mcp_hub.utils import safe_http_client_factory
-
-            pinned_factory = functools.partial(
-                safe_http_client_factory,
-                allow_private_networks=self._allow_private_networks,
-            )
-            extra: dict[str, Any] = {}
-            try:
-                if "httpx_client_factory" in inspect.signature(streamable_http_client).parameters:
-                    extra["httpx_client_factory"] = pinned_factory
-            except (TypeError, ValueError):
-                pass
             # Keep the transport + session context managers open on an AsyncExitStack for
             # the client's whole lifetime, entered and closed in the SAME task (via
             # `async with MCPClient(...)`). The MCP SDK's streamable transport is an anyio
@@ -234,19 +212,35 @@ class MCPClient:
             # (while the session lives on) violates anyio's cancel-scope rules and raises
             # "Attempted to exit a cancel scope that isn't the current task's".
             self._exit_stack = AsyncExitStack()
-            transport = streamable_http_client(self.base_url, headers=headers, **extra)
-            read_stream, write_stream, get_session_id = await self._exit_stack.enter_async_context(
-                transport
+
+            # `mcp` 2.x replaced the transport's `headers` and `httpx_client_factory`
+            # arguments with a single `http_client`, so both the auth headers and the
+            # SSRF pin now travel on a client we build. Losing either would be silent:
+            # missing headers breaks authenticated servers, and an unpinned client
+            # leaves every SDK call open to DNS rebinding.
+            # 2.x also stopped yielding a session-id accessor, so capture the header
+            # ourselves. Reading it off the response keeps the Initialize panel's
+            # session display working without reaching into SDK internals.
+            async def _capture_session_id(response: Any) -> None:
+                sid = response.headers.get("mcp-session-id")
+                if sid:
+                    self._session_id = sid
+
+            http_client = await self._exit_stack.enter_async_context(
+                safe_httpx2_client_factory(
+                    headers=headers,
+                    allow_private_networks=self._allow_private_networks,
+                    event_hooks={"response": [_capture_session_id]},
+                )
             )
+            transport = streamable_http_client(self.base_url, http_client=http_client)
+            read_stream, write_stream = await self._exit_stack.enter_async_context(transport)
 
             from mcp.client.session import ClientSession
 
             self._session = await self._exit_stack.enter_async_context(
                 ClientSession(read_stream=read_stream, write_stream=write_stream)
             )
-
-            if callable(get_session_id):
-                self._get_session_id = get_session_id
 
         except Exception as e:
             if self._exit_stack is not None:
@@ -277,27 +271,25 @@ class MCPClient:
                 timeout=timeout,
             )
 
-            session_id = ""
-            if self._get_session_id:
-                sid = self._get_session_id()
-                if sid:
-                    session_id = sid
+            session_id = self._session_id
 
-            self._transport_type = "sse"
+            # We opened a streamable-HTTP transport, so that is what to record. This
+            # was hardcoded to "sse", which mislabelled every handshake-based server.
+            self._transport_type = "http"
 
             self._initialize_result = InitializeResult(
-                server_name=result.serverInfo.name,
-                server_version=result.serverInfo.version,
-                protocol_version=str(result.protocolVersion),
+                server_name=result.server_info.name,
+                server_version=result.server_info.version,
+                protocol_version=str(result.protocol_version),
                 session_id=session_id,
                 transport=self._transport_type,
             )
 
-            from mcp.types import ClientNotification, InitializedNotification
+            # `mcp` 2.x made ClientNotification a union type rather than a wrapper
+            # model, so the notification object is sent directly.
+            from mcp.types import InitializedNotification
 
-            await self._session.send_notification(
-                ClientNotification(root=InitializedNotification())
-            )
+            await self._session.send_notification(InitializedNotification())
 
             return self._initialize_result
 

@@ -47,11 +47,15 @@ class MockClientSession:
     async def __aexit__(self, *args: Any) -> None:
         pass
 
-    async def initialize(self) -> MockInitializeResult:
+    async def initialize(self) -> Any:
         self._initialized = True
-        return MockInitializeResult(
-            protocolVersion="2025-11-25",
-            serverInfo=MockServerInfo("test-server", "1.0.0"),
+        from mcp.types import Implementation, InitializeResult as SDKInitializeResult
+        from mcp.types import ServerCapabilities
+
+        return SDKInitializeResult(
+            protocol_version="2025-11-25",
+            capabilities=ServerCapabilities(),
+            server_info=Implementation(name="test-server", version="1.0.0"),
         )
 
     async def send_notification(self, notification: Any) -> None:
@@ -98,7 +102,8 @@ def mock_context_manager() -> Any:
     async def enter(self: Any = None):
         read_stream = AsyncMock()
         write_stream = AsyncMock()
-        return (read_stream, write_stream, get_session_id)
+        # `mcp` 2.x yields two values; the session id now comes from a response hook.
+        return (read_stream, write_stream)
 
     async def exit(self: Any = None, *args: Any):
         pass
@@ -241,3 +246,51 @@ async def test_bearer_token_in_headers() -> None:
 
     assert "Authorization" in test_headers
     assert test_headers["Authorization"] == "Bearer test-token-123"
+
+
+class TestSDKTwoMigration:
+    """Story 4.1: pins the `mcp` 2.x API surface this client depends on.
+
+    Each of these was a silent breakage during the 1.x -> 2.x migration: the tests
+    passed against hand-rolled mocks that answered to whatever attribute was asked
+    for, so only a real server would have surfaced them.
+    """
+
+    def test_the_transport_factory_resolves(self) -> None:
+        from mcp_hub.mcp.sdk_client import _get_streamable_http_client
+
+        assert callable(_get_streamable_http_client())
+
+    def test_initialize_result_uses_snake_case_fields(self) -> None:
+        # 2.x renamed serverInfo/protocolVersion. Reading the SDK's own model rather
+        # than asserting our strings means a future rename fails here.
+        from mcp.types import InitializeResult as SDKInitializeResult
+
+        fields = set(SDKInitializeResult.model_fields)
+        assert {"protocol_version", "server_info"} <= fields
+        assert "protocolVersion" not in fields
+        assert "serverInfo" not in fields
+
+    def test_initialized_notification_is_sent_unwrapped(self) -> None:
+        # 2.x turned ClientNotification into a union type, so the old
+        # ClientNotification(root=...) wrapper raises TypeError at runtime.
+        import mcp.types as types
+
+        assert hasattr(types, "InitializedNotification")
+        with pytest.raises(TypeError):
+            types.ClientNotification(root=types.InitializedNotification())  # type: ignore[operator]
+
+    @pytest.mark.asyncio
+    async def test_handshake_records_http_not_sse(self) -> None:
+        # Was hardcoded to "sse", which mislabelled every handshake-based server in
+        # the registry and the UI badge.
+        mock_session = MockClientSession()
+
+        with patch("mcp_hub.mcp.sdk_client._get_streamable_http_client") as mock_get:
+            mock_get.return_value = lambda url, **kwargs: mock_context_manager()
+            client = MCPClient("http://localhost:3000/mcp", caller=SERVICE_IDENTITY)
+            with patch.object(client, "_open_transport", new_callable=AsyncMock):
+                client._session = mock_session  # type: ignore[assignment]
+                result = await client.handshake()
+
+        assert result.transport == "http"
