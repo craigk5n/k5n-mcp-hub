@@ -17,12 +17,23 @@ The Python import package is `mcp_hub` (`from mcp_hub.app import create_app`). T
 Canonical local check sequence (run all before considering work complete):
 
 ```bash
-pip install -e .[dev]          # one-time dev setup
+python3 -m pip install -e .[dev]   # one-time dev setup
 ruff check .
 ruff format --check .
 mypy --explicit-package-bases --ignore-missing-imports src
-pytest -v
+python3 -m pytest -v
 ```
+
+> **Use `python3 -m` for `pip` and `pytest`, not the bare commands.** They can
+> resolve to different interpreters — a `~/.local/bin/pytest` with a
+> `/usr/bin/python3` shebang sitting next to a pyenv `pip`, for instance — so the
+> dev install lands in one Python and the suite runs under another. The failure is
+> easy to misread: `pythonpath = ["src", "."]` (`pyproject.toml`) makes `mcp_hub`
+> importable straight from the source tree, so all but a handful of tests still
+> pass under the wrong interpreter, and the few that need the third-party `mcp`
+> SDK fail with a bare `ModuleNotFoundError: No module named 'mcp'` that looks
+> like a packaging bug rather than an environment one. `python3 -m` binds both
+> commands to the same interpreter; activating the repo's `.venv` works too.
 
 Run the app:
 
@@ -34,10 +45,10 @@ k5n-mcp-hub --port 9000 --host 0.0.0.0 --config path/to/config.yaml
 Single test / focused runs:
 
 ```bash
-pytest tests/test_proxy_handler.py
-pytest tests/test_proxy_handler.py::test_name
-pytest -k discovery
-pytest --cov=src --cov-report=term-missing
+python3 -m pytest tests/test_proxy_handler.py
+python3 -m pytest tests/test_proxy_handler.py::test_name
+python3 -m pytest -k discovery
+python3 -m pytest --cov=src --cov-report=term-missing
 ```
 
 CI (`.forgejo/workflows/ci.yml`) additionally runs the suite in a **fresh isolated venv holding only declared dependencies** plus `pip-audit`. If a test passes locally but fails CI's clean-install gate, a module is imported but missing from `pyproject.toml` `dependencies`.
