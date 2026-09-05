@@ -473,11 +473,10 @@ As a user, I want my exchanged token used only for my requests.
   - [x] An OBO server *without* one degrades rather than fails: transport-level
         reachability only (the MCP probe is skipped rather than drawing a 401 and
         marking a reachable server unhealthy), discovery skipped.
-  - [ ] ...and both are stated in the UI. *Deferred to Story 7.1* — the behavior
-        is done and tested; only the admin-UI surfacing is outstanding.
-  - [ ] Capabilities discovered under the service identity are flagged as such, so
+  - [x] ...and both are stated in the UI (done in Story 7.1).
+  - [x] Capabilities discovered under the service identity are flagged as such, so
         a backend with a per-user tool list can't show one identity's list to
-        everyone. *Deferred to Story 7.1* (UI labelling).
+        everyone (done in Story 7.1).
 
 ### Epic 7 — Surface, safety, and end-to-end verification
 
@@ -485,11 +484,11 @@ As a user, I want my exchanged token used only for my requests.
 
 - TDD: extend `tests/test_servers_template.py` and `tests/test_ui_capabilities.py`.
 - Acceptance criteria:
-  - [ ] `servers.html` gains an OBO section, shown only when `auth_type` is `obo`,
+  - [x] `servers.html` gains an OBO section, shown only when `auth_type` is `obo`,
         following the existing OAuth field group.
-  - [ ] The server detail view shows exchange status, the audience in use, and
+  - [x] The server detail view shows exchange status, the audience in use, and
         whether delegation is active.
-  - [ ] Capabilities page carries the service-identity label from Story 6.5.
+  - [x] Capabilities page carries the service-identity label from Story 6.5.
 
 **Story 7.2 — Redact token material in trace bodies**
 

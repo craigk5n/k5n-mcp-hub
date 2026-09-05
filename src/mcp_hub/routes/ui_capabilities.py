@@ -105,6 +105,9 @@ async def get_server_tools(
     html = await template.render_async(
         server_id=server_id,
         server_name=server.name,
+        # The template needs the record itself to state capability provenance for
+        # on-behalf-of servers (Story 7.1).
+        server=server,
         url=server.url,
         tools=tools,
         prompts=prompts,
@@ -190,6 +193,9 @@ async def get_server_capabilities(
     html = await template.render_async(
         server_id=server_id,
         server_name=server.name,
+        # The template needs the record itself to state capability provenance for
+        # on-behalf-of servers (Story 7.1).
+        server=server,
         url=server.url,
         tools=tools,
         prompts=prompts,

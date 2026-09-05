@@ -313,24 +313,13 @@ def _obo_failure(
 
 
 def has_service_credential(server: RegisteredServer) -> bool:
-    """Whether the hub can reach this backend as itself, with no user in scope.
-
-    Background paths (health, discovery) run on a timer and have no principal, so an
-    OBO server configured *only* for on-behalf-of has nothing they can authenticate
-    with. They degrade rather than fail (ADR 0004)."""
-    if server.bearer_token.strip():
-        return True
-    if server.basic_username.strip() or server.basic_password.strip():
-        return True
-    has_token_endpoint = bool(
-        server.oauth_token_url or token_endpoint_from_metadata(server.oauth_metadata)
-    )
-    return bool(server.oauth_client_id and server.oauth_client_secret and has_token_endpoint)
+    """See ``RegisteredServer.has_service_credential`` — the logic lives on the model so
+    templates can ask the same question."""
+    return server.has_service_credential
 
 
 def needs_user_identity(server: RegisteredServer) -> bool:
-    """An OBO server the background paths cannot act for at all."""
-    return server.auth_type == "obo" and not has_service_credential(server)
+    return server.needs_user_identity
 
 
 def obo_cache_key(server: RegisteredServer, caller: Principal) -> OBOCacheKey:

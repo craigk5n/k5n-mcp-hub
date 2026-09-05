@@ -1,5 +1,12 @@
 {% from "_panel_controls.html" import collapse_button %}
 <div class="max-w-6xl mx-auto px-4 py-8">
+        {% if server is defined and server and server.auth_type == 'obo' %}
+        <div data-capabilities-provenance
+             class="mb-4 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
+            Discovered with the hub&rsquo;s <span class="font-medium">service identity</span>, not yours.
+            A backend that varies its tools per user may show you a different list than the one cached here.
+        </div>
+        {% endif %}
         <div class="flex items-center justify-between mb-6">
             <div>
                 <h1 class="text-3xl font-bold text-gray-900">Capabilities</h1>

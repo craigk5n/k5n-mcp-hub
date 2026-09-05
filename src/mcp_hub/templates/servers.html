@@ -82,10 +82,12 @@
                                 class="bg-gray-50 border border-gray-300 text-gray-900 text-sm rounded-lg block w-full p-2.5"
                                 _="on change
                                      if my value == 'bearer' remove .hidden from #bearer-fields else add .hidden to #bearer-fields end
-                                     if my value == 'basic' remove .hidden from #basic-fields else add .hidden to #basic-fields end">
+                                     if my value == 'basic' remove .hidden from #basic-fields else add .hidden to #basic-fields end
+                                     if my value == 'obo' remove .hidden from #obo-fields else add .hidden to #obo-fields end">
                             <option value="">None</option>
                             <option value="bearer">Bearer token</option>
                             <option value="basic">Basic (username &amp; password)</option>
+                            <option value="obo">On-behalf-of (exchange the caller&rsquo;s token)</option>
                         </select>
                         <p data-edit-cred-hint class="hidden mt-2 text-xs text-gray-500">Leave the credential fields blank to keep the server&rsquo;s current credentials.</p>
                     </div>
@@ -101,6 +103,38 @@
                         <label class="block mb-2 text-sm font-medium text-gray-900">Password <span class="text-gray-400 font-normal">(e.g. a WordPress application password)</span></label>
                         <input type="password" name="basic_password" autocomplete="off" placeholder="paste the password / application password"
                                class="bg-gray-50 border border-gray-300 text-gray-900 text-sm rounded-lg block w-full p-2.5">
+                    </div>
+                    <div class="mb-6 hidden" id="obo-fields">
+                        <p class="mb-3 text-xs text-gray-500">
+                            The hub exchanges the calling user&rsquo;s token for one scoped to this server
+                            (RFC 8693). Requires <span class="font-medium">auth.type: jwt</span> so the hub
+                            can validate who is calling.
+                        </p>
+                        <label class="block mb-2 text-sm font-medium text-gray-900">Token endpoint</label>
+                        <input type="url" name="oauth_token_url" autocomplete="off"
+                               placeholder="https://idp.example.com/realms/x/protocol/openid-connect/token"
+                               class="bg-gray-50 border border-gray-300 text-gray-900 text-sm rounded-lg block w-full p-2.5 mb-3">
+                        <label class="block mb-2 text-sm font-medium text-gray-900">Hub client ID</label>
+                        <input type="text" name="oauth_client_id" autocomplete="off" placeholder="k5n-mcp-hub"
+                               class="bg-gray-50 border border-gray-300 text-gray-900 text-sm rounded-lg block w-full p-2.5 mb-3">
+                        <label class="block mb-2 text-sm font-medium text-gray-900">Hub client secret</label>
+                        <input type="password" name="oauth_client_secret" autocomplete="off" placeholder="paste the hub&rsquo;s client secret"
+                               class="bg-gray-50 border border-gray-300 text-gray-900 text-sm rounded-lg block w-full p-2.5 mb-3">
+                        <label class="block mb-2 text-sm font-medium text-gray-900">Audience <span class="text-gray-400 font-normal">(who the exchanged token is for)</span></label>
+                        <input type="text" name="obo_audience" autocomplete="off" placeholder="mcp-server-files"
+                               class="bg-gray-50 border border-gray-300 text-gray-900 text-sm rounded-lg block w-full p-2.5 mb-3">
+                        <label class="block mb-2 text-sm font-medium text-gray-900">Resource <span class="text-gray-400 font-normal">(optional, RFC 8707)</span></label>
+                        <input type="url" name="obo_resource" autocomplete="off" placeholder="https://files.example.com/mcp"
+                               class="bg-gray-50 border border-gray-300 text-gray-900 text-sm rounded-lg block w-full p-2.5 mb-3">
+                        <label class="block mb-2 text-sm font-medium text-gray-900">Scope <span class="text-gray-400 font-normal">(optional)</span></label>
+                        <input type="text" name="obo_scope" autocomplete="off" placeholder="mcp:invoke"
+                               class="bg-gray-50 border border-gray-300 text-gray-900 text-sm rounded-lg block w-full p-2.5 mb-3">
+                        <label class="block mb-2 text-sm font-medium text-gray-900">Delegation</label>
+                        <select name="obo_actor_token_source"
+                                class="bg-gray-50 border border-gray-300 text-gray-900 text-sm rounded-lg block w-full p-2.5">
+                            <option value="none">Impersonation &mdash; works with a stock Keycloak</option>
+                            <option value="client_credentials">Delegation &mdash; also send the hub&rsquo;s own token (needs IdP support)</option>
+                        </select>
                     </div>
                     <div class="flex justify-end gap-2">
                         <button type="button"
@@ -157,6 +191,12 @@
                 data-server-url="{{ server.url }}"
                 data-server-tags="{{ server.tags | join(',') }}"
                 data-server-auth-type="{{ server.auth_type }}"
+                data-obo-audience="{{ server.obo_audience }}"
+                data-obo-resource="{{ server.obo_resource }}"
+                data-obo-scope="{{ server.obo_scope }}"
+                data-obo-actor-token-source="{{ server.obo_actor_token_source }}"
+                data-oauth-token-url="{{ server.oauth_token_url }}"
+                data-oauth-client-id="{{ server.oauth_client_id }}"
                 data-registration-type="{{ server.registration_type }}"
             >
                 <!-- Actions menu (kebab) pinned to the card's top-right corner. -->
@@ -215,6 +255,31 @@
                                 {{ tag }}
                             </span>
                             {% endfor %}
+                        </div>
+                        {% endif %}
+
+                        {% if server.auth_type == 'obo' %}
+                        <div class="mb-3 text-sm" data-obo-badge>
+                            <span class="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-medium
+                                {% if server.obo_status == 'error' %}bg-red-100 text-red-800{% elif server.obo_status == 'ok' %}bg-green-100 text-green-800{% else %}bg-gray-100 text-gray-700{% endif %}">
+                                On-behalf-of
+                                {%- if server.obo_audience %} &middot; {{ server.obo_audience }}{% endif %}
+                            </span>
+                            {% if server.obo_actor_token_source == 'client_credentials' %}
+                            <span data-obo-delegation
+                                  class="ml-1 inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-indigo-100 text-indigo-800">
+                                Delegation
+                            </span>
+                            {% endif %}
+                            {% if server.obo_status == 'error' and server.obo_error %}
+                            <p class="mt-1.5 text-xs text-red-700">{{ server.obo_error }}</p>
+                            {% endif %}
+                            {% if server.needs_user_identity %}
+                            <p class="mt-1.5 text-xs text-gray-500">
+                                No service credential: health checks report reachability only and
+                                capabilities need a user session, so they aren&rsquo;t discovered in the background.
+                            </p>
+                            {% endif %}
                         </div>
                         {% endif %}
 
@@ -328,6 +393,7 @@
     function _setAuthFieldVisibility(authType) {
         document.getElementById('bearer-fields').classList.toggle('hidden', authType !== 'bearer');
         document.getElementById('basic-fields').classList.toggle('hidden', authType !== 'basic');
+        document.getElementById('obo-fields').classList.toggle('hidden', authType !== 'obo');
     }
 
     function openAddServerDialog() {
@@ -360,6 +426,14 @@
         f.elements['url'].value = card.dataset.serverUrl || '';
         const authType = card.dataset.serverAuthType || '';
         f.elements['auth_type'].value = authType;
+        // Non-secret OBO settings are safe to pre-fill; the client secret is redacted
+        // server-side like every other credential, so blank means "keep current".
+        f.elements['obo_audience'].value = card.dataset.oboAudience || '';
+        f.elements['obo_resource'].value = card.dataset.oboResource || '';
+        f.elements['obo_scope'].value = card.dataset.oboScope || '';
+        f.elements['obo_actor_token_source'].value = card.dataset.oboActorTokenSource || 'none';
+        f.elements['oauth_token_url'].value = card.dataset.oauthTokenUrl || '';
+        f.elements['oauth_client_id'].value = card.dataset.oauthClientId || '';
         _setAuthFieldVisibility(authType);
         // Credentials are redacted server-side, so they can't be pre-filled; blank means "keep current".
         f.querySelector('[data-edit-cred-hint]').classList.remove('hidden');

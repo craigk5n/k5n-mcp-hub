@@ -151,6 +151,29 @@ class RegisteredServer(BaseModel):
             changed = True
         return changed
 
+    @property
+    def has_service_credential(self) -> bool:
+        """Whether the hub can reach this backend as itself, with no user in scope.
+
+        Background paths (health, discovery) run on a timer and have no principal, so
+        an on-behalf-of server configured *only* for OBO has nothing they can
+        authenticate with, and they degrade rather than fail (ADR 0004)."""
+        from mcp_hub.mcp.oauth import token_endpoint_from_metadata
+
+        if self.bearer_token.strip():
+            return True
+        if self.basic_username.strip() or self.basic_password.strip():
+            return True
+        has_token_endpoint = bool(
+            self.oauth_token_url or token_endpoint_from_metadata(self.oauth_metadata)
+        )
+        return bool(self.oauth_client_id and self.oauth_client_secret and has_token_endpoint)
+
+    @property
+    def needs_user_identity(self) -> bool:
+        """An on-behalf-of server the background paths cannot act for at all."""
+        return self.auth_type == "obo" and not self.has_service_credential
+
     def sanitize_for_api(self) -> "RegisteredServer":
         return self.model_copy(
             update={
