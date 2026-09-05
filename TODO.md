@@ -593,8 +593,8 @@ first proxied call.
         authorization-server metadata (the discovery it already performs).
   - [x] `urn:ietf:params:oauth:grant-profile:id-jag` and the four token/grant URNs
         live in one constants module, so a draft revision is one edit.
-  - [ ] `RegisteredServer` records whether the backend's AS advertises the profile;
-        *(deferred to Story 8.4 with the other model fields, to avoid two passes)*;
+  - [x] `RegisteredServer` records whether the backend's AS advertises the profile
+        (`ema_supports_id_jag_profile`, landed with Story 8.4's model work);
         the value is advisory, never a gate — an AS may support it without
         advertising, and the hub must not refuse to try.
   - [x] Servers with no AS metadata are unaffected.
@@ -640,29 +640,29 @@ first proxied call.
 - TDD: extend `tests/test_register.py`, `tests/test_models.py`,
   `tests/test_apply_server_auth.py` first.
 - Acceptance criteria:
-  - [ ] New fields: `ema_resource_as_issuer`, `ema_resource_id`, `ema_token_url`,
+  - [x] New fields: `ema_resource_as_issuer`, `ema_resource_id`, `ema_token_url`,
         `ema_subject_token_type`, `ema_status`, `ema_error`, sanitized like the
         `obo_*` pair.
-  - [ ] A rule in `apply_server_auth` fires only on an exact `auth_type == "ema"`
+  - [x] A rule in `apply_server_auth` fires only on an exact `auth_type == "ema"`
         match, placed with the OBO rule ahead of the static credentials, for the same
         reason: a stale `bearer_token` must not silently disable per-user auth.
-  - [ ] `SERVICE_IDENTITY` skips it and falls through to the static rules, and
+  - [x] `SERVICE_IDENTITY` skips it and falls through to the static rules, and
         `needs_user_identity` treats `ema` like `obo` — so Story 6.5's health and
         discovery degradation applies unchanged (ADR 0004).
-  - [ ] The per-subject cache is reused with the Resource AS issuer in the key: two
+  - [x] The per-subject cache is reused with the Resource AS issuer in the key: two
         backends behind different authorization servers must never share an entry.
-  - [ ] Fail-closed and single-re-exchange-on-401 behave exactly as Story 6.4, with
+  - [x] Fail-closed and single-re-exchange-on-401 behave exactly as Story 6.4, with
         both legs re-run.
 
 **Story 8.5 — Declare the extension in outbound capabilities**
 
 - TDD: extend `tests/test_stateless_client.py` first.
 - Acceptance criteria:
-  - [ ] Requests to an `ema` server carry
+  - [x] Requests to an `ema` server carry
         `io.modelcontextprotocol/enterprise-managed-authorization` under
         `_meta.io.modelcontextprotocol/clientCapabilities.extensions` — the `_meta`
         structure Epic 2 already sends.
-  - [ ] Non-EMA servers see no new `_meta` keys.
+  - [x] Non-EMA servers see no new `_meta` keys.
 
 **Story 8.6 — Admin UI and end-to-end proof**
 

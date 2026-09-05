@@ -253,3 +253,55 @@ class TestReExchangeOnBackend401:
 
         assert len(attempts) == 1
         assert response.status_code == 401
+
+
+class TestEMAUsesTheSameProxyPath:
+    @pytest.mark.asyncio
+    async def test_an_ema_server_also_re_exchanges_once_on_401(self) -> None:
+        server = RegisteredServer(
+            id="files",
+            url="https://files.example.com",
+            auth_type="ema",
+            oauth_token_url="https://idp.example.com/token",
+            oauth_client_id="k5n-mcp-hub",
+            oauth_client_secret="hub-secret",
+            ema_resource_as_issuer="https://backend.example.com/oauth",
+            ema_resource_as_token_url="https://backend.example.com/oauth/token",
+        )
+        request = make_request(alice())
+        attempts: list[str] = []
+
+        class FakeClient:
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, *args):
+                return False
+
+            def stream(self, **kwargs):
+                attempts.append(kwargs["headers"].get("Authorization", ""))
+                resp = MagicMock()
+                resp.status_code = 401 if len(attempts) == 1 else 200
+                resp.headers = {"content-type": "application/json"}
+                resp.aiter_bytes = _empty_stream
+                ctx = MagicMock()
+                ctx.__aenter__ = AsyncMock(return_value=resp)
+                ctx.__aexit__ = AsyncMock(return_value=False)
+                return ctx
+
+        with patch("mcp_hub.proxy.handler.httpx.AsyncClient", return_value=FakeClient()):
+            with patch(
+                "mcp_hub.proxy.handler.build_outbound_headers",
+                new_callable=AsyncMock,
+                side_effect=[{"Authorization": "Bearer stale"}, {"Authorization": "Bearer fresh"}],
+            ):
+                with patch(
+                    "mcp_hub.proxy.handler.invalidate_obo_token", new_callable=AsyncMock
+                ) as invalidate:
+                    response = await proxy_request(
+                        request, registry_with(server), MagicMock(), TraceConfig()
+                    )
+
+        assert attempts == ["Bearer stale", "Bearer fresh"]
+        invalidate.assert_awaited_once()
+        assert response.status_code == 200

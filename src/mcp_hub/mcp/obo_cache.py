@@ -33,6 +33,9 @@ class OBOCacheKey:
     server_id: str
     audience: str
     scope: str
+    # "obo" (one leg) or "ema" (two legs). The two produce different tokens for the
+    # same server, so an entry from one must never satisfy the other.
+    flow: str = "obo"
 
 
 @dataclass

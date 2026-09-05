@@ -267,3 +267,35 @@ class TestSSRFSafety:
 
         assert client.follow_redirects is False
         assert isinstance(client._transport, SafePinnedTransport)
+
+
+class TestExtensionDeclaration:
+    """Story 8.5: a client declares EMA support in its per-request capabilities."""
+
+    def test_ema_server_declares_the_extension(self) -> None:
+        from mcp_hub.mcp.constants import META_CLIENT_CAPABILITIES
+        from mcp_hub.mcp.id_jag import EMA_EXTENSION
+        from mcp_hub.mcp.stateless import stateless_meta
+        from mcp_hub.models.server import RegisteredServer
+
+        server = RegisteredServer(id="s", url="http://x", auth_type="ema")
+
+        meta = stateless_meta(server)
+
+        extensions = meta[META_CLIENT_CAPABILITIES]["extensions"]
+        assert EMA_EXTENSION in extensions
+
+    def test_other_servers_gain_no_new_meta_keys(self) -> None:
+        from mcp_hub.mcp.constants import META_CLIENT_CAPABILITIES
+        from mcp_hub.mcp.stateless import stateless_meta
+        from mcp_hub.models.server import RegisteredServer
+
+        assert (
+            stateless_meta(RegisteredServer(id="s", url="http://x"))[META_CLIENT_CAPABILITIES] == {}
+        )
+
+    def test_no_server_in_scope_is_unchanged(self) -> None:
+        from mcp_hub.mcp.constants import META_CLIENT_CAPABILITIES
+        from mcp_hub.mcp.stateless import stateless_meta
+
+        assert stateless_meta(None)[META_CLIENT_CAPABILITIES] == {}

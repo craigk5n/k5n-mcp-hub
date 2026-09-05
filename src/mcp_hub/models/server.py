@@ -61,7 +61,7 @@ class RegisteredServer(BaseModel):
     mcp_protocol_version: str = ""
     mcp_transport: Literal["http", "sse", ""] = ""
     mcp_conformant: bool | None = None
-    auth_type: Literal["bearer", "basic", "oauth", "obo", ""] = ""
+    auth_type: Literal["bearer", "basic", "oauth", "obo", "ema", ""] = ""
     bearer_token: str = ""
     basic_username: str = ""
     basic_password: str = ""
@@ -82,6 +82,16 @@ class RegisteredServer(BaseModel):
     # Delegation is opt-in per server (ADR 0002): most issuers, Keycloak included,
     # do not accept an actor token on the supported exchange path.
     obo_actor_token_source: Literal["none", "client_credentials"] = "none"
+    # Enterprise-Managed Authorization (ID-JAG). `oauth_token_url` above is leg 1's
+    # enterprise IdP; these describe leg 2's resource authorization server.
+    ema_resource_as_issuer: str = ""
+    ema_resource_as_token_url: str = ""
+    ema_resource_id: str = ""
+    # ADR 0006: some issuers refuse an ID Token as subject_token; Keycloak does.
+    ema_subject_token_type: Literal["id_token", "access_token"] = "id_token"
+    # Advisory (Story 8.1): an AS may accept the grant without advertising it, so
+    # this is never a gate. None means "not discovered".
+    ema_supports_id_jag_profile: bool | None = None
     trace_verbose: bool = False
     fault_injection: FaultInjection = Field(default_factory=FaultInjection)
 
@@ -102,6 +112,8 @@ class RegisteredServer(BaseModel):
     oauth_token_error: str = ""
     obo_status: Literal["ok", "error", ""] = ""
     obo_error: str = ""
+    ema_status: Literal["ok", "error", ""] = ""
+    ema_error: str = ""
     tools: list[Any] | None = None
     prompts: list[Any] | None = None
     resources: list[Any] | None = None
@@ -171,8 +183,11 @@ class RegisteredServer(BaseModel):
 
     @property
     def needs_user_identity(self) -> bool:
-        """An on-behalf-of server the background paths cannot act for at all."""
-        return self.auth_type == "obo" and not self.has_service_credential
+        """A per-user server the background paths cannot act for at all.
+
+        Both on-behalf-of and Enterprise-Managed Authorization need a caller, so both
+        degrade the same way when no service credential exists (ADR 0004)."""
+        return self.auth_type in ("obo", "ema") and not self.has_service_credential
 
     def sanitize_for_api(self) -> "RegisteredServer":
         return self.model_copy(
@@ -181,8 +196,9 @@ class RegisteredServer(BaseModel):
                 "basic_password": "",
                 "oauth_client_secret": "",
                 "oauth_token_error": "",
-                # Carries the IdP's error text, which can echo token material.
+                # Carry IdP error text, which can echo token material.
                 "obo_error": "",
+                "ema_error": "",
             }
         )
 
@@ -207,5 +223,7 @@ class RegisteredServer(BaseModel):
                 "oauth_token_error": "",
                 "obo_status": "",
                 "obo_error": "",
+                "ema_status": "",
+                "ema_error": "",
             }
         )

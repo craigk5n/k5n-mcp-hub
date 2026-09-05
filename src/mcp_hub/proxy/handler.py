@@ -270,7 +270,11 @@ async def proxy_request(
         await stack.aclose()
         raise
 
-    if resp.status_code == 401 and srv.auth_type == "obo" and isinstance(caller, Principal):
+    if (
+        resp.status_code == 401
+        and srv.auth_type in ("obo", "ema")
+        and isinstance(caller, Principal)
+    ):
         # The token was good enough to be issued but the backend rejected it —
         # rotation or revocation at the IdP. Re-exchange exactly once: zero retries
         # makes ordinary expiry user-visible, unbounded retries turn a broken IdP

@@ -11,6 +11,14 @@ from mcp_hub.auth.caller import CallerIdentity, ServiceIdentity
 from mcp_hub.auth.principal import Principal
 from mcp_hub.models.server import RegisteredServer
 from mcp_hub.mcp.oauth import token_endpoint_from_metadata
+from mcp_hub.mcp.id_jag import (
+    ACCESS_TOKEN_TYPE,
+    ID_TOKEN_TYPE,
+    IDJagAccessToken,
+    IDJagError,
+    IDJagRequest,
+    exchange_for_access_token,
+)
 from mcp_hub.mcp.obo_cache import OBOCacheKey, OBOTokenCache
 from mcp_hub.mcp.token_exchange import (
     ExchangeRequest,
@@ -131,6 +139,7 @@ DEFAULT_TOKEN_CACHE = TokenCache()
 DEFAULT_OBO_CACHE = OBOTokenCache()
 
 ExchangeFn = Callable[..., Awaitable[ExchangedToken]]
+IDJagFn = Callable[..., Awaitable[IDJagAccessToken]]
 
 
 async def apply_server_auth(
@@ -141,6 +150,7 @@ async def apply_server_auth(
     token_cache: TokenCache = DEFAULT_TOKEN_CACHE,
     obo_cache: OBOTokenCache = DEFAULT_OBO_CACHE,
     exchange: ExchangeFn = exchange_token,
+    id_jag: IDJagFn = exchange_for_access_token,
     client: httpx.AsyncClient | None = None,
     allow_private_networks: bool = False,
 ) -> None:
@@ -183,6 +193,18 @@ async def apply_server_auth(
             token_cache=token_cache,
             obo_cache=obo_cache,
             exchange=exchange,
+            client=client,
+            allow_private_networks=allow_private_networks,
+        )
+        return
+
+    if server.auth_type == "ema" and not isinstance(caller, ServiceIdentity):
+        await _apply_ema_auth(
+            headers,
+            server,
+            caller,
+            obo_cache=obo_cache,
+            id_jag=id_jag,
             client=client,
             allow_private_networks=allow_private_networks,
         )
@@ -323,6 +345,20 @@ def needs_user_identity(server: RegisteredServer) -> bool:
 
 
 def obo_cache_key(server: RegisteredServer, caller: Principal) -> OBOCacheKey:
+    """The cache entry for this caller and server, in whichever flow it uses.
+
+    Flow-aware so invalidation cannot miss: an EMA entry is keyed on the resource
+    authorization server, and looking it up with the OBO shape would silently fail to
+    clear it, leaving a rejected token cached until it expired."""
+    if server.auth_type == "ema":
+        return OBOCacheKey(
+            subject=caller.subject,
+            issuer=caller.issuer,
+            server_id=server.id or server.url,
+            audience=server.ema_resource_as_issuer,
+            scope=server.obo_scope,
+            flow="ema",
+        )
     return OBOCacheKey(
         subject=caller.subject,
         issuer=caller.issuer,
@@ -343,3 +379,100 @@ async def invalidate_obo_token(
     Used when the backend rejects a token that was previously good — the usual cause
     is rotation or revocation at the IdP, which one re-exchange fixes."""
     await obo_cache.invalidate(obo_cache_key(server, caller))
+
+
+async def _apply_ema_auth(
+    headers: httpx.Headers | dict[str, str],
+    server: RegisteredServer,
+    caller: CallerIdentity,
+    *,
+    obo_cache: OBOTokenCache,
+    id_jag: IDJagFn,
+    client: httpx.AsyncClient | None,
+    allow_private_networks: bool,
+) -> None:
+    """Enterprise-Managed Authorization: ID-JAG at the IdP, then redeem it at the
+    backend's own authorization server (ADR 0005)."""
+    if not isinstance(caller, Principal) or caller.is_anonymous:
+        raise _ema_failure(
+            server, "no user identity available to act on behalf of", needs_authentication=True
+        )
+
+    subject_token, subject_token_type = _ema_subject_assertion(server, caller)
+
+    idp_token_url = server.oauth_token_url or token_endpoint_from_metadata(server.oauth_metadata)
+    if not idp_token_url:
+        raise _ema_failure(server, "no enterprise IdP token endpoint configured")
+    if not server.ema_resource_as_token_url or not server.ema_resource_as_issuer:
+        raise _ema_failure(server, "no resource authorization server configured")
+    if not server.oauth_client_id or not server.oauth_client_secret:
+        raise _ema_failure(server, "missing oauth client credentials for the exchange")
+
+    # Keyed on the resource AS, not the MCP server: two backends behind different
+    # authorization servers must never share a cached token.
+    key = obo_cache_key(server, caller)
+
+    async def fetch() -> ExchangedToken:
+        issued = await id_jag(
+            IDJagRequest(
+                idp_token_url=idp_token_url,
+                resource_as_token_url=server.ema_resource_as_token_url,
+                resource_as_issuer=server.ema_resource_as_issuer,
+                resource_id=server.ema_resource_id,
+                client_id=server.oauth_client_id,
+                client_secret=server.oauth_client_secret,
+                subject_token=subject_token,
+                subject_token_type=subject_token_type,
+                scope=server.obo_scope,
+            ),
+            client=client,
+            allow_private_networks=allow_private_networks,
+        )
+        # The cache speaks ExchangedToken; both flows end in a bearer token with a
+        # lifetime, so there is nothing flow-specific left to carry.
+        return ExchangedToken(access_token=issued.access_token, expires_in=issued.expires_in)
+
+    try:
+        access_token = await obo_cache.token(key, fetch=fetch, subject_expires_at=caller.expires_at)
+    except IDJagError as exc:
+        raise _ema_failure(server, exc.summary()) from exc
+
+    headers["Authorization"] = f"Bearer {access_token}"
+    server.ema_status = "ok"
+    server.ema_error = ""
+
+
+def _ema_subject_assertion(server: RegisteredServer, caller: Principal) -> tuple[str, str]:
+    """Pick what leg 1 sends, failing closed when it is absent.
+
+    Never falls back to the other token type (ADR 0006): the two produce different
+    IdP policy evaluation, so a silent switch would make the effective identity
+    depend on which attempt happened to succeed."""
+    if server.ema_subject_token_type == "access_token":
+        if not caller.token:
+            raise _ema_failure(
+                server, "caller has no access token to exchange", needs_authentication=True
+            )
+        return caller.token, ACCESS_TOKEN_TYPE
+
+    if not caller.id_token:
+        raise _ema_failure(
+            server,
+            "caller supplied no identity assertion (ID token); the server is "
+            "configured for ema_subject_token_type=id_token",
+            needs_authentication=True,
+        )
+    return caller.id_token, ID_TOKEN_TYPE
+
+
+def _ema_failure(
+    server: RegisteredServer, detail: str, *, needs_authentication: bool = False
+) -> OBOAuthError:
+    server.ema_status = "error"
+    server.ema_error = detail
+    logger.info("enterprise-managed auth failed for server %s: %s", server.id, detail)
+    return OBOAuthError(
+        f"enterprise-managed auth failed: {detail}",
+        detail=detail,
+        needs_authentication=needs_authentication,
+    )

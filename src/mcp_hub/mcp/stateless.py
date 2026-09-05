@@ -26,17 +26,26 @@ from mcp_hub.mcp.constants import (
     METHOD_SERVER_DISCOVER,
     STATELESS_PROTOCOL_VERSION,
 )
+from mcp_hub.mcp.id_jag import EMA_EXTENSION
 from mcp_hub.mcp.sdk_client import MCPClientError, _flatten_exc
 from mcp_hub.mcp.sse import extract_sse_data
 from mcp_hub.models.server import RegisteredServer
 from mcp_hub.utils import safe_http_client_factory
 
 
-def stateless_meta() -> dict[str, Any]:
-    """The ``_meta`` object every stateless request must carry."""
+def stateless_meta(server: RegisteredServer | None = None) -> dict[str, Any]:
+    """The ``_meta`` object every stateless request must carry.
+
+    An ``ema`` server gets the Enterprise-Managed Authorization extension declared in
+    its client capabilities; every other server sees exactly the keys it saw before,
+    since extensions are opt-in and never active by default."""
+    capabilities: dict[str, Any] = {}
+    if server is not None and server.auth_type == "ema":
+        capabilities["extensions"] = {EMA_EXTENSION: {}}
+
     return {
         META_PROTOCOL_VERSION: STATELESS_PROTOCOL_VERSION,
-        META_CLIENT_CAPABILITIES: {},
+        META_CLIENT_CAPABILITIES: capabilities,
         META_CLIENT_INFO: {"name": MCP_CLIENT_NAME, "version": MCP_CLIENT_VERSION},
     }
 
@@ -104,7 +113,7 @@ class StatelessMCPClient:
             "jsonrpc": "2.0",
             "id": f"hub-{self._request_counter}",
             "method": method,
-            "params": {**params, "_meta": stateless_meta()},
+            "params": {**params, "_meta": stateless_meta(self.server)},
         }
 
         try:
