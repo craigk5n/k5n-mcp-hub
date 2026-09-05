@@ -25,6 +25,10 @@ class Principal:
     scopes: frozenset[str] = field(default_factory=frozenset)
     token: str = ""
     is_anonymous: bool = False
+    # An OIDC ID Token the caller supplied, verified to belong to this same subject.
+    # Enterprise-Managed Authorization's first leg exchanges it (ADR 0006). Secret on
+    # the same terms as ``token``.
+    id_token: str = ""
     # When the presented token expires. An exchanged token must never outlive it
     # (mcp.obo_cache), or the hub keeps acting for a user whose session has ended.
     expires_at: datetime | None = None
@@ -50,5 +54,7 @@ class Principal:
         return (
             f"Principal(subject={self.subject!r}, issuer={self.issuer!r}, "
             f"scopes={sorted(self.scopes)!r}, token={'<redacted>' if self.token else ''!r}, "
-            f"is_anonymous={self.is_anonymous!r}, expires_at={self.expires_at!r})"
+            f"is_anonymous={self.is_anonymous!r}, "
+            f"id_token={'<redacted>' if self.id_token else ''!r}, "
+            f"expires_at={self.expires_at!r})"
         )

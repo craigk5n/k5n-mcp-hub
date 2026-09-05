@@ -32,6 +32,10 @@ DEFAULT_ALGORITHMS: tuple[str, ...] = (
 
 _ASYMMETRIC_PREFIXES = ("RS", "PS", "ES", "ED")
 
+# Hub-specific header. No MCP client sends this by convention; it is configuration
+# between an operator and their own client (ADR 0006).
+IDENTITY_ASSERTION_HEADER = "X-MCP-Identity-Assertion"
+
 DEFAULT_MIN_REFRESH_INTERVAL_SECONDS = 60.0
 JWKS_FETCH_TIMEOUT_SECONDS = 10.0
 
@@ -261,8 +265,63 @@ class JWTBearerStrategy:
             issuer=str(claims.get("iss") or ""),
             scopes=scopes,
             token=token,
+            id_token=await self._identity_assertion_for(request, subject),
             expires_at=_expiry_from_claims(claims),
         )
+
+    async def _identity_assertion_for(self, request: Request, subject: str) -> str:
+        """Validate an optional caller-supplied ID Token and return it, or "".
+
+        The subject check is the load-bearing part. Without it a caller could
+        authenticate with their own access token while attaching someone else's ID
+        Token; leg 1 would then mint an ID-JAG for that other person, and the
+        downstream server would attribute the call to them. The IdP cannot catch it —
+        it only ever sees a validly-signed token for the other subject.
+
+        An unusable assertion is dropped rather than failing the request: the access
+        token is still valid, and an EMA server fails closed later (ADR 0006) with an
+        error that names the real problem.
+        """
+        assertion = request.headers.get(IDENTITY_ASSERTION_HEADER, "").strip()
+        if not assertion:
+            return ""
+
+        try:
+            unverified_header = jwt.get_unverified_header(assertion)
+        except jwt.PyJWTError as exc:
+            logger.info("discarding identity assertion: unreadable header (%s)", exc)
+            return ""
+
+        key = await self._cache.key_for(unverified_header.get("kid"), client=self._client)
+        if key is None:
+            logger.info("discarding identity assertion: no signing key")
+            return ""
+
+        try:
+            # `aud` is deliberately not verified: an ID Token's audience is the client
+            # that requested it, never this hub, so there is nothing here to match.
+            assertion_claims = jwt.decode(
+                assertion,
+                key,
+                algorithms=list(self._algorithms),
+                issuer=self._issuer,
+                leeway=self._leeway,
+                options={"require": ["exp", "iss", "sub"], "verify_aud": False},
+            )
+        except jwt.PyJWTError as exc:
+            logger.info("discarding identity assertion: %s", exc)
+            return ""
+
+        if str(assertion_claims.get("sub") or "") != subject:
+            logger.warning(
+                "discarding identity assertion: subject %r does not match the "
+                "authenticated caller %r",
+                assertion_claims.get("sub"),
+                subject,
+            )
+            return ""
+
+        return assertion
 
 
 def _expiry_from_claims(claims: Mapping[str, Any]) -> datetime | None:

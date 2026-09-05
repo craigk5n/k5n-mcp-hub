@@ -370,3 +370,104 @@ class TestSubjectExpiry:
         assert result.expires_at is not None
         remaining = (result.expires_at - datetime.now(timezone.utc)).total_seconds()
         assert 100 < remaining <= 120
+
+
+IDENTITY_ASSERTION_HEADER = "X-MCP-Identity-Assertion"
+
+
+def _id_token(key, *, subject: str = "alice", audience: str = "mcp-client", **claims):
+    """An OIDC ID Token. Its audience is the *client* that requested it, not the hub,
+    so the hub cannot validate `aud` the way it does for an access token."""
+    return _token(key, subject=subject, audience=audience, **claims)
+
+
+def request_with_assertion(access_token: str, id_token: str) -> MagicMock:
+    request = MagicMock(spec=Request)
+    request.headers = {
+        "Authorization": f"Bearer {access_token}",
+        IDENTITY_ASSERTION_HEADER: id_token,
+    }
+    return request
+
+
+class TestIdentityAssertion:
+    """Story 8.3 / ADR 0006: the caller may supply an ID Token for EMA's leg 1."""
+
+    @pytest.mark.asyncio
+    async def test_a_valid_assertion_is_carried_on_the_principal(self, signing_key, jwks) -> None:
+        access = _token(signing_key)
+        assertion = _id_token(signing_key)
+
+        result = await strategy_for(jwks).authenticate(request_with_assertion(access, assertion))
+
+        assert result is not None
+        assert result.id_token == assertion
+
+    @pytest.mark.asyncio
+    async def test_absent_assertion_is_not_an_error(self, signing_key, jwks) -> None:
+        # Most callers will never send one; EMA servers fail closed later, per ADR 0006.
+        result = await strategy_for(jwks).authenticate(bearer_request(_token(signing_key)))
+
+        assert result is not None
+        assert result.id_token == ""
+
+    @pytest.mark.asyncio
+    async def test_an_assertion_for_a_different_subject_is_refused(self, signing_key, jwks) -> None:
+        # The attack this closes: alice authenticates to the hub with her own access
+        # token but attaches bob's ID Token. Leg 1 would then mint an ID-JAG for bob,
+        # and the downstream server would attribute alice's call to bob. The IdP
+        # cannot catch this -- it only ever sees a validly-signed token for bob.
+        access = _token(signing_key, subject="alice")
+        someone_elses = _id_token(signing_key, subject="bob")
+
+        result = await strategy_for(jwks).authenticate(
+            request_with_assertion(access, someone_elses)
+        )
+
+        assert result is not None, "the access token itself is still valid"
+        assert result.subject == "alice"
+        assert result.id_token == "", "the mismatched assertion must be dropped"
+
+    @pytest.mark.asyncio
+    async def test_an_unsigned_or_forged_assertion_is_dropped(self, signing_key, jwks) -> None:
+        access = _token(signing_key)
+        forged = _id_token(_rsa_key())  # signed by a key the JWKS never advertises
+
+        result = await strategy_for(jwks).authenticate(request_with_assertion(access, forged))
+
+        assert result is not None
+        assert result.id_token == ""
+
+    @pytest.mark.asyncio
+    async def test_an_expired_assertion_is_dropped(self, signing_key, jwks) -> None:
+        access = _token(signing_key)
+        stale = _id_token(signing_key, expires_in=-30)
+
+        result = await strategy_for(jwks).authenticate(request_with_assertion(access, stale))
+
+        assert result is not None
+        assert result.id_token == ""
+
+    @pytest.mark.asyncio
+    async def test_an_assertion_from_another_issuer_is_dropped(self, signing_key, jwks) -> None:
+        access = _token(signing_key)
+        foreign = _id_token(signing_key, issuer="https://evil.example.com/")
+
+        result = await strategy_for(jwks).authenticate(request_with_assertion(access, foreign))
+
+        assert result is not None
+        assert result.id_token == ""
+
+    @pytest.mark.asyncio
+    async def test_garbage_in_the_header_is_dropped(self, signing_key, jwks) -> None:
+        result = await strategy_for(jwks).authenticate(
+            request_with_assertion(_token(signing_key), "not-a-jwt")
+        )
+
+        assert result is not None
+        assert result.id_token == ""
+
+    def test_principal_repr_redacts_the_assertion(self) -> None:
+        principal = Principal(subject="alice", token="a.b.c", id_token="secret.id.token")
+
+        assert "secret.id.token" not in repr(principal)

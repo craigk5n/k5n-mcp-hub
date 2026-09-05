@@ -26,6 +26,8 @@ SENSITIVE_HEADERS = frozenset(
         "x-amz-security-token",
         # Grants access to an established MCP session on pre-2026-07-28 servers.
         "mcp-session-id",
+        # The OIDC ID Token a caller supplies for Enterprise-Managed Authorization.
+        "x-mcp-identity-assertion",
     }
 )
 

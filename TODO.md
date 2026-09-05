@@ -589,32 +589,33 @@ first proxied call.
 
 - TDD: extend `tests/test_oauth.py` first.
 - Acceptance criteria:
-  - [ ] `mcp/oauth.py` parses `authorization_grant_profiles_supported` from
+  - [x] `mcp/oauth.py` parses `authorization_grant_profiles_supported` from
         authorization-server metadata (the discovery it already performs).
-  - [ ] `urn:ietf:params:oauth:grant-profile:id-jag` and the four token/grant URNs
+  - [x] `urn:ietf:params:oauth:grant-profile:id-jag` and the four token/grant URNs
         live in one constants module, so a draft revision is one edit.
   - [ ] `RegisteredServer` records whether the backend's AS advertises the profile;
+        *(deferred to Story 8.4 with the other model fields, to avoid two passes)*;
         the value is advisory, never a gate — an AS may support it without
         advertising, and the hub must not refuse to try.
-  - [ ] Servers with no AS metadata are unaffected.
+  - [x] Servers with no AS metadata are unaffected.
 
 **Story 8.2 — The two-leg exchange**
 
 - TDD: new `tests/test_id_jag.py` first, both legs against `MockTransport`.
 - Acceptance criteria:
-  - [ ] `mcp/id_jag.py` performs leg 1 (`grant_type=...:token-exchange`,
+  - [x] `mcp/id_jag.py` performs leg 1 (`grant_type=...:token-exchange`,
         `requested_token_type=...:token-type:id-jag`, `audience` = the Resource AS
         **issuer identifier**, optional `resource` = the MCP server's resource
         identifier) and leg 2 (`grant_type=...:jwt-bearer`, `assertion` = the ID-JAG).
-  - [ ] The returned `issued_token_type` is checked to be the id-jag type; a
+  - [x] The returned `issued_token_type` is checked to be the id-jag type; a
         different type is an error rather than something to forward blindly.
-  - [ ] The ID-JAG's `resource` claim is verified to name the server being called
+  - [x] The ID-JAG's `resource` claim is verified to name the server being called
         before leg 2 — the spec makes it MUST-contain, and forwarding one minted for
         a different resource is exactly the confused-deputy case to prevent.
-  - [ ] Both legs use the SSRF-pinned transport with redirects disabled: the subject
+  - [x] Both legs use the SSRF-pinned transport with redirects disabled: the subject
         assertion travels on leg 1 and the ID-JAG on leg 2, and a 3xx would leak
         either.
-  - [ ] RFC 6749 errors from *either* leg are preserved and say which leg failed —
+  - [x] RFC 6749 errors from *either* leg are preserved and say which leg failed —
         "the IdP refused" and "the backend's AS refused" have completely different
         fixes.
 
@@ -622,16 +623,16 @@ first proxied call.
 
 - TDD: extend `tests/test_principal.py` and `tests/test_jwt_auth.py` first.
 - Acceptance criteria:
-  - [ ] `Principal` gains an optional `id_token`, redacted in `__repr__` and never
+  - [x] `Principal` gains an optional `id_token`, redacted in `__repr__` and never
         persisted, on the same terms as `token`.
-  - [ ] A documented inbound header carries it; the header is added to
+  - [x] A documented inbound header carries it; the header is added to
         `SENSITIVE_HEADERS` in `trace/recorder.py`, with a redaction test.
-  - [ ] `ema_subject_token_type` (`id_token` default, `access_token` alternative)
+  - [x] `ema_subject_token_type` (`id_token` default, `access_token` alternative)
         selects what leg 1 sends.
-  - [ ] Missing the configured assertion fails closed with a 401 carrying the
+  - [x] Missing the configured assertion fails closed with a 401 carrying the
         RFC 9728 challenge — never a silent fallback to the other token type, which
         would make the effective identity depend on which attempt succeeded.
-  - [ ] The docs state plainly that the header is hub-specific, not something MCP
+  - [x] The docs state plainly that the header is hub-specific, not something MCP
         clients send by convention.
 
 **Story 8.4 — `auth_type: "ema"` registration and auth rule**

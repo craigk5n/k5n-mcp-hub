@@ -84,3 +84,12 @@ def test_sanitize_headers_redacts_mcp_session_id() -> None:
 
 def test_mcp_session_id_in_sensitive_set() -> None:
     assert "mcp-session-id" in SENSITIVE_HEADERS
+
+
+def test_identity_assertion_header_is_redacted() -> None:
+    """Story 8.3: the EMA identity assertion is a credential like any other."""
+    from mcp_hub.trace.recorder import sanitize_trace_headers
+
+    result = sanitize_trace_headers({"X-MCP-Identity-Assertion": "header.payload.signature"})
+
+    assert result["X-MCP-Identity-Assertion"] == "****"
