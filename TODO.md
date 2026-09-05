@@ -669,14 +669,27 @@ first proxied call.
   - [ ] `servers.html` gains an EMA field group beside the OBO one; the card shows
         exchange status, the resource AS in use, and which leg failed.
   - [ ] The e2e stack demonstrates the full two-leg flow.
-  - [ ] **Open question to settle first: which IdP.** Keycloak's support for issuing
-        ID-JAGs is unverified and may not exist — the Epic 7 stack proved Keycloak
-        does *supported* RFC 8693 token exchange, which is not the same feature.
-        Okta and Auth0 both document Cross-App Access. Resolve by testing before
-        writing the compose file, exactly as Epic 7's realm was built against a live
-        Keycloak rather than hand-authored. A minimal stub Resource AS that validates
-        ID-JAGs and issues access tokens is the fallback if no free IdP will issue
-        them, and it still exercises leg 2 honestly.
+  - [x] **Settled (2026-09-05): Keycloak cannot issue ID-JAGs, so leg 1 needs a
+        different issuer.** Tested against the Epic 7 stack's Keycloak 26.4, which
+        refuses the flow at the first parameter:
+        `{"error":"invalid_request","error_description":"Parameter 'subject_token'
+        supports access tokens only"}` — it will not accept an ID Token as a subject
+        token at all, let alone mint an ID-JAG. Keycloak's own docs (nightly 26.7.3)
+        confirm it: receiver side only, behind `--features=identity-assertion-jwt`,
+        marked experimental and "do not use in production"; issuer side "not yet
+        fully implemented" (keycloak/keycloak#43971).
+  - [ ] Therefore the e2e stack splits the two legs:
+        - **Leg 1 (issue the ID-JAG)** — a stub enterprise IdP we control, ~50 lines:
+          it signs an ID-JAG with a known key and serves a JWKS. Hermetic, and it
+          lets the tests drive the claim edge cases (wrong `resource`, expired,
+          wrong `aud`) that a real IdP would not produce on demand.
+        - **Leg 2 (redeem it)** — Keycloak 26.7+ with `identity-assertion-jwt`
+          enabled, as a *real* implementation of the receiver side, so the leg the
+          hub actually has to interoperate with is tested against something we did
+          not write. Verify the feature works there before committing to it.
+  - [ ] Revisit if Okta or Auth0 offer a free tier that issues ID-JAGs; a real
+        issuer for leg 1 would be strictly better than the stub, and both document
+        Cross-App Access.
 
 > **Sizing:** smaller than Epic 6. `Principal`, the per-subject cache, the
 > fail-closed path, `caller` plumbing, the SSRF transport, the UI patterns, and the

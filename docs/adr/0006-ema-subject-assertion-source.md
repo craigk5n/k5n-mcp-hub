@@ -73,6 +73,21 @@ attempt happened to succeed — unauditable, and precisely the class of surprise
 cannot obtain an assertion is in the same position as an OBO server with no user
 identity, and gets the same answer.
 
+## Evidence
+
+Tested against Keycloak 26.4 (2026-09-05), exchanging an ID Token for an ID-JAG:
+
+```
+{"error":"invalid_request",
+ "error_description":"Parameter 'subject_token' supports access tokens only"}
+```
+
+Keycloak's token exchange refuses an ID Token as `subject_token` outright. That is a
+useful datapoint for this decision, because it rules out *both* absolutist options:
+"ID Token only" would be unusable against Keycloak, and "access token only" would be
+non-conformant against issuers that follow the extension. A per-server setting is not
+a hedge here — it is the only shape that works across real issuers.
+
 ## Consequences
 
 - `Principal` gains an optional `id_token`, secret on the same terms as `token`:
