@@ -1,4 +1,13 @@
-# On-behalf-of end-to-end stack
+# End-to-end stacks
+
+Two stacks live here:
+
+| Stack | Flow | IdP |
+|---|---|---|
+| `docker-compose.obo.yml` | On-behalf-of (Epic 6) — one RFC 8693 leg | **Real Keycloak** |
+| `docker-compose.ema.yml` | Enterprise-Managed Authorization (Epic 8) — two legs | Stubs, for a tested reason (below) |
+
+## On-behalf-of stack
 
 Everything else in this repo tests the RFC 8693 exchange against stubs and
 locally-signed tokens. This stack is the only place a **real identity provider** is
@@ -114,3 +123,55 @@ That last line is the empirical confirmation of
 *supported* standard token exchange has no `actor_token` parameter and issues no `act`
 claim, which is why impersonation is the default shape and delegation is opt-in. The
 audit trail survives via `azp`, and the runner asserts that rather than assuming it.
+
+
+# Enterprise-Managed Authorization stack
+
+```bash
+docker compose -f e2e/docker-compose.ema.yml up --build -d
+docker compose -f e2e/docker-compose.ema.yml run --rm --build e2e-ema
+docker compose -f e2e/docker-compose.ema.yml down -v
+```
+
+No `.env` needed: every credential here belongs to a stub, not a realm import.
+
+## Why this one has no Keycloak
+
+Not for convenience — it was tested. Two findings, both in TODO.md Story 8.6:
+
+1. **Keycloak cannot issue ID-JAGs.** Its token exchange refuses an ID Token as
+   `subject_token` outright (`"Parameter 'subject_token' supports access tokens
+   only"`), and its own docs say issuer-side support is "not yet fully implemented".
+2. **Keycloak 26.7 *can* receive them, but not usably here.** With
+   `--features=identity-assertion-jwt` it accepts the `jwt-bearer` grant and rejects
+   assertions on their content rather than the grant type — so the path exists. But
+   the feature is flagged experimental ("do not use in production"), and the
+   per-client switch that permits the grant is undocumented; `invalid_grant: JWT
+   Authorization Grant is not supported for the requested client` persisted through
+   the attribute names that seemed most likely. Worth revisiting when the feature
+   stabilises.
+
+So leg 2 runs against a stub authorization server. That still exercises everything the
+hub does; what it does not prove is interoperability with someone else's
+implementation, which is a real gap and is recorded as one.
+
+## What's in this stack
+
+| Service | Role |
+|---|---|
+| `ema-idp` | Enterprise IdP: SSO (access + ID tokens), JWKS, and the leg-1 ID-JAG exchange |
+| `ema-resource-as` | The backend's **own** authorization server: validates ID-JAGs, issues its own access tokens |
+| `ema-mcp` | The MCP server, trusting `ema-resource-as` — *not* the enterprise IdP |
+| `hub` | This project, `auth.type: jwt` against `ema-idp` |
+| `e2e-ema` | The assertions |
+
+The stub IdP is deliberately credulous: it signs what it is asked for, so the suite
+can request a wrong `resource` or an expired assertion and watch the hub refuse them —
+edge cases a real IdP would never produce on demand.
+
+## What this run proves
+
+That the MCP server's access token is issued by an authorization server which is
+**not** the hub's IdP, and that the hub reached it in two legs. The load-bearing
+check is that a token minted by the enterprise IdP is *refused* by the MCP server:
+without that, the test would pass whether or not the second leg happened at all.

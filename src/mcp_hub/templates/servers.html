@@ -83,11 +83,13 @@
                                 _="on change
                                      if my value == 'bearer' remove .hidden from #bearer-fields else add .hidden to #bearer-fields end
                                      if my value == 'basic' remove .hidden from #basic-fields else add .hidden to #basic-fields end
-                                     if my value == 'obo' remove .hidden from #obo-fields else add .hidden to #obo-fields end">
+                                     if my value == 'obo' remove .hidden from #obo-fields else add .hidden to #obo-fields end
+                                     if my value == 'ema' remove .hidden from #ema-fields else add .hidden to #ema-fields end">
                             <option value="">None</option>
                             <option value="bearer">Bearer token</option>
                             <option value="basic">Basic (username &amp; password)</option>
                             <option value="obo">On-behalf-of (exchange the caller&rsquo;s token)</option>
+                            <option value="ema">Enterprise-managed (ID-JAG, backend has its own auth server)</option>
                         </select>
                         <p data-edit-cred-hint class="hidden mt-2 text-xs text-gray-500">Leave the credential fields blank to keep the server&rsquo;s current credentials.</p>
                     </div>
@@ -134,6 +136,34 @@
                                 class="bg-gray-50 border border-gray-300 text-gray-900 text-sm rounded-lg block w-full p-2.5">
                             <option value="none">Impersonation &mdash; works with a stock Keycloak</option>
                             <option value="client_credentials">Delegation &mdash; also send the hub&rsquo;s own token (needs IdP support)</option>
+                        </select>
+                    </div>
+                    <div class="mb-6 hidden" id="ema-fields">
+                        <p class="mb-3 text-xs text-gray-500">
+                            Two legs: the hub swaps the caller&rsquo;s assertion at your enterprise IdP
+                            for an ID-JAG, then redeems it at <em>this backend&rsquo;s own</em> authorization
+                            server. Use this when the backend doesn&rsquo;t trust your IdP directly.
+                            The IdP token endpoint and hub client credentials come from the
+                            on-behalf-of fields above.
+                        </p>
+                        <label class="block mb-2 text-sm font-medium text-gray-900">Resource authorization server &mdash; issuer</label>
+                        <input type="url" name="ema_resource_as_issuer" autocomplete="off"
+                               placeholder="https://backend.example.com/oauth"
+                               class="bg-gray-50 border border-gray-300 text-gray-900 text-sm rounded-lg block w-full p-2.5 mb-1">
+                        <p class="mb-3 text-xs text-gray-500">Its issuer identifier, not the MCP server&rsquo;s URL &mdash; this is what leg 1 asks the IdP for.</p>
+                        <label class="block mb-2 text-sm font-medium text-gray-900">Resource authorization server &mdash; token endpoint</label>
+                        <input type="url" name="ema_resource_as_token_url" autocomplete="off"
+                               placeholder="https://backend.example.com/oauth/token"
+                               class="bg-gray-50 border border-gray-300 text-gray-900 text-sm rounded-lg block w-full p-2.5 mb-3">
+                        <label class="block mb-2 text-sm font-medium text-gray-900">Resource identifier <span class="text-gray-400 font-normal">(optional)</span></label>
+                        <input type="url" name="ema_resource_id" autocomplete="off"
+                               placeholder="https://files.example.com/mcp"
+                               class="bg-gray-50 border border-gray-300 text-gray-900 text-sm rounded-lg block w-full p-2.5 mb-3">
+                        <label class="block mb-2 text-sm font-medium text-gray-900">Subject token sent to the IdP</label>
+                        <select name="ema_subject_token_type"
+                                class="bg-gray-50 border border-gray-300 text-gray-900 text-sm rounded-lg block w-full p-2.5">
+                            <option value="id_token">ID token &mdash; what the spec says; needs your client to forward one</option>
+                            <option value="access_token">Access token &mdash; for IdPs that refuse an ID token here (Keycloak does)</option>
                         </select>
                     </div>
                     <div class="flex justify-end gap-2">
@@ -197,6 +227,10 @@
                 data-obo-actor-token-source="{{ server.obo_actor_token_source }}"
                 data-oauth-token-url="{{ server.oauth_token_url }}"
                 data-oauth-client-id="{{ server.oauth_client_id }}"
+                data-ema-resource-as-issuer="{{ server.ema_resource_as_issuer }}"
+                data-ema-resource-as-token-url="{{ server.ema_resource_as_token_url }}"
+                data-ema-resource-id="{{ server.ema_resource_id }}"
+                data-ema-subject-token-type="{{ server.ema_subject_token_type }}"
                 data-registration-type="{{ server.registration_type }}"
             >
                 <!-- Actions menu (kebab) pinned to the card's top-right corner. -->
@@ -273,6 +307,28 @@
                             {% endif %}
                             {% if server.obo_status == 'error' and server.obo_error %}
                             <p class="mt-1.5 text-xs text-red-700">{{ server.obo_error }}</p>
+                            {% endif %}
+                            {% if server.needs_user_identity %}
+                            <p class="mt-1.5 text-xs text-gray-500">
+                                No service credential: health checks report reachability only and
+                                capabilities need a user session, so they aren&rsquo;t discovered in the background.
+                            </p>
+                            {% endif %}
+                        </div>
+                        {% endif %}
+
+                        {% if server.auth_type == 'ema' %}
+                        <div class="mb-3 text-sm" data-ema-badge>
+                            <span class="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-medium
+                                {% if server.ema_status == 'error' %}bg-red-100 text-red-800{% elif server.ema_status == 'ok' %}bg-green-100 text-green-800{% else %}bg-gray-100 text-gray-700{% endif %}">
+                                Enterprise-managed
+                                {%- if server.ema_resource_as_issuer %} &middot; {{ server.ema_resource_as_issuer }}{% endif %}
+                            </span>
+                            <span class="ml-1 inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-700">
+                                {% if server.ema_subject_token_type == 'access_token' %}sends access token{% else %}sends ID token{% endif %}
+                            </span>
+                            {% if server.ema_status == 'error' and server.ema_error %}
+                            <p class="mt-1.5 text-xs text-red-700">{{ server.ema_error }}</p>
                             {% endif %}
                             {% if server.needs_user_identity %}
                             <p class="mt-1.5 text-xs text-gray-500">
@@ -394,6 +450,7 @@
         document.getElementById('bearer-fields').classList.toggle('hidden', authType !== 'bearer');
         document.getElementById('basic-fields').classList.toggle('hidden', authType !== 'basic');
         document.getElementById('obo-fields').classList.toggle('hidden', authType !== 'obo');
+        document.getElementById('ema-fields').classList.toggle('hidden', authType !== 'ema');
     }
 
     function openAddServerDialog() {
@@ -434,6 +491,10 @@
         f.elements['obo_actor_token_source'].value = card.dataset.oboActorTokenSource || 'none';
         f.elements['oauth_token_url'].value = card.dataset.oauthTokenUrl || '';
         f.elements['oauth_client_id'].value = card.dataset.oauthClientId || '';
+        f.elements['ema_resource_as_issuer'].value = card.dataset.emaResourceAsIssuer || '';
+        f.elements['ema_resource_as_token_url'].value = card.dataset.emaResourceAsTokenUrl || '';
+        f.elements['ema_resource_id'].value = card.dataset.emaResourceId || '';
+        f.elements['ema_subject_token_type'].value = card.dataset.emaSubjectTokenType || 'id_token';
         _setAuthFieldVisibility(authType);
         // Credentials are redacted server-side, so they can't be pre-filled; blank means "keep current".
         f.querySelector('[data-edit-cred-hint]').classList.remove('hidden');

@@ -1,0 +1,62 @@
+# Enterprise-Managed Authorization (ID-JAG) end-to-end stack.
+#
+#   docker compose -f e2e/docker-compose.ema.yml up --build -d
+#   docker compose -f e2e/docker-compose.ema.yml run --rm --build e2e-ema
+#   docker compose -f e2e/docker-compose.ema.yml down -v
+#
+# Unlike the OBO stack this one uses no Keycloak, for a tested reason: Keycloak
+# cannot issue ID-JAGs at all, and its receiver support is experimental with an
+# undocumented per-client switch. See e2e/README.md and TODO.md Story 8.6.
+#
+# Needs no .env: every credential here is a stub's own, not a realm import.
+services:
+  ema-idp:
+    build: ./ema_idp
+    environment:
+      IDP_ISSUER: http://ema-idp:9200
+      HUB_AUDIENCE: k5n-mcp-hub
+
+  ema-resource-as:
+    build: ./ema_resource_as
+    environment:
+      RESOURCE_AS_ISSUER: http://ema-resource-as:9300
+      IDP_ISSUER: http://ema-idp:9200
+      RESOURCE_ID: http://ema-mcp:9400/mcp
+    depends_on: [ema-idp]
+
+  # The MCP server itself, reusing the OBO stack's JWT-validating stub. Its issuer is
+  # the *resource* authorization server, not the enterprise IdP -- which is the whole
+  # point of the second leg.
+  ema-mcp:
+    build: ./mcp_stub
+    environment:
+      OIDC_ISSUER: http://ema-resource-as:9300
+      OIDC_AUDIENCE: http://ema-mcp:9400/mcp
+      OIDC_JWKS_URI: http://ema-resource-as:9300/jwks
+      RESOURCE_ID: http://ema-mcp:9400
+    command: ["sh", "-c", "sed -i 's/port=9100/port=9400/' server.py && python server.py"]
+    depends_on: [ema-resource-as]
+
+  hub:
+    build:
+      context: ..
+      dockerfile: Dockerfile
+    environment:
+      MCPHUB_AUTH__TYPE: jwt
+      MCPHUB_AUTH__JWT__ISSUER: http://ema-idp:9200
+      MCPHUB_AUTH__JWT__AUDIENCE: k5n-mcp-hub
+      MCPHUB_AUTH__JWT__JWKS_URI: http://ema-idp:9200/jwks
+      MCPHUB_SECURITY__ALLOW_PRIVATE_NETWORKS: "true"
+    ports:
+      - "${EMA_HUB_PORT:-38087}:8080"
+    depends_on: [ema-idp]
+
+  e2e-ema:
+    build: ./ema_runner
+    environment:
+      IDP: http://ema-idp:9200
+      RESOURCE_AS: http://ema-resource-as:9300
+      HUB: http://hub:8080
+      MCP: http://ema-mcp:9400
+    depends_on: [hub, ema-mcp]
+    profiles: ["test"]

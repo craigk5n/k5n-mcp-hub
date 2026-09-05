@@ -664,6 +664,133 @@ first proxied call.
         structure Epic 2 already sends.
   - [x] Non-EMA servers see no new `_meta` keys.
 
+> **Sizing:** roughly 25-35 files touched and 8-10 new test modules on top of the
+> existing 65. Epic 5 is the bulk; Epic 6 is comparatively small once identity
+> flows. Epics 5 and 6 are strictly sequential — 7.2 can be done at any time and
+> is worth doing early since it stands alone.
+
+## Enterprise-Managed Authorization (ID-JAG)
+
+Goal: reach downstream MCP servers whose **authorization server is not the hub's
+IdP** — the case Epic 6's single-leg exchange structurally cannot serve.
+
+In June 2026 MCP adopted the Identity Assertion JWT Authorization Grant (ID-JAG,
+from Cross-App Access) as its Enterprise-Managed Authorization extension,
+`io.modelcontextprotocol/enterprise-managed-authorization`. The enterprise IdP
+becomes the policy decision point: it decides which client may reach which MCP
+server for which user, and revocation happens in one place.
+Spec: <https://github.com/modelcontextprotocol/ext-auth/blob/main/specification/stable/enterprise-managed-authorization.mdx>
+
+Two legs instead of one:
+
+| | `auth_type: "obo"` (Epic 6) | `auth_type: "ema"` (this epic) |
+|---|---|---|
+| Leg 1 | RFC 8693 at the IdP → access token for the backend | RFC 8693 at the IdP → **ID-JAG** (`requested_token_type: urn:ietf:params:oauth:token-type:id-jag`, `audience` = the Resource AS's *issuer identifier*) |
+| Leg 2 | — | RFC 7523 at the **backend's own AS** (`grant_type: urn:ietf:params:oauth:grant-type:jwt-bearer`, `assertion` = the ID-JAG) → access token |
+| Assumes | One IdP that can mint a token for the backend | Backend has its own AS, in another tenant or vendor |
+| Policy | Per-server config on the hub | The enterprise IdP decides |
+
+Design decisions are in [`docs/adr/`](docs/adr/README.md):
+
+| ADR | Decision |
+|-----|----------|
+| [0005](docs/adr/0005-hub-is-the-mcp-client-in-ema.md) | The hub plays the **MCP Client** role; becoming an Authorization Server is out of scope |
+| [0006](docs/adr/0006-ema-subject-assertion-source.md) | The subject assertion is configured per server, defaults to the spec's ID Token, and fails closed when absent |
+
+Same TDD discipline and the same additive rule: `auth_type: "ema"` is opt-in per
+server, and every other registration keeps today's behavior byte-for-byte.
+
+> **Draft risk, deliberately taken.** ID-JAG is an active IETF Web Authorization
+> Protocol draft, not a finished RFC, so the wire format may still move. Same posture
+> as ADR 0002 took toward delegation: implement it, keep it opt-in per server, and
+> pin every URN as a named constant in one module so a draft revision is a one-file
+> change rather than a hunt.
+
+### Epic 8 — Enterprise-Managed Authorization
+
+**Story 8.1 — Recognize the id-jag grant profile during discovery**
+
+As a hub operator, I want to know whether a backend's authorization server can
+accept an ID-JAG, so misconfiguration surfaces at registration rather than at the
+first proxied call.
+
+- TDD: extend `tests/test_oauth.py` first.
+- Acceptance criteria:
+  - [x] `mcp/oauth.py` parses `authorization_grant_profiles_supported` from
+        authorization-server metadata (the discovery it already performs).
+  - [x] `urn:ietf:params:oauth:grant-profile:id-jag` and the four token/grant URNs
+        live in one constants module, so a draft revision is one edit.
+  - [x] `RegisteredServer` records whether the backend's AS advertises the profile
+        (`ema_supports_id_jag_profile`, landed with Story 8.4's model work);
+        the value is advisory, never a gate — an AS may support it without
+        advertising, and the hub must not refuse to try.
+  - [x] Servers with no AS metadata are unaffected.
+
+**Story 8.2 — The two-leg exchange**
+
+- TDD: new `tests/test_id_jag.py` first, both legs against `MockTransport`.
+- Acceptance criteria:
+  - [x] `mcp/id_jag.py` performs leg 1 (`grant_type=...:token-exchange`,
+        `requested_token_type=...:token-type:id-jag`, `audience` = the Resource AS
+        **issuer identifier**, optional `resource` = the MCP server's resource
+        identifier) and leg 2 (`grant_type=...:jwt-bearer`, `assertion` = the ID-JAG).
+  - [x] The returned `issued_token_type` is checked to be the id-jag type; a
+        different type is an error rather than something to forward blindly.
+  - [x] The ID-JAG's `resource` claim is verified to name the server being called
+        before leg 2 — the spec makes it MUST-contain, and forwarding one minted for
+        a different resource is exactly the confused-deputy case to prevent.
+  - [x] Both legs use the SSRF-pinned transport with redirects disabled: the subject
+        assertion travels on leg 1 and the ID-JAG on leg 2, and a 3xx would leak
+        either.
+  - [x] RFC 6749 errors from *either* leg are preserved and say which leg failed —
+        "the IdP refused" and "the backend's AS refused" have completely different
+        fixes.
+
+**Story 8.3 — Subject assertion plumbing (ADR 0006)**
+
+- TDD: extend `tests/test_principal.py` and `tests/test_jwt_auth.py` first.
+- Acceptance criteria:
+  - [x] `Principal` gains an optional `id_token`, redacted in `__repr__` and never
+        persisted, on the same terms as `token`.
+  - [x] A documented inbound header carries it; the header is added to
+        `SENSITIVE_HEADERS` in `trace/recorder.py`, with a redaction test.
+  - [x] `ema_subject_token_type` (`id_token` default, `access_token` alternative)
+        selects what leg 1 sends.
+  - [x] Missing the configured assertion fails closed with a 401 carrying the
+        RFC 9728 challenge — never a silent fallback to the other token type, which
+        would make the effective identity depend on which attempt succeeded.
+  - [x] The docs state plainly that the header is hub-specific, not something MCP
+        clients send by convention.
+
+**Story 8.4 — `auth_type: "ema"` registration and auth rule**
+
+- TDD: extend `tests/test_register.py`, `tests/test_models.py`,
+  `tests/test_apply_server_auth.py` first.
+- Acceptance criteria:
+  - [x] New fields: `ema_resource_as_issuer`, `ema_resource_id`, `ema_token_url`,
+        `ema_subject_token_type`, `ema_status`, `ema_error`, sanitized like the
+        `obo_*` pair.
+  - [x] A rule in `apply_server_auth` fires only on an exact `auth_type == "ema"`
+        match, placed with the OBO rule ahead of the static credentials, for the same
+        reason: a stale `bearer_token` must not silently disable per-user auth.
+  - [x] `SERVICE_IDENTITY` skips it and falls through to the static rules, and
+        `needs_user_identity` treats `ema` like `obo` — so Story 6.5's health and
+        discovery degradation applies unchanged (ADR 0004).
+  - [x] The per-subject cache is reused with the Resource AS issuer in the key: two
+        backends behind different authorization servers must never share an entry.
+  - [x] Fail-closed and single-re-exchange-on-401 behave exactly as Story 6.4, with
+        both legs re-run.
+
+**Story 8.5 — Declare the extension in outbound capabilities**
+
+- TDD: extend `tests/test_stateless_client.py` first.
+- Acceptance criteria:
+  - [x] Requests to an `ema` server carry
+        `io.modelcontextprotocol/enterprise-managed-authorization` under
+        `_meta.io.modelcontextprotocol/clientCapabilities.extensions` — the `_meta`
+        structure Epic 2 already sends.
+  - [x] Non-EMA servers see no new `_meta` keys.
+
 **Story 8.6 — Admin UI and end-to-end proof**
 
 - Acceptance criteria:
@@ -679,15 +806,22 @@ first proxied call.
         confirm it: receiver side only, behind `--features=identity-assertion-jwt`,
         marked experimental and "do not use in production"; issuer side "not yet
         fully implemented" (keycloak/keycloak#43971).
-  - [ ] Therefore the e2e stack splits the two legs:
-        - **Leg 1 (issue the ID-JAG)** — a stub enterprise IdP we control, ~50 lines:
-          it signs an ID-JAG with a known key and serves a JWKS. Hermetic, and it
-          lets the tests drive the claim edge cases (wrong `resource`, expired,
-          wrong `aud`) that a real IdP would not produce on demand.
-        - **Leg 2 (redeem it)** — Keycloak 26.7+ with `identity-assertion-jwt`
-          enabled, as a *real* implementation of the receiver side, so the leg the
-          hub actually has to interoperate with is tested against something we did
-          not write. Verify the feature works there before committing to it.
+  - [x] Leg 1 runs against a stub enterprise IdP (`e2e/ema_idp/`) that also provides
+        SSO, so the hub has a real token to validate. Deliberately credulous: it
+        signs what it is asked for, which lets the suite request a wrong `resource`
+        or an expired assertion and watch the hub refuse them.
+  - [x] **Leg 2 uses a stub too, after testing Keycloak 26.7 and finding it unusable
+        here.** With `--features=identity-assertion-jwt` it does accept the
+        `jwt-bearer` grant and reject assertions on their content rather than the
+        grant type, so the receiver path exists. But the feature is flagged
+        experimental ("do not use in production") and the per-client switch that
+        permits the grant is undocumented — `invalid_grant: JWT Authorization Grant
+        is not supported for the requested client` persisted through the attribute
+        names that seemed most likely (`jwt.authorization.grant.enabled`,
+        `identity.assertion.jwt.enabled`).
+  - [ ] **Known gap:** leg 2 is therefore never tested against an implementation we
+        did not write. Revisit when Keycloak's receiver support stabilises, or if a
+        free Okta/Auth0 tier can play the resource authorization server.
   - [ ] Revisit if Okta or Auth0 offer a free tier that issues ID-JAGs; a real
         issuer for leg 1 would be strictly better than the stub, and both document
         Cross-App Access.
