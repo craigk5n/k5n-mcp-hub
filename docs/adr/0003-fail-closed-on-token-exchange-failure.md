@@ -34,8 +34,9 @@ For a server with `auth_type: "obo"`:
    cache entry, re-exchange **exactly once**, retry. A second `401` is returned
    to the caller with the backend's `WWW-Authenticate` challenge intact.
 3. No inbound principal on a request to an OBO server → `401` with
-   `WWW-Authenticate: Bearer resource="<protected-resource-metadata-url>"`, so a
-   spec-compliant MCP client knows where to authenticate.
+   `WWW-Authenticate: Bearer resource_metadata="<protected-resource-metadata-url>"`
+   (RFC 9728's challenge parameter), so a spec-compliant MCP client knows where to
+   authenticate.
 4. Outcomes are recorded on `obo_status` / `obo_error`, mirroring the existing
    `oauth_token_status` / `oauth_token_error` fields and their sanitization
    rules (`models/server.py:91-92`, `sanitize_for_api`).

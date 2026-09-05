@@ -81,6 +81,30 @@ class BasicAuthConfig(BaseModel):
     register_pass: str = ""
 
 
+class JWTAuthConfig(BaseModel):
+    """OAuth resource-server settings for `auth.type: jwt` (Story 5.2/5.3).
+
+    All empty by default: the hub is local-first and reaches none of this unless the
+    operator opts in. `jwks_uri` is required rather than derived, because the path
+    differs per IdP (Keycloak publishes it under
+    `<issuer>/protocol/openid-connect/certs`) and guessing would fail obscurely.
+    """
+
+    model_config = SettingsConfigDict(populate_by_name=True)
+
+    issuer: str = ""
+    audience: str = ""
+    jwks_uri: str = ""
+    # Empty means "the asymmetric defaults" (auth.jwt_bearer.DEFAULT_ALGORITHMS).
+    algorithms: list[str] = []
+    required_scopes: list[str] = []
+    # Clock-skew tolerance for exp/nbf, in seconds.
+    leeway_seconds: float = 0.0
+    # Overrides the protected-resource identifier advertised by RFC 9728 metadata;
+    # derived from the request URL when empty.
+    resource: str = ""
+
+
 class AuthConfig(BaseModel):
     model_config = SettingsConfigDict(populate_by_name=True)
 
@@ -89,11 +113,12 @@ class AuthConfig(BaseModel):
     # repo's config.yaml isn't the working directory (the normal installed-CLI case).
     type: str = "none"
     basic_auth: BasicAuthConfig = Field(default_factory=BasicAuthConfig)
+    jwt: JWTAuthConfig = Field(default_factory=JWTAuthConfig)
 
     @field_validator("type")
     @classmethod
     def validate_type(cls, v: str) -> str:
-        valid_types = {"basic", "none", "noauth", ""}
+        valid_types = {"basic", "jwt", "none", "noauth", ""}
         if v not in valid_types:
             raise ValueError(
                 f"Invalid auth type: {v}. Must be one of: {', '.join(sorted(valid_types))}"
@@ -182,6 +207,23 @@ def _load_yaml_config(path: str | Path | None) -> dict[str, Any]:
         return yaml.safe_load(f) or {}
 
 
+def _deep_merge(base: dict[str, Any], override: dict[str, Any]) -> dict[str, Any]:
+    """Merge ``override`` into ``base``, recursing into nested dicts.
+
+    A shallow merge would let a single env var replace a whole subtree — setting
+    ``MCPHUB_AUTH__JWT__ISSUER`` would silently discard the audience and jwks_uri
+    configured in YAML, and the hub would fail closed for a reason nothing explains.
+    """
+    result = dict(base)
+    for key, value in override.items():
+        existing = result.get(key)
+        if isinstance(existing, dict) and isinstance(value, dict):
+            result[key] = _deep_merge(existing, value)
+        else:
+            result[key] = value
+    return result
+
+
 def _transform_env_key(key: str) -> str:
     key = key.upper()
     key = key.replace("__", ".")
@@ -220,36 +262,30 @@ def load_settings(path: str | None = None) -> Settings:
 
     nested_env_vars = _collect_nested_env_vars()
 
-    server_dict = {
-        **defaults.server.model_dump(),
-        **yaml_config.get("server", {}),
-        **nested_env_vars.get("server", {}),
-    }
-    storage_dict = {
-        **defaults.storage.model_dump(),
-        **yaml_config.get("storage", {}),
-        **nested_env_vars.get("storage", {}),
-    }
-    auth_dict = {
-        **defaults.auth.model_dump(),
-        **yaml_config.get("auth", {}),
-        **nested_env_vars.get("auth", {}),
-    }
-    healthcheck_dict = {
-        **defaults.healthcheck.model_dump(),
-        **yaml_config.get("healthcheck", {}),
-        **nested_env_vars.get("healthcheck", {}),
-    }
-    trace_dict = {
-        **defaults.trace.model_dump(),
-        **yaml_config.get("trace", {}),
-        **nested_env_vars.get("trace", {}),
-    }
-    security_dict = {
-        **defaults.security.model_dump(),
-        **yaml_config.get("security", {}),
-        **nested_env_vars.get("security", {}),
-    }
+    server_dict = _deep_merge(
+        _deep_merge(defaults.server.model_dump(), yaml_config.get("server", {})),
+        nested_env_vars.get("server", {}),
+    )
+    storage_dict = _deep_merge(
+        _deep_merge(defaults.storage.model_dump(), yaml_config.get("storage", {})),
+        nested_env_vars.get("storage", {}),
+    )
+    auth_dict = _deep_merge(
+        _deep_merge(defaults.auth.model_dump(), yaml_config.get("auth", {})),
+        nested_env_vars.get("auth", {}),
+    )
+    healthcheck_dict = _deep_merge(
+        _deep_merge(defaults.healthcheck.model_dump(), yaml_config.get("healthcheck", {})),
+        nested_env_vars.get("healthcheck", {}),
+    )
+    trace_dict = _deep_merge(
+        _deep_merge(defaults.trace.model_dump(), yaml_config.get("trace", {})),
+        nested_env_vars.get("trace", {}),
+    )
+    security_dict = _deep_merge(
+        _deep_merge(defaults.security.model_dump(), yaml_config.get("security", {})),
+        nested_env_vars.get("security", {}),
+    )
 
     settings = Settings(
         server=ServerConfig(**server_dict),

@@ -16,6 +16,7 @@ from jinja2 import Environment, FileSystemLoader, select_autoescape
 from mcp_hub.agents.card import AgentRegistry as CardAgentRegistry
 from mcp_hub.agents.fixtures import FixtureStore
 from mcp_hub.auth import Authenticator, build_authenticator, auth_required
+from mcp_hub.auth.metadata import bearer_challenge
 from mcp_hub.registry.service import AgentRegistry
 from mcp_hub.config import Settings, load_settings
 from mcp_hub.logging_setup import configure_logging
@@ -206,8 +207,19 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     registry = Registry(storage)
     agent_registry = AgentRegistry(storage)
     card_agent_registry = CardAgentRegistry()
-    authenticator: Authenticator = build_authenticator(settings.auth)
-    auth_dependency = auth_required(authenticator)
+    authenticator: Authenticator = build_authenticator(
+        settings.auth, allow_private_networks=settings.security.allow_private_networks
+    )
+    # A jwt hub is an OAuth resource server, so its 401s must point a client at the
+    # RFC 9728 metadata document (built per-request; the base URL isn't known here).
+    auth_dependency = (
+        auth_required(
+            authenticator,
+            challenge_factory=lambda request: bearer_challenge(request, settings.auth),
+        )
+        if settings.auth.type == "jwt"
+        else auth_required(authenticator)
+    )
     # Let outbound MCP/discovery connections reach localhost/LAN when the operator opts in
     # (local-first mode). The flag is threaded explicitly into the SSRF-pinned transport via
     # each MCPClient/DiscoveryService — never a process-global — so it can't leak across apps.

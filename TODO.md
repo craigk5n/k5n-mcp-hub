@@ -306,15 +306,15 @@ whether they did, so downstream code can act on identity.
 - TDD: extend `tests/test_auth.py` and `tests/test_integration_auth.py` first —
   both assert today's boolean contract, so they go RED by construction.
 - Acceptance criteria:
-  - [ ] A `Principal` type carries at minimum `subject`, `issuer`, `scopes`, and
+  - [x] A `Principal` type carries at minimum `subject`, `issuer`, `scopes`, and
         the raw token (needed as `subject_token` in Epic 6).
-  - [ ] `Authenticator.authenticate()` returns `Principal | None`;
+  - [x] `Authenticator.authenticate()` returns `Principal | None`;
         `auth_required` (`auth/base.py:17-30`) no longer tests `result is not True`.
-  - [ ] `NoAuthStrategy` returns an anonymous `Principal`; `BasicAuthStrategy`
+  - [x] `NoAuthStrategy` returns an anonymous `Principal`; `BasicAuthStrategy`
         returns one identifying the configured user. Neither changes its
         allow/deny behavior — existing 401 responses and `WWW-Authenticate`
         headers are byte-identical.
-  - [ ] The authenticated principal is attached to `request.state`.
+  - [x] The authenticated principal is attached to `request.state`.
 
 **Story 5.2 — JWT bearer authenticator**
 
@@ -324,34 +324,34 @@ so callers have a real, verified identity.
 - TDD: new `tests/test_jwt_auth.py` first, signing tokens locally with a test key
   and serving JWKS through an httpx `MockTransport` — no live IdP in unit tests.
 - Acceptance criteria:
-  - [ ] `auth/jwt_bearer.py` validates signature, `iss`, `aud`, `exp`, `nbf`, and
+  - [x] `auth/jwt_bearer.py` validates signature, `iss`, `aud`, `exp`, `nbf`, and
         required scopes; rejects `alg: none` and algorithm confusion.
-  - [ ] JWKS is fetched over the SSRF-pinned transport (`utils.SafePinnedTransport`,
+  - [x] JWKS is fetched over the SSRF-pinned transport (`utils.SafePinnedTransport`,
         `follow_redirects=False`), cached, and refreshed on unknown `kid` with a
         rate limit so an unknown-kid flood can't hammer the IdP.
-  - [ ] Rejections produce `401` with a spec-shaped `WWW-Authenticate: Bearer`
+  - [x] Rejections produce `401` with a spec-shaped `WWW-Authenticate: Bearer`
         challenge including `error` and `resource`.
-  - [ ] The crypto dependency (`joserfc` or `pyjwt[crypto]`) is declared in
+  - [x] The crypto dependency (`joserfc` or `pyjwt[crypto]`) is declared in
         `pyproject.toml` `dependencies` — CI's clean-venv gate fails otherwise.
 
 **Story 5.3 — `auth.type: "jwt"` configuration**
 
 - TDD: extend `tests/test_config.py` first.
 - Acceptance criteria:
-  - [ ] `AuthConfig.validate_type` (`config.py:93-101`) accepts `jwt`; a new
+  - [x] `AuthConfig.validate_type` (`config.py:93-101`) accepts `jwt`; a new
         `JWTAuthConfig` carries issuer, JWKS URL, audience, algorithms, and
         required scopes.
-  - [ ] Env overrides work through both documented patterns
+  - [x] Env overrides work through both documented patterns
         (`MCPHUB_AUTH__JWT__ISSUER=...`).
-  - [ ] Fails closed like `basic` does: `auth.type: jwt` without an issuer or
+  - [x] Fails closed like `basic` does: `auth.type: jwt` without an issuer or
         audience raises at `build_authenticator`, with a message naming the
         missing setting.
-  - [ ] `config.yaml` gains the commented-out block; defaults are unchanged
+  - [x] `config.yaml` gains the commented-out block; defaults are unchanged
         (`auth.type` stays `none`).
-  - [ ] Regression test: with default config and no network, the app starts, serves
+  - [x] Regression test: with default config and no network, the app starts, serves
         `/healthz`, and registers/proxies to a non-OBO server exactly as today —
         no JWKS fetch attempted, no IdP contacted.
-  - [ ] With `auth.type: jwt` and an unreachable IdP, the app still **starts**
+  - [x] With `auth.type: jwt` and an unreachable IdP, the app still **starts**
         (JWKS is lazy); only token validation fails, and it fails with a `401`
         carrying a diagnostic, not a crash.
 
@@ -362,13 +362,17 @@ so I can obtain a token without out-of-band configuration.
 
 - TDD: new `tests/test_protected_resource_metadata.py` first.
 - Acceptance criteria:
-  - [ ] `GET /.well-known/oauth-protected-resource` returns `resource`,
+  - [x] `GET /.well-known/oauth-protected-resource` returns `resource`,
         `authorization_servers`, `scopes_supported`, and
         `bearer_methods_supported`.
-  - [ ] Served unauthenticated (it is discovery metadata) and omitted entirely
+  - [x] Served unauthenticated (it is discovery metadata) and omitted entirely
         when `auth.type` is not `jwt`.
-  - [ ] `401`s from Story 5.2 point at this URL in their `resource` parameter —
-        the client-side half of this already exists in `mcp/oauth.py:64-110`.
+  - [x] `401`s from Story 5.2 point at this URL in their `resource_metadata`
+        parameter (RFC 9728's challenge parameter — `resource` is RFC 8707's
+        *request* parameter, a different thing). Note `mcp/oauth.py:64-110`
+        parses only `resource`, so the hub's own client-side challenge parsing
+        does not yet read this; that is a backend-facing path and out of scope
+        here.
 
 **Story 5.5 — Thread the principal to the outbound call sites**
 

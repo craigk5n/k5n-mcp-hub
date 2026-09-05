@@ -36,10 +36,11 @@ storage:
 # =============================================================================
 # Controls authentication and user registration.
 auth:
-  # type: Authentication mechanism. Options: basic, none.
+  # type: Authentication mechanism. Options: basic, jwt, none.
   # Set to "none" for local/LAN testing so the admin UI can register servers without
   # credentials. Switch back to "basic" (and set basic_auth.register_pass) before any
-  # non-trusted deployment.
+  # non-trusted deployment. Use "jwt" to make the hub an OAuth resource server that
+  # validates access tokens from your IdP (required for on-behalf-of; see docs/adr/).
   type: none
 
   # basic_auth: Basic authentication settings.
@@ -51,6 +52,26 @@ auth:
     # WARNING: Default passwords shipped with applications are a security risk.
     # Uncomment and set a strong password before deploying to production.
     # register_pass: "YOUR_PASSWORD_HERE"
+
+  # jwt: (Commented out) OAuth resource-server settings, used only when type is "jwt".
+  # The hub validates inbound access tokens itself rather than trusting a fronting
+  # proxy (docs/adr/0001-hub-validates-inbound-tokens.md). issuer, audience and
+  # jwks_uri are all required — the hub refuses to start with any of them missing.
+  # jwks_uri is not derived from the issuer because the path differs per IdP.
+  # jwt:
+  #   issuer: "https://idp.example.com/realms/mcp-hub"
+  #   audience: "k5n-mcp-hub"
+  #   jwks_uri: "https://idp.example.com/realms/mcp-hub/protocol/openid-connect/certs"
+  #   # algorithms: empty means the asymmetric defaults (RS/PS/ES families).
+  #   # Symmetric algorithms are refused: a JWKS holds public keys.
+  #   algorithms: []
+  #   # required_scopes: every one must be present or the token is rejected.
+  #   required_scopes: []
+  #   # leeway_seconds: clock-skew tolerance for exp/nbf.
+  #   leeway_seconds: 0
+  #   # resource: the hub's public identity in RFC 9728 metadata. Derived from the
+  #   # request URL when empty; set it when running behind a reverse proxy.
+  #   resource: ""
 
 # =============================================================================
 # Health Check Configuration
