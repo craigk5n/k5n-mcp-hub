@@ -36,6 +36,11 @@ PROTOCOL_VERSION = {{ protocol_version | tojson }}
 IS_HUB = {% if is_hub_bool %}True{% else %}False{% endif %}
 BASE_URL = {{ base_url | tojson }}
 AUTH_TYPE = {{ auth_type | default('') | tojson }}
+{% if auth_type == 'obo' %}
+# This server uses on-behalf-of auth, so calls must go through the hub: pointed
+# straight at the backend, your token has the wrong audience and will be refused.
+# Set MCP_USER_TOKEN to your own access token before running.
+{% endif %}
 BASIC_USER_DEFAULT = {{ basic_username | default('') | tojson }}
 TARGET_SERVER = {% if is_hub_bool %}{{ target_server_id | tojson }}{% else %}None{% endif %}
 CA_BUNDLE_PATH = {{ ca_bundle | tojson }}
@@ -64,6 +69,15 @@ def build_auth_header():
     if AUTH_TYPE == "oauth":
         token = os.environ.get("MCP_ACCESS_TOKEN") or getpass.getpass("OAuth access token: ")
         return "Bearer " + token
+{% if auth_type == 'obo' %}
+    if AUTH_TYPE == "obo":
+        # On-behalf-of: this is YOUR access token, not the server's. The hub validates
+        # it and exchanges it (RFC 8693) for one whose audience is the target server.
+        # Nothing reusable can be baked into this script -- the credential is yours and
+        # expires with your session.
+        token = os.environ.get("MCP_USER_TOKEN") or getpass.getpass("Your access token: ")
+        return "Bearer " + token
+{% endif %}
     return None
 
 

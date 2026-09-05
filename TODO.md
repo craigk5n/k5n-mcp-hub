@@ -507,11 +507,11 @@ mandatory, since IdP error bodies routinely echo token material.
 
 - TDD: extend `tests/test_tool_script_template.py` and `tests/test_ui_downloads.py`.
 - Acceptance criteria:
-  - [ ] `tool_script.py.j2` / `tool_script.sh.j2` cannot embed an OBO credential —
+  - [x] `tool_script.py.j2` / `tool_script.sh.j2` cannot embed an OBO credential —
         the token is the live caller's. Scripts for OBO servers emit a comment
         explaining that the caller must supply their own bearer token, and read it
         from an env var rather than baking one in.
-  - [ ] Non-OBO scripts are byte-identical to today.
+  - [x] Non-OBO scripts are byte-identical to today.
 
 **Story 7.4 — Keycloak-backed end-to-end stack**
 
