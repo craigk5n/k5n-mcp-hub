@@ -61,7 +61,7 @@ class RegisteredServer(BaseModel):
     mcp_protocol_version: str = ""
     mcp_transport: Literal["http", "sse", ""] = ""
     mcp_conformant: bool | None = None
-    auth_type: Literal["bearer", "basic", "oauth", ""] = ""
+    auth_type: Literal["bearer", "basic", "oauth", "obo", ""] = ""
     bearer_token: str = ""
     basic_username: str = ""
     basic_password: str = ""
@@ -74,6 +74,14 @@ class RegisteredServer(BaseModel):
     oauth_resource: str = ""
     oauth_metadata: dict[str, Any] | None = None
     oauth_last_checked: datetime | None = None
+    # On-behalf-of (RFC 8693). The hub's own client_id/secret above authenticate the
+    # exchange; these describe what the exchanged token should be good for.
+    obo_audience: str = ""
+    obo_resource: str = ""
+    obo_scope: str = ""
+    # Delegation is opt-in per server (ADR 0002): most issuers, Keycloak included,
+    # do not accept an actor token on the supported exchange path.
+    obo_actor_token_source: Literal["none", "client_credentials"] = "none"
     trace_verbose: bool = False
     fault_injection: FaultInjection = Field(default_factory=FaultInjection)
 
@@ -92,6 +100,8 @@ class RegisteredServer(BaseModel):
     schema_issues: list[str] = []
     oauth_token_status: Literal["ok", "error", ""] = ""
     oauth_token_error: str = ""
+    obo_status: Literal["ok", "error", ""] = ""
+    obo_error: str = ""
     tools: list[Any] | None = None
     prompts: list[Any] | None = None
     resources: list[Any] | None = None
@@ -148,6 +158,8 @@ class RegisteredServer(BaseModel):
                 "basic_password": "",
                 "oauth_client_secret": "",
                 "oauth_token_error": "",
+                # Carries the IdP's error text, which can echo token material.
+                "obo_error": "",
             }
         )
 
@@ -170,5 +182,7 @@ class RegisteredServer(BaseModel):
                 # again (even across restarts) and go straight to an MCP ping.
                 "oauth_token_status": "",
                 "oauth_token_error": "",
+                "obo_status": "",
+                "obo_error": "",
             }
         )

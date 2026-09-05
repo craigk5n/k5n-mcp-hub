@@ -13,7 +13,7 @@ class RegisterRequest(BaseModel):
     registration_type: Literal["self", "manual", ""] = ""
     mcp_protocol_version: str = ""
     mcp_transport: Literal["http", "sse", ""] = ""
-    auth_type: Literal["bearer", "basic", "oauth", ""] = ""
+    auth_type: Literal["bearer", "basic", "oauth", "obo", ""] = ""
     bearer_token: str = ""
     basic_username: str = ""
     basic_password: str = ""
@@ -23,6 +23,10 @@ class RegisterRequest(BaseModel):
     oauth_client_secret: str = ""
     oauth_scope: str = ""
     oauth_resource: str = ""
+    obo_audience: str = ""
+    obo_resource: str = ""
+    obo_scope: str = ""
+    obo_actor_token_source: Literal["none", "client_credentials"] = "none"
     trace_verbose: bool = False
 
     @field_validator("id", "url", mode="before")
@@ -56,8 +60,8 @@ class RegisterRequest(BaseModel):
     @field_validator("auth_type")
     @classmethod
     def validate_auth_type(cls, v: str) -> str:
-        if v and v not in ("bearer", "basic", "oauth"):
-            raise ValueError("must be 'bearer', 'basic', or 'oauth'")
+        if v and v not in ("bearer", "basic", "oauth", "obo"):
+            raise ValueError("must be 'bearer', 'basic', 'oauth', or 'obo'")
         return v
 
     @field_validator("mcp_transport")

@@ -1,15 +1,40 @@
 import asyncio
 import base64
+import logging
 from dataclasses import dataclass
 from datetime import datetime, timezone, timedelta
-from typing import cast
+from typing import Awaitable, Callable, cast
 
 import httpx
 
-from mcp_hub.auth.caller import CallerIdentity
+from mcp_hub.auth.caller import CallerIdentity, ServiceIdentity
+from mcp_hub.auth.principal import Principal
 from mcp_hub.models.server import RegisteredServer
 from mcp_hub.mcp.oauth import token_endpoint_from_metadata
+from mcp_hub.mcp.obo_cache import OBOCacheKey, OBOTokenCache
+from mcp_hub.mcp.token_exchange import (
+    ExchangeRequest,
+    ExchangedToken,
+    TokenExchangeError,
+    exchange_token,
+)
 from mcp_hub.utils import SafePinnedTransport
+
+logger = logging.getLogger(__name__)
+
+
+class OBOAuthError(Exception):
+    """On-behalf-of authentication could not be applied.
+
+    Raised rather than silently leaving the header unset, because the caller must
+    fail the request closed (ADR 0003). Falling back to the server's static or
+    client-credentials identity would run the call with the hub's broader rights and
+    look, in the response, exactly like success.
+    """
+
+    def __init__(self, message: str, *, detail: str = "") -> None:
+        super().__init__(message)
+        self.detail = detail or message
 
 
 @dataclass
@@ -97,6 +122,9 @@ class TokenCache:
 
 
 DEFAULT_TOKEN_CACHE = TokenCache()
+DEFAULT_OBO_CACHE = OBOTokenCache()
+
+ExchangeFn = Callable[..., Awaitable[ExchangedToken]]
 
 
 async def apply_server_auth(
@@ -105,6 +133,8 @@ async def apply_server_auth(
     *,
     caller: CallerIdentity,
     token_cache: TokenCache = DEFAULT_TOKEN_CACHE,
+    obo_cache: OBOTokenCache = DEFAULT_OBO_CACHE,
+    exchange: ExchangeFn = exchange_token,
     client: httpx.AsyncClient | None = None,
     allow_private_networks: bool = False,
 ) -> None:
@@ -132,7 +162,26 @@ async def apply_server_auth(
        On failure: leave Authorization unset, set oauth_token_status='error',
        oauth_token_error=str(exc) or 'empty token response'.
     4. Else: do not set an Authorization header.
+
+    Rule 0 precedes all of these: when ``server.auth_type == "obo"`` and a user is in
+    scope, the caller's token is exchanged (RFC 8693) and nothing else is consulted.
+    A stale ``bearer_token`` left on an OBO server must not quietly disable per-user
+    auth. Background callers (``SERVICE_IDENTITY``) skip rule 0 entirely and fall
+    through to the rules below (ADR 0004).
     """
+    if server.auth_type == "obo" and not isinstance(caller, ServiceIdentity):
+        await _apply_obo_auth(
+            headers,
+            server,
+            caller,
+            token_cache=token_cache,
+            obo_cache=obo_cache,
+            exchange=exchange,
+            client=client,
+            allow_private_networks=allow_private_networks,
+        )
+        return
+
     token = server.bearer_token
     if token and token.strip():
         tok = token.strip()
@@ -175,3 +224,79 @@ async def apply_server_auth(
         except Exception as exc:  # noqa: BLE001
             server.oauth_token_status = "error"
             server.oauth_token_error = str(exc)
+
+
+async def _apply_obo_auth(
+    headers: httpx.Headers | dict[str, str],
+    server: RegisteredServer,
+    caller: CallerIdentity,
+    *,
+    token_cache: TokenCache,
+    obo_cache: OBOTokenCache,
+    exchange: ExchangeFn,
+    client: httpx.AsyncClient | None,
+    allow_private_networks: bool,
+) -> None:
+    """Exchange the caller's token for one bound to this backend, or fail closed."""
+    if not isinstance(caller, Principal) or not caller.can_act_as_obo_subject():
+        raise _obo_failure(server, "no user identity available to act on behalf of")
+
+    token_url = server.oauth_token_url or token_endpoint_from_metadata(server.oauth_metadata)
+    if not token_url:
+        raise _obo_failure(server, "no oauth token endpoint configured")
+    if not server.oauth_client_id or not server.oauth_client_secret:
+        raise _obo_failure(server, "missing oauth client credentials for the exchange")
+
+    actor_token = ""
+    if server.obo_actor_token_source == "client_credentials":
+        # Delegation: the hub presents its own token alongside the user's so the
+        # issued token can name both parties (ADR 0002).
+        try:
+            actor_token = await token_cache.token(
+                server, client=client, allow_private_networks=allow_private_networks
+            )
+        except Exception as exc:  # noqa: BLE001 - surfaced as an OBO failure
+            raise _obo_failure(server, f"could not obtain the hub's actor token: {exc}") from exc
+
+    key = OBOCacheKey(
+        subject=caller.subject,
+        issuer=caller.issuer,
+        server_id=server.id or server.url,
+        audience=server.obo_audience,
+        scope=server.obo_scope,
+    )
+
+    async def fetch() -> ExchangedToken:
+        return await exchange(
+            ExchangeRequest(
+                token_url=token_url,
+                client_id=server.oauth_client_id,
+                client_secret=server.oauth_client_secret,
+                subject_token=caller.token,
+                audience=server.obo_audience,
+                resource=server.obo_resource,
+                scope=server.obo_scope,
+                actor_token=actor_token,
+            ),
+            client=client,
+            allow_private_networks=allow_private_networks,
+        )
+
+    try:
+        access_token = await obo_cache.token(key, fetch=fetch, subject_expires_at=caller.expires_at)
+    except TokenExchangeError as exc:
+        raise _obo_failure(server, exc.summary()) from exc
+
+    # Only Authorization. The static-bearer path also mirrors the token into
+    # X-MCP-Token for backends behind Apache, but a user-scoped token gets no second
+    # copy — fewer places for it to be logged or leaked.
+    headers["Authorization"] = f"Bearer {access_token}"
+    server.obo_status = "ok"
+    server.obo_error = ""
+
+
+def _obo_failure(server: RegisteredServer, detail: str) -> OBOAuthError:
+    server.obo_status = "error"
+    server.obo_error = detail
+    logger.info("on-behalf-of auth failed for server %s: %s", server.id, detail)
+    return OBOAuthError(f"on-behalf-of auth failed: {detail}", detail=detail)

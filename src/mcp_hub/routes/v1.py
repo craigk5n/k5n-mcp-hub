@@ -141,6 +141,10 @@ async def _register_server_impl(
         oauth_client_secret=validated.oauth_client_secret,
         oauth_scope=validated.oauth_scope,
         oauth_resource=validated.oauth_resource,
+        obo_audience=validated.obo_audience,
+        obo_resource=validated.obo_resource,
+        obo_scope=validated.obo_scope,
+        obo_actor_token_source=validated.obo_actor_token_source,
         name=validated.name,
         version=validated.version,
         description=validated.description,
@@ -166,6 +170,10 @@ async def _register_server_impl(
 
     merge_fields = [
         "auth_type",
+        "obo_audience",
+        "obo_resource",
+        "obo_scope",
+        "obo_actor_token_source",
         "bearer_token",
         "basic_username",
         "basic_password",
