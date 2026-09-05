@@ -472,7 +472,7 @@
       "credentials": [
         {
           "type": "password",
-          "value": "alice-password",
+          "value": "${KC_ALICE_PASSWORD}",
           "temporary": false
         }
       ]
@@ -488,7 +488,7 @@
       "credentials": [
         {
           "type": "password",
-          "value": "bob-password",
+          "value": "${KC_BOB_PASSWORD}",
           "temporary": false
         }
       ]
@@ -711,7 +711,7 @@
       "enabled": true,
       "alwaysDisplayInConsole": false,
       "clientAuthenticatorType": "client-secret",
-      "secret": "hub-client-secret",
+      "secret": "${KC_HUB_CLIENT_SECRET}",
       "redirectUris": [],
       "webOrigins": [],
       "notBefore": 0,

@@ -21,6 +21,10 @@ HUB = os.environ.get("HUB", "http://hub:8080").rstrip("/")
 STUB = os.environ.get("STUB", "http://mcp-stub:9100").rstrip("/")
 
 REALM = "mcp-hub"
+# Same values compose injects into Keycloak's realm import, so the two cannot drift.
+HUB_CLIENT_SECRET = os.environ.get("KC_HUB_CLIENT_SECRET", "dev-only-hub-secret")
+ALICE_PASSWORD = os.environ.get("KC_ALICE_PASSWORD", "dev-only-alice-password")
+BOB_PASSWORD = os.environ.get("KC_BOB_PASSWORD", "dev-only-bob-password")
 TOKEN_URL = f"{KEYCLOAK}/realms/{REALM}/protocol/openid-connect/token"
 SERVER_ID = "files"
 
@@ -94,8 +98,8 @@ def main() -> int:
         wait_for(client, f"{STUB}/health", "mcp-stub")
         wait_for(client, f"{HUB}/healthz", "hub")
 
-        alice = login(client, "alice", "alice-password")
-        bob = login(client, "bob", "bob-password")
+        alice = login(client, "alice", ALICE_PASSWORD)
+        bob = login(client, "bob", BOB_PASSWORD)
 
         print("\nthe hub as an OAuth resource server")
         metadata = client.get(f"{HUB}/.well-known/oauth-protected-resource")
@@ -129,7 +133,7 @@ def main() -> int:
                 "auth_type": "obo",
                 "oauth_token_url": TOKEN_URL,
                 "oauth_client_id": "k5n-mcp-hub",
-                "oauth_client_secret": "hub-client-secret",
+                "oauth_client_secret": HUB_CLIENT_SECRET,
                 "obo_audience": "mcp-server-files",
             },
         )

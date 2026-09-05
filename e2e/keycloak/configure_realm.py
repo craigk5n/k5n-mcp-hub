@@ -10,6 +10,7 @@ Usage: python configure_realm.py http://localhost:8080 [output.json]
 from __future__ import annotations
 
 import json
+import os
 import sys
 
 import httpx
@@ -19,10 +20,15 @@ OUTPUT = sys.argv[2] if len(sys.argv) > 2 else ""
 
 REALM = "mcp-hub"
 HUB_CLIENT = "k5n-mcp-hub"
-HUB_SECRET = "hub-client-secret"
+# Credentials come from the environment so nothing secret-shaped is committed. The
+# defaults exist only so a throwaway local stack runs without setup.
+HUB_SECRET = os.environ.get("KC_HUB_CLIENT_SECRET", "dev-only-hub-secret")
 AGENT_CLIENT = "mcp-client"
 TARGET_CLIENT = "mcp-server-files"
-USERS = {"alice": "alice-password", "bob": "bob-password"}
+USERS = {
+    "alice": os.environ.get("KC_ALICE_PASSWORD", "dev-only-alice-password"),
+    "bob": os.environ.get("KC_BOB_PASSWORD", "dev-only-bob-password"),
+}
 
 
 def admin_headers(client: httpx.Client) -> dict[str, str]:
@@ -148,12 +154,16 @@ def main() -> None:
             )
             export.raise_for_status()
             document = export.json()
-            # partial-export omits secrets and users; put back what the import needs.
+            # partial-export omits secrets and users; put back what the import needs —
+            # as ${PLACEHOLDER}s, not values, so the committed file carries no
+            # credentials. Keycloak substitutes them at import when started with
+            # KC_SPI_IMPORT_SINGLE_FILE_REPLACE_PLACEHOLDERS=true.
             for entry in document.get("clients", []):
                 if entry.get("clientId") == HUB_CLIENT:
-                    entry["secret"] = HUB_SECRET
+                    entry["secret"] = "${KC_HUB_CLIENT_SECRET}"
             document["users"] = [
-                user_definition(username, password) for username, password in USERS.items()
+                user_definition(username, "${KC_%s_PASSWORD}" % username.upper())
+                for username in USERS
             ]
             with open(OUTPUT, "w") as handle:
                 json.dump(document, handle, indent=2)

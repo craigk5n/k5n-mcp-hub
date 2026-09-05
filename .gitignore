@@ -27,5 +27,8 @@ htmlcov/
 # credential-bearing file is still credential-bearing.
 *.bak
 
+# Local overrides for the e2e stack's throwaway credentials (see e2e/.env.example)
+e2e/.env
+
 # Local-only audit (not tracked)
 AUDIT_local.md

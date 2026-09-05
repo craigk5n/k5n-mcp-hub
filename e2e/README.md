@@ -13,11 +13,13 @@ involved, and it exists to demonstrate the things only a real IdP can:
 
 ```bash
 docker compose -f e2e/docker-compose.obo.yml up --build -d
-docker compose -f e2e/docker-compose.obo.yml run --rm e2e
+docker compose -f e2e/docker-compose.obo.yml run --rm --build e2e
 docker compose -f e2e/docker-compose.obo.yml down -v
 ```
 
-The runner prints one line per assertion and exits non-zero if any fail.
+The runner prints one line per assertion and exits non-zero if any fail. Keep the
+`--build`: without it compose reuses a cached runner image, and a stale copy fails in
+ways that look like real regressions.
 
 This is deliberately **not** part of `pytest`: the default suite must keep needing no
 Docker and no network. Run it by hand, or wire it into a separate CI job.
@@ -30,6 +32,25 @@ override them if they clash:
 ```bash
 KEYCLOAK_PORT=39085 HUB_PORT=39086 docker compose -f e2e/docker-compose.obo.yml up -d
 ```
+
+## Credentials
+
+The committed realm file contains no credentials. The hub's client secret and both
+user passwords are `${...}` placeholders that Keycloak substitutes at import time
+(`KC_SPI_IMPORT_SINGLE_FILE_REPLACE_PLACEHOLDERS=true`), from environment variables
+that compose supplies to both Keycloak and the runner — so the two can't drift.
+
+Dev defaults are declared in `docker-compose.obo.yml`, so the stack runs with no
+setup. To override:
+
+```bash
+cp e2e/.env.example e2e/.env    # then edit; .env is gitignored
+```
+
+These are not production secrets and never should be — the realm they configure
+exists only while the stack is up. Keeping them out of `realm-mcp-hub.json` is about
+not committing credential-shaped strings, not about protecting these particular
+values.
 
 ## What's in the stack
 
@@ -67,6 +88,9 @@ that has to be exactly right, and Keycloak is the only authority on it. To regen
 ```bash
 python3 e2e/keycloak/configure_realm.py http://localhost:38085 e2e/keycloak/realm-mcp-hub.json
 ```
+
+The export writes `${...}` placeholders back in place of the secret and passwords, so
+regenerating never reintroduces literals.
 
 ## What this run actually proved
 
