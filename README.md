@@ -6,7 +6,13 @@
 
 ## Overview
 
-k5n-mcp-hub is a registry and management hub for MCP (Model Context Protocol) servers, built with Python and FastAPI. It provides server discovery, health monitoring, request tracing, fault injection, a reverse proxy for MCP calls, and an admin web UI.
+k5n-mcp-hub is a gateway and management hub for MCP (Model Context Protocol) servers, built with Python and FastAPI.
+
+It has two halves. The **gateway** sits on the request path: it reverse-proxies MCP
+calls, and can authenticate the caller and exchange their token for one scoped to the
+downstream server, so a backend sees *which user* is asking rather than just "the hub".
+The **management hub** is everything around that: server discovery, health monitoring,
+capability inspection, request tracing, fault injection, and an admin web UI.
 
 <p align="center">
   <img src="docs/admin-ui.png" alt="The k5n-mcp-hub admin UI showing a registered server with its health status, tools, and expanded capabilities panel" width="900">
@@ -16,10 +22,17 @@ k5n-mcp-hub is a registry and management hub for MCP (Model Context Protocol) se
 
 ```bash
 python3 -m pip install -e .[dev]
-k5n-mcp-hub
+k5n-mcp-hub --dev
 ```
 
 Then open `http://localhost:8080` in your browser.
+
+`--dev` relaxes the SSRF guard so you can register MCP servers running on
+`localhost` or your LAN. Without it a fresh install refuses those addresses with
+`URL validation failed` — the guard blocks private ranges by default, which is the
+right default for anything reachable by untrusted callers and the wrong one for
+trying the tool out. It changes nothing else; in particular it never disables
+authentication you have configured.
 
 ## Run with Docker
 
@@ -50,6 +63,14 @@ docker run --rm -p 8080:8080 \
   -e MCPHUB_AUTH__BASIC_AUTH__REGISTER_PASS=change-me \
   k5n-mcp-hub
 
+# Validate real access tokens from your IdP (required for on-behalf-of)
+docker run --rm -p 8080:8080 \
+  -e MCPHUB_AUTH__TYPE=jwt \
+  -e MCPHUB_AUTH__JWT__ISSUER=https://idp.example.com/realms/mcp-hub \
+  -e MCPHUB_AUTH__JWT__AUDIENCE=k5n-mcp-hub \
+  -e MCPHUB_AUTH__JWT__JWKS_URI=https://idp.example.com/realms/mcp-hub/protocol/openid-connect/certs \
+  k5n-mcp-hub
+
 # JSON-file storage persisted to a named volume
 docker run --rm -p 8080:8080 \
   -e MCPHUB_STORAGE__TYPE=json \
@@ -65,6 +86,43 @@ Configuration is loaded from `config.yaml` at the repository root. Environment v
 
 - **Bare env var** (highest priority): `SERVER_HTTP_PORT` sets the HTTP port directly.
 - **Nested prefix**: Variables with the `MCPHUB_` prefix use `__` as a separator for nested keys. For example, `MCPHUB_SERVER__HTTP_PORT` sets `server.http_port`.
+
+## Authentication
+
+The hub ships with `auth.type: none` so local use needs no setup. Three modes:
+
+| `auth.type` | What it does |
+|---|---|
+| `none` (default) | No authentication. Local-first use. |
+| `basic` | HTTP basic auth on the write and admin routes. Needs `auth.basic_auth.register_pass`; the hub refuses to start without it. |
+| `jwt` | The hub is an OAuth 2.1 **resource server**: it validates inbound access tokens against your IdP's JWKS. Required for on-behalf-of. |
+
+Under `jwt` the hub serves
+[RFC 9728](https://datatracker.ietf.org/doc/html/rfc9728) metadata at
+`GET /.well-known/oauth-protected-resource`, so an MCP client can discover which
+authorization server guards it, and rejected requests carry a `WWW-Authenticate`
+challenge pointing back at that document.
+
+### On-behalf-of (RFC 8693 token exchange)
+
+A server registered with `auth_type: obo` is called **as the user who called the
+hub**. The hub validates their token, exchanges it at your IdP for one whose audience
+is that backend, and forwards the result — so the backend can authorize and audit per
+user instead of seeing one shared service identity.
+
+This also satisfies the MCP authorization spec's rules: tokens are audience-bound
+(RFC 8707 resource indicators) and never passed through, since a token minted for the
+hub is not valid at the backend.
+
+It fails closed. If the exchange fails the call is not made and the hub returns 502
+with the IdP's error; it never falls back to the server's own credential, which would
+run the call with broader rights and look like success. Background health checks and
+discovery keep the service identity and never borrow a user's token.
+
+The design decisions, including why impersonation is the default shape and delegation
+is opt-in, are recorded in [`docs/adr/`](docs/adr/README.md). A working
+Keycloak-backed stack that demonstrates the whole flow lives in
+[`e2e/`](e2e/README.md).
 
 ## MCP protocol support
 
@@ -126,6 +184,9 @@ ruff format --check .
 mypy --explicit-package-bases --ignore-missing-imports src
 python3 -m pytest -v
 ```
+
+The suite needs no Docker and no network. The Keycloak-backed on-behalf-of stack is
+separate and run by hand — see [`e2e/README.md`](e2e/README.md).
 
 > `python3 -m pytest` rather than a bare `pytest`, so the tests run under the same
 > interpreter you installed into. A `pytest` on your `PATH` can belong to a

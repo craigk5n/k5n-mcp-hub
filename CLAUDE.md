@@ -39,8 +39,16 @@ Run the app:
 
 ```bash
 k5n-mcp-hub                     # serves on http://localhost:8080
+k5n-mcp-hub --dev               # also permits localhost/LAN backends (relaxes the SSRF guard)
 k5n-mcp-hub --port 9000 --host 0.0.0.0 --config path/to/config.yaml
 ```
+
+> `--dev` exists because `security.allow_private_networks` defaults to False in
+> `config.py` and only the repo's own `config.yaml` turns it on — so an installed CLI
+> run outside the repo rejects `http://127.0.0.1/...` with "URL validation failed".
+> It sets that one flag (via the documented env override, since uvicorn re-reads
+> settings in the app factory) and deliberately nothing else: it never changes
+> `auth.type`.
 
 Single test / focused runs:
 
