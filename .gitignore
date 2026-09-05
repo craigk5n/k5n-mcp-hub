@@ -19,7 +19,13 @@ htmlcov/
 
 # JSON storage backend file (default path). Contains registered servers including
 # plaintext bearer tokens / basic-auth passwords — must never be committed.
-/mcp_servers.json
+# The glob covers copies and backups of it (mcp_servers.json.bak, .old, .1, ...),
+# which hold exactly the same credentials as the original.
+/mcp_servers.json*
+
+# Editor and tooling backups anywhere in the tree, for the same reason: a .bak of a
+# credential-bearing file is still credential-bearing.
+*.bak
 
 # Local-only audit (not tracked)
 AUDIT_local.md
