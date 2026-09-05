@@ -15,7 +15,7 @@ k5n-mcp-hub is a registry and management hub for MCP (Model Context Protocol) se
 ## Quick Start
 
 ```bash
-pip install -e .[dev]
+python3 -m pip install -e .[dev]
 k5n-mcp-hub
 ```
 
@@ -124,8 +124,13 @@ Run the canonical local check sequence:
 ruff check .
 ruff format --check .
 mypy --explicit-package-bases --ignore-missing-imports src
-pytest -v
+python3 -m pytest -v
 ```
+
+> `python3 -m pytest` rather than a bare `pytest`, so the tests run under the same
+> interpreter you installed into. A `pytest` on your `PATH` can belong to a
+> different Python — in which case most of the suite still passes, but the tests
+> that need the `mcp` SDK fail with `ModuleNotFoundError: No module named 'mcp'`.
 
 ## License
 
