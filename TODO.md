@@ -233,10 +233,15 @@ As a trace user, I want verbose tracing to not buffer unbounded streams.
 - Acceptance criteria:
   - [ ] `pyproject.toml` bumps `mcp` to the first stable 2026-07-28 release
         (with an upper bound this time); the dual-import fallbacks in
-        `sdk_client.py:16-34` are removed if no longer needed.
+        `_get_streamable_http_client()` (`sdk_client.py:17-34`) are removed if no
+        longer needed.
   - [ ] `sdk_client.py` uses the SDK's stateless transport for 2026-07-28
-        servers; hardcoded `transport_type = "sse"` (`:271`) and the duplicate
-        `InitializedNotification` (`:283-285`) fixed.
+        servers; the hardcoded `self._transport_type = "sse"` (`:286`) and the
+        `InitializedNotification` import inside `handshake()` (`:296-299`) fixed.
+
+> Line numbers above were re-checked 2026-09-05; `:271` and `:283-285` had drifted
+> by ~15 lines after Story 5.5 added the `caller` parameter to this file. Prefer the
+> named symbols over the line numbers — the symbols are what actually pin the work.
   - [ ] CI's clean-venv gate passes (no undeclared imports).
 
 **Story 4.2 — Pagination for list endpoints** *(pre-existing gap, more visible now)*
@@ -537,10 +542,10 @@ As a developer, I want to prove the exchange really happens against a real IdP.
   - [x] `security.allow_private_networks: true` is already the local default, so
         reaching Keycloak on localhost needs no extra configuration.
 
-> **Sizing:** roughly 25-35 files touched and 8-10 new test modules on top of the
-> existing 65. Epic 5 is the bulk; Epic 6 is comparatively small once identity
-> flows. Epics 5 and 6 are strictly sequential — 7.2 can be done at any time and
-> is worth doing early since it stands alone.
+> **Sizing (estimate made before the work; Epics 5-7 are now done).** Guessed
+> 25-35 files and 8-10 new test modules on top of the 65 that existed then. Actual:
+> the tree now has 79 test modules and 1277 tests. Kept as a record of the estimate,
+> not as a live figure.
 
 ## Enterprise-Managed Authorization (ID-JAG)
 
