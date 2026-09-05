@@ -13,7 +13,7 @@ without a local Python setup.
 - [ ] Tag strategy: push both `:latest` and a version tag (`:0.1.0`), tied to the app version.
 - [ ] Publish to Docker Hub with the k5n credentials
       (`docker login` as k5n → `docker push k5n/k5n-mcp-hub:<tag>`).
-- [ ] (Optional) Automate build+push in CI (`.forgejo/workflows/`) on tagged releases, using
+- [ ] (Optional) Automate build+push in CI (`.github/workflows/`) on tagged releases, using
       the k5n credentials stored as CI secrets — do NOT hardcode them.
 - [ ] (Optional) Multi-arch build (`docker buildx` for `linux/amd64,linux/arm64`).
 

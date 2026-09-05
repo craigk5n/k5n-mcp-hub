@@ -61,7 +61,7 @@ python3 -m pytest -k discovery
 python3 -m pytest --cov=src --cov-report=term-missing
 ```
 
-CI (`.forgejo/workflows/ci.yml`) additionally runs the suite in a **fresh isolated venv holding only declared dependencies** plus `pip-audit`. If a test passes locally but fails CI's clean-install gate, a module is imported but missing from `pyproject.toml` `dependencies`.
+CI (`.github/workflows/ci.yml`) runs the same sequence on a clean runner across Python 3.11 and 3.12, installing with `pip install -e .` so the environment holds **only the declared dependencies**, plus a non-blocking `pip-audit`. If a test passes locally but fails CI, a module is imported but missing from `pyproject.toml` `dependencies` — that clean-install gate is the usual cause.
 
 ## Configuration
 
