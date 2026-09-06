@@ -27,6 +27,7 @@ from mcp_hub.mcp.constants import (
     STATELESS_PROTOCOL_VERSION,
 )
 from mcp_hub.mcp.id_jag import EMA_EXTENSION
+from mcp_hub.mcp.pagination import CURSOR_KEYS, collect_pages
 from mcp_hub.mcp.sdk_client import MCPClientError, _flatten_exc
 from mcp_hub.mcp.sse import extract_sse_data
 from mcp_hub.models.server import RegisteredServer
@@ -83,8 +84,31 @@ class StatelessMCPClient:
         return self._parse_discover(result)
 
     async def list(self, method: str, timeout: float = 30.0) -> Any:
-        """Run a list method (``tools/list`` etc.) and return the raw result object."""
-        return await self._post(method, {}, kind="list", timeout=timeout)
+        """Run a list method (``tools/list`` etc.), following `nextCursor` to the end.
+
+        The merged result keeps the first page's metadata — `ttlMs`, `resultType`,
+        `cacheScope` — and drops the trailing cursor, so callers see one complete
+        result rather than having to page themselves."""
+        key = method.split("/")[0]
+
+        async def fetch(cursor: str | None) -> Any:
+            params: dict[str, Any] = {"cursor": cursor} if cursor else {}
+            return await self._post(method, params, kind="list", timeout=timeout)
+
+        def merge(acc: Any, page: Any) -> Any:
+            if not isinstance(acc, dict) or not isinstance(page, dict):
+                return acc
+            items = acc.get(key)
+            more = page.get(key)
+            if isinstance(items, list) and isinstance(more, list):
+                acc[key] = items + more
+            return acc
+
+        result = await collect_pages(fetch, merge=merge, label=f"{self.base_url} {method}")
+        if isinstance(result, dict):
+            for cursor_key in CURSOR_KEYS:
+                result.pop(cursor_key, None)
+        return result
 
     async def _post(
         self,

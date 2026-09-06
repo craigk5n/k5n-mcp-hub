@@ -247,7 +247,7 @@ As a trace user, I want verbose tracing to not buffer unbounded streams.
 **Story 4.2 — Pagination for list endpoints** *(pre-existing gap, more visible now)*
 
 - Acceptance criteria:
-  - [ ] Discovery follows `nextCursor` across all pages for tools/prompts/
+  - [x] Discovery follows `nextCursor` across all pages for tools/prompts/
         resources; test with a paginating fake server.
 
 **Story 4.3 — Surface MRTR (`input_required`) in the playground** *(later)*

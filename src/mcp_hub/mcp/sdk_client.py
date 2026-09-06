@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING, Any, Literal
 from mcp_hub.auth.caller import CallerIdentity
 from mcp_hub.mcp.auth import apply_server_auth
 from mcp_hub.mcp.constants import METHOD_NOT_FOUND, resolve_protocol_version
+from mcp_hub.mcp.pagination import collect_pages
 from mcp_hub.models.server import RegisteredServer
 
 if TYPE_CHECKING:
@@ -314,25 +315,30 @@ class MCPClient:
                 kind="list",
             )
 
+        callers = {
+            "tools/list": (lambda p: self._session.list_tools(params=p), "tools"),  # type: ignore[union-attr]
+            "prompts/list": (lambda p: self._session.list_prompts(params=p), "prompts"),  # type: ignore[union-attr]
+            "resources/list": (lambda p: self._session.list_resources(params=p), "resources"),  # type: ignore[union-attr]
+        }
+
         try:
-            if method == "tools/list":
-                result: Any = await asyncio.wait_for(
-                    self._session.list_tools(),
-                    timeout=timeout,
-                )
-                return _as_dicts(result.tools if hasattr(result, "tools") else result)
-            if method == "prompts/list":
-                result = await asyncio.wait_for(
-                    self._session.list_prompts(),
-                    timeout=timeout,
-                )
-                return _as_dicts(result.prompts if hasattr(result, "prompts") else result)
-            if method == "resources/list":
-                result = await asyncio.wait_for(
-                    self._session.list_resources(),
-                    timeout=timeout,
-                )
-                return _as_dicts(result.resources if hasattr(result, "resources") else result)
+            if method in callers:
+                call, attr = callers[method]
+
+                async def fetch(cursor: str | None) -> Any:
+                    params = None
+                    if cursor:
+                        from mcp.types import PaginatedRequestParams
+
+                        params = PaginatedRequestParams(cursor=cursor)
+                    return await asyncio.wait_for(call(params), timeout=timeout)
+
+                def merge(acc: Any, page: Any) -> Any:
+                    getattr(acc, attr).extend(getattr(page, attr, []))
+                    return acc
+
+                result = await collect_pages(fetch, merge=merge, label=f"{self.base_url} {method}")
+                return _as_dicts(getattr(result, attr, result))
             raise MCPClientError(
                 f"Unknown method: {method}. Must be one of: tools/list, prompts/list, resources/list",
                 kind="list",

@@ -95,6 +95,9 @@ class FakeMCPServer:
         self.tools: list[dict[str, Any]] = []
         self.prompts: list[dict[str, Any]] = []
         self.resources: list[dict[str, Any]] = []
+        # When set, list results are served one page at a time with a `nextCursor`,
+        # so pagination can be exercised end to end (Story 4.2).
+        self.page_size: int | None = None
         # ttlMs stamped on stateless list results; tests mutate to exercise pacing.
         self.ttl_ms: int = 60000
         # Last JSON-RPC request seen, for asserting on wire shape (_meta, headers).
@@ -153,7 +156,18 @@ class FakeMCPServer:
         served = {"tools": self.tools, "prompts": self.prompts, "resources": self.resources}
 
         def list_result(key: str) -> dict[str, Any]:
-            result: dict[str, Any] = {key: served[key]}
+            items = served[key]
+            next_cursor = None
+            if self.page_size:
+                start = int((body.get("params") or {}).get("cursor") or 0)
+                end = start + self.page_size
+                page = items[start:end]
+                if end < len(items):
+                    next_cursor = str(end)
+                items = page
+            result: dict[str, Any] = {key: items}
+            if next_cursor is not None:
+                result["nextCursor"] = next_cursor
             if stateless:
                 result.update(
                     {"resultType": "complete", "ttlMs": self.ttl_ms, "cacheScope": "private"}

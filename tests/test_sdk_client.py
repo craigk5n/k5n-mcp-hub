@@ -61,13 +61,17 @@ class MockClientSession:
     async def send_notification(self, notification: Any) -> None:
         pass
 
-    async def list_tools(self) -> MagicMock:
-        return MagicMock(tools=[{"name": "tool1", "description": "Test tool 1"}])
+    # `params` mirrors the real ClientSession signature, which takes
+    # PaginatedRequestParams. Without it the mock silently diverges from the SDK.
+    async def list_tools(self, params: Any = None) -> MagicMock:
+        return MagicMock(tools=[{"name": "tool1", "description": "Test tool 1"}], next_cursor=None)
 
-    async def list_prompts(self) -> MagicMock:
-        return MagicMock(prompts=[{"name": "prompt1", "description": "Test prompt 1"}])
+    async def list_prompts(self, params: Any = None) -> MagicMock:
+        return MagicMock(
+            prompts=[{"name": "prompt1", "description": "Test prompt 1"}], next_cursor=None
+        )
 
-    async def list_resources(self) -> MagicMock:
+    async def list_resources(self, params: Any = None) -> MagicMock:
         return MagicMock(resources=[{"uri": "resource://test", "name": "test"}])
 
 
