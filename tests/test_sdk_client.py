@@ -285,9 +285,11 @@ class TestSDKTwoMigration:
             types.ClientNotification(root=types.InitializedNotification())  # type: ignore[operator]
 
     @pytest.mark.asyncio
-    async def test_handshake_records_http_not_sse(self) -> None:
-        # Was hardcoded to "sse", which mislabelled every handshake-based server in
-        # the registry and the UI badge.
+    async def test_handshake_records_the_streamable_transport_marker(self) -> None:
+        # "sse" is this codebase's name for streamable HTTP (see _health_badge.html and
+        # ui_downloads.py's is_streamable). Recording "http" would mean "plain
+        # non-streaming JSON", mislabel the badge, and flip the generated script to the
+        # wrong variant.
         mock_session = MockClientSession()
 
         with patch("mcp_hub.mcp.sdk_client._get_streamable_http_client") as mock_get:
@@ -297,4 +299,4 @@ class TestSDKTwoMigration:
                 client._session = mock_session  # type: ignore[assignment]
                 result = await client.handshake()
 
-        assert result.transport == "http"
+        assert result.transport == "sse"

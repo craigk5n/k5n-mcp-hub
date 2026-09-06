@@ -274,9 +274,16 @@ class MCPClient:
 
             session_id = self._session_id
 
-            # We opened a streamable-HTTP transport, so that is what to record. This
-            # was hardcoded to "sse", which mislabelled every handshake-based server.
-            self._transport_type = "http"
+            # "sse" is this codebase's marker for the streamable-HTTP transport, not
+            # for a plain SSE endpoint: see templates/_health_badge.html, which renders
+            # it as "Transport: Streamable HTTP", and ui_downloads.py's
+            # `is_streamable = srv.mcp_transport == "sse"`, which selects the streaming
+            # script variant. "http" means plain non-streaming JSON. We open a
+            # streamable-HTTP transport, so "sse" is correct here despite reading oddly.
+            # (Changed to "http" in Story 4.1 on the mistaken belief that it was a bug;
+            # that broke the badge and the generated scripts, and testing against a real
+            # hosted server is what caught it.)
+            self._transport_type = "sse"
 
             self._initialize_result = InitializeResult(
                 server_name=result.server_info.name,

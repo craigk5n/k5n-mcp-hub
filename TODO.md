@@ -236,8 +236,17 @@ As a trace user, I want verbose tracing to not buffer unbounded streams.
         `_get_streamable_http_client()` (`sdk_client.py:17-34`) are removed if no
         longer needed.
   - [x] `sdk_client.py` uses the SDK's stateless transport for 2026-07-28
-        servers; the hardcoded `self._transport_type = "sse"` (`:286`) and the
-        `InitializedNotification` import inside `handshake()` (`:296-299`) fixed.
+        servers, and the `InitializedNotification` import inside `handshake()` is
+        fixed for the 2.x union type.
+  - [x] ~~hardcoded `self._transport_type = "sse"` fixed~~ — **this acceptance
+        criterion was wrong.** `"sse"` is this codebase's marker for the
+        streamable-HTTP transport, not for a plain SSE endpoint:
+        `_health_badge.html` renders it as "Transport: Streamable HTTP", and
+        `ui_downloads.py` selects the streaming script variant with
+        `is_streamable = srv.mcp_transport == "sse"`. Changing it to `"http"`
+        mislabelled the badge and flipped every handshake server's generated
+        script. Reverted; a comment at the assignment now explains the
+        convention so it isn't "fixed" again.
 
 > Line numbers above were re-checked 2026-09-05; `:271` and `:283-285` had drifted
 > by ~15 lines after Story 5.5 added the `caller` parameter to this file. Prefer the
