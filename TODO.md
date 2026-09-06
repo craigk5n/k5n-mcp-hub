@@ -253,7 +253,7 @@ As a trace user, I want verbose tracing to not buffer unbounded streams.
 **Story 4.3 — Surface MRTR (`input_required`) in the playground** *(later)*
 
 - Acceptance criteria:
-  - [ ] A `resultType: "input_required"` response renders its `inputRequests`
+  - [x] A `resultType: "input_required"` response renders its `inputRequests`
         and lets the user supply `inputResponses` on a retry of the original
         request.
 

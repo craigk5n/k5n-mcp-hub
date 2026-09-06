@@ -1,5 +1,7 @@
-import httpx
+import json
 import logging
+
+import httpx
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import HTMLResponse
@@ -8,6 +10,7 @@ from mcp_hub.auth.caller import caller_from_request
 from mcp_hub.mcp.auth import apply_server_auth
 from mcp_hub.mcp.constants import STATELESS_PROTOCOL_VERSION
 from mcp_hub.mcp.oauth import format_auth_challenge, parse_www_authenticate
+from mcp_hub.mcp.mrtr import build_retry_body, parse_input_required
 from mcp_hub.mcp.sse import extract_sse_data
 from mcp_hub.registry.service import Registry
 from mcp_hub.utils import SafePinnedTransport, pretty_json
@@ -44,6 +47,8 @@ async def get_playground(
         error="",
         parse_error="",
         stateless=stateless,
+        input_required=None,
+        retry_body="",
     )
     return HTMLResponse(content=html)
 
@@ -158,11 +163,22 @@ async def post_playground(
     except Exception as e:
         error = f"Request failed: {str(e)}"
 
+    # A `resultType: "input_required"` response is not a failure — the server is
+    # asking for more input (Story 4.3). Surface what it wants and prepare the retry.
+    input_required = parse_input_required(response_body)
+    retry_body = ""
+    if input_required is not None:
+        retry = build_retry_body(request_body, input_required)
+        if retry is not None:
+            retry_body = json.dumps(retry, indent=2)
+
     template = templates.get_template("playground.html")
     html = await template.render_async(
         server_id=server.id,
         url=server.url,
         request_body=request_body,
+        input_required=input_required,
+        retry_body=retry_body,
         session_id=session_id,
         protocol_version=protocol_version,
         accept_sse=accept_sse,
