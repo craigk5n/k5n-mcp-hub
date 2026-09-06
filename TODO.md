@@ -823,11 +823,146 @@ to be.
       the old configuration until they expired — the change appearing not to take
       effect. All three are in the key now.
 
+## stdio transport
+
+### Epic 9 — stdio MCP servers
+
+The hub is HTTP-only, so the large share of published MCP servers that ship as
+stdio programs (`npx …`, `uvx …`) cannot be registered at all. This is the largest
+remaining functional gap.
+
+Two constraints shape the whole epic, decided in
+[ADR 0007](docs/adr/0007-stdio-servers-are-opt-in-and-service-identity-only.md):
+
+- **Registering a stdio server means running a program.** Every other backend is a
+  URL, where a hostile registration buys a fetch bounded by the SSRF pin. A command
+  line buys arbitrary code execution as the hub's user. `require_admin` does not
+  help by default: `is_admin` returns True unconditionally when `auth.type != jwt`,
+  and the shipped default is `none`.
+- **A subprocess has no per-request identity.** OBO works because each HTTP request
+  carries the caller's token. A stdio server's credentials are fixed at spawn, so
+  one process cannot serve two callers as themselves.
+
+**Story 9.1 — An echo server to test against**
+
+As a developer, I want a real stdio MCP server in-tree, so stdio work can be
+driven by tests rather than by mocks that agree with me.
+
+- TDD: this story *is* the fixture the rest of the epic tests against.
+- Acceptance criteria:
+  - [ ] `tests/fixtures/echo_stdio_server.py` exposes `echo` and `count_chars` over
+        stdio, built on `mcp.server.mcpserver.MCPServer` (2.x renamed FastMCP to
+        MCPServer; `run()` already defaults to `transport="stdio"`).
+  - [ ] No new dependency — it uses the `mcp` package already pinned in
+        `pyproject.toml`, so CI's clean-install gate stays honest.
+  - [ ] Verified reachable via `mcp.client.stdio.stdio_client`: initialize returns
+        `protocolVersion 2025-11-25`, `tools/list` returns both tools, and
+        `tools/call echo` round-trips. (Confirmed working 2026-09-06 before this
+        epic was written.)
+  - [ ] Note for 9.5: `MCPServer` advertises `prompts` and `resources` even with
+        none registered, so it exercises the *advertised* branch of `_advertises`,
+        not the skip branch. A server that advertises tools only is also needed.
+
+**Story 9.2 — Config: opt-in, allowlist, and a startup refusal**
+
+As an operator, I want stdio to be impossible to enable by accident, because the
+default configuration makes registration unauthenticated.
+
+- TDD: extend `tests/test_config.py` and `tests/test_app.py` first.
+- Acceptance criteria:
+  - [ ] `stdio.enabled` (default `false`) and `stdio.allowed_commands` (name →
+        `{command, args, env, cwd}`) in `config.py`, documented in `config.yaml`
+        and `config.production.example.yaml`.
+  - [ ] The hub **fails to start** when `stdio.enabled` is true and `auth.type` is
+        not `jwt`, naming both settings. A warning is not enough: it would put an
+        exec primitive on the network of anyone who skims the release notes.
+  - [ ] `--dev` does not relax this, the way it deliberately does not touch
+        `auth.type`.
+  - [ ] With `stdio.enabled` false, a stdio registration is refused with a message
+        naming the flag — so upgrading cannot silently add the capability.
+
+**Story 9.3 — Model and registration**
+
+As a hub operator, I want to register an allowlisted stdio server through the same
+API and UI as any other.
+
+- TDD: extend `tests/test_register_request.py` and `tests/test_v1_routes.py` first.
+- Acceptance criteria:
+  - [ ] `RegisteredServer` gains `transport_kind: "http" | "stdio"` (default
+        `"http"`) and `stdio_command_name`. The registration body names an
+        **allowlist entry**, never a command or arguments — argument injection is
+        then unreachable by construction rather than by validation.
+  - [ ] `url` is populated as synthetic `stdio:<name>`, so the ~43 call sites that
+        key off `server.url` keep working without a storage migration. Treat the
+        on-disk shape as additive: existing records load unchanged.
+  - [ ] `auth_type: obo` and `auth_type: ema` are **rejected** for a stdio server,
+        with a message explaining that one shared process cannot act as two users.
+  - [ ] `required_scope` still applies — it governs who may reach the server, which
+        is orthogonal to what identity the server sees.
+
+**Story 9.4 — Process lifecycle**
+
+As a hub operator, I want stdio processes managed so that a crashing server
+degrades to "unhealthy" rather than taking the hub with it.
+
+- TDD: extend `tests/test_app_shutdown.py` and a new `tests/test_stdio_pool.py`.
+- Acceptance criteria:
+  - [ ] One long-lived process per registered server, started lazily on first use,
+        held on `app.state` beside the other subsystems.
+  - [ ] Exit is detected and the process restarted on next use, with backoff; a
+        server that will not stay up is marked unhealthy rather than retried hot.
+  - [ ] Processes are terminated on shutdown and reaped — no zombies, and no
+        surviving children when the hub is killed.
+  - [ ] Shutdown stays bounded. `_cancel_and_await_tasks` already refuses to block
+        on a straggler; a process that ignores SIGTERM must get SIGKILL rather than
+        extend that window.
+  - [ ] Concurrency is explicit: one stdin/stdout pair is a single stream. The SDK
+        session multiplexes by request id, but a server that serializes will
+        serialize — document it, and do not let one slow call stall discovery.
+
+**Story 9.5 — Discovery, health and proxy over stdio**
+
+As a user, I want a stdio server's tools to appear and be callable exactly like an
+HTTP server's.
+
+- TDD: drive every criterion against the Story 9.1 echo server, not a mock.
+- Acceptance criteria:
+  - [ ] `discovery.py` reaches stdio servers through the same
+        `_store_capabilities` path, so `_advertises` gating, tolerant parsing and
+        `schema_issues` all apply unchanged.
+  - [ ] `health/checker.py` uses process liveness plus a `ping`, not an HTTP GET.
+  - [ ] `proxy/handler.py` routes `X-MCP-Target-Server` to the stdio session.
+        Tracing captures request and response bodies as it does for HTTP; the
+        sanitizer applies.
+  - [ ] The admin UI shows the server with its transport, and states plainly that
+        it runs under a **service identity**, so nobody reads a tool list and
+        assumes per-user enforcement they are not getting.
+  - [ ] `ui_downloads.py`: hub mode works; **direct mode is hidden**, since there
+        is no URL for a client to call.
+
+**Story 9.6 — Docs**
+
+- Acceptance criteria:
+  - [ ] README and the operator guide describe the opt-in, the allowlist, and the
+        `auth.type: jwt` requirement, with the reasoning rather than just the steps.
+  - [ ] The service-identity limitation is stated where someone choosing between
+        OBO and stdio will actually read it.
+
+**Deliberately out of scope**
+
+- [ ] Per-caller stdio isolation (a process per user). It is the only design that
+      could give stdio per-user identity, and it is rejected for now on cost. If
+      wanted, it arrives as an explicit `stdio.isolation: per-caller` mode with a
+      documented process ceiling — never as a silent default.
+- [ ] Sandboxing (container/seccomp) for spawned servers. Until that exists, the
+      allowlist is the security boundary, which is why "register any npm server
+      from the UI" is not a supported flow.
+
 ## Product / usefulness follow-ups (from AUDIT_local.md §3)
 
 - [ ] Interop with the official MCP registry API (import/export).
 - [ ] Emit OpenTelemetry traces/metrics alongside `/metrics`.
-- [ ] Support stdio MCP servers (currently HTTP-only).
+- [ ] Support stdio MCP servers (currently HTTP-only) — scoped as **Epic 9** above.
 - [x] Positioning decided (2026-09-05): **on-behalf-of is the headline
       differentiator**, and the README leads with it. Fault injection stays a
       secondary one — it is the strongest *testing* feature, but per-user identity is
