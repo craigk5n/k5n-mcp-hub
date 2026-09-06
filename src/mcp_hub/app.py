@@ -150,6 +150,19 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 
 
 async def _cancel_and_await_tasks(tasks: list[asyncio.Task[Any]], timeout_seconds: float) -> None:
+    """Cancel background tasks and wait briefly, but never fail because of them.
+
+    `asyncio.wait`, not `wait_for(gather(...))`: on timeout the latter cancels the
+    gather and then waits for that cancellation to complete, so a task slow to unwind
+    both delayed shutdown past its own timeout and then raised TimeoutError out of the
+    lifespan's finally block -- turning "a task lingered" into "shutdown failed".
+
+    That is reachable whenever a task is blocked in work cancellation cannot interrupt;
+    `getaddrinfo` runs in a thread executor, so any health or discovery request waiting
+    on DNS qualifies. It showed up as a CI failure on 3.11 only, purely on timing.
+
+    Shutdown is best-effort cleanup: log what is still running and let the process go.
+    """
     for task in tasks:
         if not task.done():
             task.cancel()
@@ -157,10 +170,25 @@ async def _cancel_and_await_tasks(tasks: list[asyncio.Task[Any]], timeout_second
     if not tasks:
         return
 
-    await asyncio.wait_for(
-        asyncio.gather(*tasks, return_exceptions=True),
-        timeout=timeout_seconds,
-    )
+    done, pending = await asyncio.wait(tasks, timeout=timeout_seconds)
+
+    if pending:
+        logger.warning(
+            "shutdown: %d background task(s) did not stop within %.1fs; abandoning them: %s",
+            len(pending),
+            timeout_seconds,
+            ", ".join(sorted(t.get_name() for t in pending)),
+        )
+
+    # Consume exceptions from tasks that did finish, so a failure inside one is
+    # reported here rather than resurfacing as "Task exception was never retrieved"
+    # from the garbage collector, long after the context is gone.
+    for task in done:
+        if task.cancelled():
+            continue
+        exc = task.exception()
+        if exc is not None:
+            logger.warning("shutdown: background task %s ended with %r", task.get_name(), exc)
 
 
 def register_background_task(app: FastAPI, task: asyncio.Task[Any]) -> None:
