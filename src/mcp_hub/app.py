@@ -79,7 +79,11 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     # every server stays "Unknown"/never-checked). Registered as a task so it's cancelled on
     # shutdown. Guarded so a missing dependency can't block startup.
     settings = getattr(app.state, "settings", None)
-    if settings is not None and getattr(app.state, "registry", None) is not None:
+    if (
+        settings is not None
+        and getattr(app.state, "registry", None) is not None
+        and settings.healthcheck.enabled
+    ):
         health_checker = HealthChecker(
             app.state.registry,
             settings.healthcheck,

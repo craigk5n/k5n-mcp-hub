@@ -78,8 +78,9 @@ auth:
 # =============================================================================
 # Controls periodic health checks for registered MCP servers.
 healthcheck:
-  # enabled: Whether to enable automatic health checking.
-  enabled: false
+  # enabled: Whether to enable automatic health checking. On by default; turn it off
+  # if you do not want the hub making periodic outbound probes to every server.
+  enabled: true
 
   # interval_seconds: How often (in seconds) to check server health.
   interval_seconds: 30

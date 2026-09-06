@@ -136,7 +136,11 @@ class HealthResponseFields(BaseModel):
 
 
 class HealthCheckConfig(BaseModel):
-    enabled: bool = False
+    # Default True because that is what the hub actually did: the lifespan started the
+    # checker unconditionally and never read this flag, so a config saying `false`
+    # was a lie. The flag is honoured now; the default matches the long-standing
+    # behaviour so nothing changes for anyone who has not set it.
+    enabled: bool = True
     interval_seconds: int = 30
     timeout_seconds: int = 5
     failure_threshold: int = 3

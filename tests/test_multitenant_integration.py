@@ -65,7 +65,7 @@ def client():
         ),
         # These servers point at unroutable hosts; a background probe left in flight
         # at shutdown makes the teardown flaky and tests nothing here.
-        healthcheck=HealthCheckConfig(interval_seconds=3600),
+        healthcheck=HealthCheckConfig(enabled=False),
     )
     app = create_app(settings)
     # Serve JWKS from a mock so no network is needed.

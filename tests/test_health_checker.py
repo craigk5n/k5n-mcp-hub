@@ -646,3 +646,49 @@ class TestStatelessHealthProbe:
         updated = await storage.get("lg")
         assert updated is not None
         assert updated.healthy is True
+
+
+class TestEnabledFlagIsHonoured:
+    """`healthcheck.enabled` was documented, shipped as false, and never read — the
+    checker started unconditionally, so anyone reading the config believed health
+    checking was off while it was running."""
+
+    def test_the_default_matches_the_behaviour_it_describes(self) -> None:
+        from mcp_hub.config import HealthCheckConfig
+
+        # Checking is on unless asked otherwise: leaving every server "Unknown" by
+        # default is why the flag was bypassed in the first place.
+        assert HealthCheckConfig().enabled is True
+
+    def test_the_checker_starts_when_enabled(self) -> None:
+        from unittest.mock import patch
+
+        from fastapi.testclient import TestClient
+
+        from mcp_hub.app import create_app
+        from mcp_hub.config import HealthCheckConfig, Settings
+
+        settings = Settings(healthcheck=HealthCheckConfig(enabled=True))
+        with patch("mcp_hub.app.HealthChecker") as checker:
+            # run_forever is handed to asyncio.create_task, so it has to be awaitable.
+            async def never_finishes() -> None:
+                await asyncio.Event().wait()
+
+            checker.return_value.run_forever = never_finishes
+            with TestClient(create_app(settings)):
+                pass
+        checker.assert_called_once()
+
+    def test_the_checker_does_not_start_when_disabled(self) -> None:
+        from unittest.mock import patch
+
+        from fastapi.testclient import TestClient
+
+        from mcp_hub.app import create_app
+        from mcp_hub.config import HealthCheckConfig, Settings
+
+        settings = Settings(healthcheck=HealthCheckConfig(enabled=False))
+        with patch("mcp_hub.app.HealthChecker") as checker:
+            with TestClient(create_app(settings)):
+                pass
+        checker.assert_not_called()
