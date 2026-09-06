@@ -6,6 +6,7 @@ from fastapi.responses import HTMLResponse
 
 from mcp_hub.registry.service import Registry
 from mcp_hub.trace.recorder import TraceRecorder
+from mcp_hub.auth.authorize import request_is_admin
 
 logger = logging.getLogger(__name__)
 
@@ -31,7 +32,7 @@ async def get_trace(
     srv = await registry.get(server_id)
     verbose = srv.trace_verbose if srv else False
 
-    entries = trace_recorder.list(server_id)
+    entries = trace_recorder.list(server_id, subject=_trace_subject(request))
 
     template = templates.get_template("trace.html")
     html = await template.render_async(
@@ -64,7 +65,7 @@ async def toggle_verbose_trace(
             raise HTTPException(status_code=500, detail="Failed to update server configuration")
 
     try:
-        entries = trace_recorder.list(server_id)
+        entries = trace_recorder.list(server_id, subject=_trace_subject(request))
     except Exception as e:
         logger.error(f"Failed to list trace entries for {server_id}: {e}")
         raise HTTPException(status_code=500, detail="Failed to retrieve trace entries")
@@ -94,7 +95,7 @@ async def clear_trace(
     srv = await registry.get(server_id)
     verbose = srv.trace_verbose if srv else False
 
-    entries = trace_recorder.list(server_id)
+    entries = trace_recorder.list(server_id, subject=_trace_subject(request))
 
     template = templates.get_template("trace.html")
     html = await template.render_async(
@@ -103,3 +104,18 @@ async def clear_trace(
         verbose=verbose,
     )
     return HTMLResponse(content=html)
+
+
+def _trace_subject(request: Request) -> str | None:
+    """Which caller's entries to show: None means all.
+
+    Admins and the single-user auth modes see everything; anyone else sees only the
+    requests they made, so a shared server's trace cannot disclose another caller's
+    arguments and timings."""
+    from mcp_hub.auth.caller import caller_from_request
+    from mcp_hub.auth.principal import Principal
+
+    if request_is_admin(request):
+        return None
+    caller = caller_from_request(request)
+    return caller.subject if isinstance(caller, Principal) else ""

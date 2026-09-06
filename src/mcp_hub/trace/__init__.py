@@ -21,6 +21,8 @@ class Entry:
     error: str
     request_headers: dict[str, str] = field(default_factory=dict)
     response_headers: dict[str, str] = field(default_factory=dict)
+    # Who made the request, so the trace view can be scoped per caller.
+    subject: str = ""
     request_body: bytes = b""
     response_body: bytes = b""
 

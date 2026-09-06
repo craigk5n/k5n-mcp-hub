@@ -14,6 +14,7 @@ from mcp_hub.mcp.stateless import stateless_meta
 from mcp_hub.models import RegisteredServer
 from mcp_hub.registry.service import Registry
 from mcp_hub.routes.ui_invoke import build_tool_args
+from mcp_hub.auth.authorize import require_server_access
 
 logger = logging.getLogger(__name__)
 
@@ -57,6 +58,9 @@ async def get_server_or_404(request: Request, server_id: str) -> "RegisteredServ
         raise HTTPException(status_code=500, detail="Failed to retrieve server") from e
     if srv is None:
         raise HTTPException(status_code=404, detail="Server not found")
+    # Generated scripts describe how to reach the server, so they need the same
+    # permission as calling it.
+    require_server_access(request, srv)
     return srv
 
 

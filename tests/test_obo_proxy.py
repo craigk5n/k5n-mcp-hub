@@ -20,6 +20,9 @@ def obo_server() -> RegisteredServer:
     return RegisteredServer(
         id="files",
         url="https://files.example.com",
+        # Under auth.type: jwt a server with no required_scope is reachable by
+        # nobody, so these fixtures grant the caller access explicitly.
+        required_scope="files:use",
         auth_type="obo",
         oauth_token_url="https://idp.example.com/token",
         oauth_client_id="k5n-mcp-hub",
@@ -33,6 +36,7 @@ def alice() -> Principal:
         subject="alice",
         issuer="https://idp.example.com",
         token="alice-token",
+        scopes=frozenset({"files:use"}),
         expires_at=datetime.now(timezone.utc) + timedelta(minutes=5),
     )
 
@@ -223,7 +227,11 @@ class TestReExchangeOnBackend401:
     @pytest.mark.asyncio
     async def test_non_obo_server_401_is_not_retried(self) -> None:
         server = RegisteredServer(
-            id="s", url="https://x.example", auth_type="bearer", bearer_token="tok"
+            id="s",
+            url="https://x.example",
+            auth_type="bearer",
+            bearer_token="tok",
+            required_scope="files:use",
         )
         request = make_request(alice())
         attempts: list[str] = []
@@ -261,6 +269,7 @@ class TestEMAUsesTheSameProxyPath:
         server = RegisteredServer(
             id="files",
             url="https://files.example.com",
+            required_scope="files:use",
             auth_type="ema",
             oauth_token_url="https://idp.example.com/token",
             oauth_client_id="k5n-mcp-hub",

@@ -22,6 +22,7 @@ from mcp_hub.trace.recorder import (
     trim_trace_body,
 )
 from mcp_hub.utils import SafePinnedTransport
+from mcp_hub.auth.authorize import require_server_access
 
 logger = logging.getLogger(__name__)
 
@@ -151,6 +152,7 @@ async def get_initialize(
     srv = await registry.get(server_id)
     if srv is None:
         raise HTTPException(status_code=404, detail="Server not found")
+    require_server_access(request, srv)
 
     # 2026-07-28 servers have no initialize handshake — inspect via server/discover.
     stateless = (srv.mcp_protocol_version or "").strip() == STATELESS_PROTOCOL_VERSION

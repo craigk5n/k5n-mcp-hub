@@ -774,9 +774,12 @@ Adversarial review of the auth surface added in Epics 5-8. Two findings are fixe
 two need a product decision first, because the fix depends on what this hub is meant
 to be.
 
-### Open — needs a decision on the authorization model
+### Resolved (2026-09-06) — multi-tenant, per-server scopes
 
-- [ ] **No per-server authorization.** Any authenticated caller can proxy to any
+- [x] **No per-server authorization.** *Fixed:* servers declare a `required_scope`,
+      enforced under `auth.type: jwt` only; unlabelled servers are admin-only;
+      destructive and config-changing operations need `auth.jwt.admin_scope`.
+      Originally: Any authenticated caller can proxy to any
       registered server via `X-MCP-Target-Server`; nothing between reading that header
       and `registry.get()` consults the principal. For an `obo`/`ema` server this is
       mostly benign — the exchange is per user, and the IdP and backend decide. For a
@@ -793,7 +796,9 @@ to be.
       single-tenant and say so in the README, refusing to start `auth.type: jwt`
       alongside static-credential servers.
 
-- [ ] **Traces are not scoped to the caller.** The trace buffer is keyed by server,
+- [x] **Traces are not scoped to the caller.** *Fixed:* a caller sees only their own
+      entries, admins see all, and refused attempts are recorded with the subject.
+      Originally: The trace buffer is keyed by server,
       so any authenticated user can read every other user's request URLs, timings,
       and — with `trace_verbose` — bodies for that server. Headers and
       credential-shaped body fields are redacted, so this is not credential

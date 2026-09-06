@@ -9,6 +9,7 @@ from pydantic import ValidationError
 from mcp_hub.mcp.discovery import DiscoveryService
 from mcp_hub.mcp.oauth import discover_oauth_metadata, token_endpoint_from_metadata
 from mcp_hub.models import RegisteredServer
+from mcp_hub.auth.authorize import require_admin
 from mcp_hub.models.register_request import RegisterRequest
 from mcp_hub.registry.service import Registry
 from mcp_hub.utils import is_url_safe_for_discovery, utcnow
@@ -57,6 +58,7 @@ async def _register_server_impl(
     discovery_service: DiscoveryService,
 ) -> JSONResponse | PlainTextResponse:
     body = await request.body()
+    require_admin(request)
     if len(body) > MAX_REQUEST_BODY_SIZE:
         return PlainTextResponse("request body too large", status_code=400)
     try:
@@ -149,6 +151,7 @@ async def _register_server_impl(
         ema_resource_as_token_url=validated.ema_resource_as_token_url,
         ema_resource_id=validated.ema_resource_id,
         ema_subject_token_type=validated.ema_subject_token_type,
+        required_scope=validated.required_scope,
         name=validated.name,
         version=validated.version,
         description=validated.description,
@@ -182,6 +185,7 @@ async def _register_server_impl(
         "ema_resource_as_token_url",
         "ema_resource_id",
         "ema_subject_token_type",
+        "required_scope",
         "bearer_token",
         "basic_username",
         "basic_password",

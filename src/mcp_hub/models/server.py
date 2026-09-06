@@ -92,6 +92,11 @@ class RegisteredServer(BaseModel):
     # Advisory (Story 8.1): an AS may accept the grant without advertising it, so
     # this is never a gate. None means "not discovered".
     ema_supports_id_jag_profile: bool | None = None
+    # Scope a caller must hold to reach this server, enforced only under
+    # `auth.type: jwt`. Empty means nobody but an admin may reach it once enforcement
+    # is on — an unlabelled server is ambiguous, and resolving that toward "everyone"
+    # is the hole this closes. Not a secret: an operator needs to see it to grant it.
+    required_scope: str = ""
     trace_verbose: bool = False
     fault_injection: FaultInjection = Field(default_factory=FaultInjection)
 

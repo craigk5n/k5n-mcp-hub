@@ -111,7 +111,7 @@ The hub ships with `auth.type: none` so local use needs no setup. Three modes:
 |---|---|
 | `none` (default) | No authentication. Local-first use. |
 | `basic` | HTTP basic auth on the write and admin routes. Needs `auth.basic_auth.register_pass`; the hub refuses to start without it. |
-| `jwt` | The hub is an OAuth 2.1 **resource server**: it validates inbound access tokens against your IdP's JWKS. Required for on-behalf-of. |
+| `jwt` | The hub is an OAuth 2.1 **resource server**: it validates inbound access tokens against your IdP's JWKS, and enforces **per-server authorization** — each server declares a `required_scope`, and administering the hub needs `mcp:admin`. Required for on-behalf-of. |
 
 Under `jwt` the hub serves
 [RFC 9728](https://datatracker.ietf.org/doc/html/rfc9728) metadata at

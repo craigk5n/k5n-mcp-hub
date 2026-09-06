@@ -25,6 +25,7 @@ from mcp_hub.trace.recorder import (
     trim_trace_body,
 )
 from mcp_hub.utils import SafePinnedTransport, is_url_safe_for_discovery
+from mcp_hub.auth.authorize import require_server_access
 
 logger = logging.getLogger(__name__)
 
@@ -171,6 +172,7 @@ async def invoke_tool(
     srv = await registry.get(server_id)
     if srv is None:
         raise HTTPException(status_code=404, detail="Server not found")
+    require_server_access(request, srv)
 
     _allow_private = bool(
         getattr(getattr(request.app.state, "settings", None), "security", None)

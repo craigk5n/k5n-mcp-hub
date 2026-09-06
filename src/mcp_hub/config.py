@@ -103,6 +103,10 @@ class JWTAuthConfig(BaseModel):
     # Overrides the protected-resource identifier advertised by RFC 9728 metadata;
     # derived from the request URL when empty.
     resource: str = ""
+    # Scope granting administrative rights: registering and deleting servers, editing
+    # credentials, fault injection, and reading every caller's traces. Empty means the
+    # default (auth.authorize.DEFAULT_ADMIN_SCOPE).
+    admin_scope: str = ""
 
 
 class AuthConfig(BaseModel):

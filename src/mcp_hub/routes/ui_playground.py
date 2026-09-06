@@ -14,6 +14,7 @@ from mcp_hub.mcp.mrtr import build_retry_body, parse_input_required
 from mcp_hub.mcp.sse import extract_sse_data
 from mcp_hub.registry.service import Registry
 from mcp_hub.utils import SafePinnedTransport, pretty_json
+from mcp_hub.auth.authorize import require_server_access
 
 router = APIRouter(prefix="/ui", tags=["ui"])
 
@@ -33,6 +34,7 @@ async def get_playground(
     server = await registry.get(server_id)
     if server is None:
         raise HTTPException(status_code=404, detail="Server not found")
+    require_server_access(request, server)
 
     stateless = (server.mcp_protocol_version or "").strip() == STATELESS_PROTOCOL_VERSION
 
@@ -63,6 +65,7 @@ async def post_playground(
     server = await registry.get(server_id)
     if server is None:
         raise HTTPException(status_code=404, detail="Server not found")
+    require_server_access(request, server)
 
     form_data = await request.form()
     request_body = str(form_data.get("request_body", ""))

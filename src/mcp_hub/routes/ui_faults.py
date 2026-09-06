@@ -5,6 +5,7 @@ from fastapi.responses import HTMLResponse
 
 from mcp_hub.models.server import FaultInjection
 from mcp_hub.registry.service import Registry
+from mcp_hub.auth.authorize import require_admin
 
 logger = logging.getLogger(__name__)
 
@@ -74,6 +75,7 @@ async def post_server_faults(
     request: Request, server_id: str, _: None = Depends(auth_dependency)
 ) -> HTMLResponse:
     registry: Registry = request.app.state.registry
+    require_admin(request)
     templates = request.app.state.templates
 
     server = await registry.get(server_id)

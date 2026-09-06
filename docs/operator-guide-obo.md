@@ -95,6 +95,45 @@ curl -si -X POST http://localhost:8080/v1/register -d '{}' | grep -i www-authent
 
 ---
 
+## Step 1b — Decide who may reach what
+
+Turning on `auth.type: jwt` also turns on **per-server authorization**. Before it, the
+hub authenticated callers but did nothing with the distinction: anyone authenticated
+could reach any registered server, using the hub's stored credential. That is the
+privilege escalation on-behalf-of exists to prevent, so `jwt` mode now closes it.
+
+Two rules:
+
+- **A server is reachable only by callers holding its `required_scope`.** A server
+  that declares none is reachable by nobody but an admin. That default is deliberate:
+  an unlabelled server is ambiguous, and resolving ambiguity toward "everyone" is how
+  the hole arose.
+- **Administering the hub needs a separate scope.** Registering and deleting servers,
+  editing credentials, and toggling fault injection require `mcp:admin` (override with
+  `auth.jwt.admin_scope`). Fault injection especially — it is a denial-of-service
+  primitive against every other caller of that server.
+
+```jsonc
+{
+  "id": "files",
+  "url": "https://files.example.com/mcp",
+  "required_scope": "files:use"   // callers need this scope in their token
+}
+```
+
+Admins may reach every server. That is honest rather than notional: an admin can edit
+a server's `required_scope` or read its stored credential anyway.
+
+Traces follow the same line — a caller sees only their own requests to a server;
+admins see all. Refused attempts are recorded too, with the subject that made them,
+because denied access is what you most want in an audit trail.
+
+> **This is a breaking change if you already run `auth.type: jwt`.** Every server
+> needs a `required_scope` before its callers can reach it again. `none` and `basic`
+> are unaffected — they are single-user modes with no tenancy to enforce.
+
+---
+
 ## Step 2 — Register a server for on-behalf-of
 
 In the admin UI: **Add Server → Authentication → On-behalf-of**. Or by API:
@@ -176,6 +215,9 @@ The server card shows the failure under its badge, and the same text lands in
 | `obo_error: missing oauth client credentials for the exchange` | `oauth_client_id`/`oauth_client_secret` are unset on the server record | Re-register with the hub's own client credentials |
 | `obo_error: no oauth token endpoint configured` | `oauth_token_url` is unset and no OAuth metadata was discovered | Set `oauth_token_url` explicitly |
 | Backend returns **401** even though the exchange succeeded | The exchanged token isn't valid there | Check the backend validates `aud` against the same name you put in `obo_audience`. The hub retries once with a fresh token before giving up |
+| **403** `requires the 'x:use' scope` | The caller authenticated but lacks the server's `required_scope` | Grant the scope in your IdP, or change the server's `required_scope` |
+| **403** `this server declares no required_scope, so only an admin may reach it` | The server has no rule, and `auth.type` is `jwt` | Set `required_scope` on the server |
+| **403** `requires the 'mcp:admin' scope` | An admin operation attempted by a non-admin | Grant the admin scope, or set `auth.jwt.admin_scope` to one you already issue |
 | Card says *"No service credential: health checks report reachability only"* | The server has OBO configured and nothing else, so background health and discovery have no identity to use | Expected. Add a static or client-credentials credential if you want background capability discovery |
 
 **A failed exchange never falls back to another credential.** If it fails, the call

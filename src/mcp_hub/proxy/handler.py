@@ -5,10 +5,11 @@ from contextlib import AsyncExitStack
 from typing import AsyncGenerator, Protocol
 
 import httpx
-from fastapi import Request, Response
+from fastapi import HTTPException, Request, Response
 from fastapi.responses import StreamingResponse
 
 from mcp_hub.auth.caller import CallerIdentity, caller_from_request
+from mcp_hub.auth.authorize import require_server_access
 from mcp_hub.auth.metadata import bearer_challenge
 from mcp_hub.auth.principal import Principal
 from mcp_hub.config import TraceConfig
@@ -148,6 +149,38 @@ async def proxy_request(
     request_start_timestamp = utcnow()
     incoming_url = str(request.url)
 
+    caller = caller_from_request(request)
+    trace_subject = caller.subject if isinstance(caller, Principal) else ""
+
+    # Authentication produced a principal; this decides whether that principal may
+    # reach *this* server. Without it any authenticated caller could use the hub's
+    # stored credential for any registered backend. It runs before fault injection,
+    # so a refused caller cannot trigger it — but the refusal *is* recorded: denied
+    # attempts are the traffic an operator most wants to see.
+    try:
+        require_server_access(request, srv)
+    except HTTPException as exc:
+        elapsed_ms = (time.perf_counter() - start_time) * 1000
+        trace_recorder.add(
+            Entry(
+                timestamp=request_start_timestamp,
+                server_id=srv.id,
+                subject=trace_subject,
+                operation="proxy",
+                http_method=request.method,
+                url=incoming_url,
+                outbound_url="",
+                status=exc.status_code,
+                duration_ms=elapsed_ms,
+                error=str(exc.detail),
+            )
+        )
+        return Response(
+            content=str(exc.detail),
+            status_code=exc.status_code,
+            headers=dict(exc.headers or {}),
+        )
+
     verbose = srv.trace_verbose
 
     body_chunks: list[bytes] = []
@@ -180,6 +213,7 @@ async def proxy_request(
         entry = Entry(
             timestamp=request_start_timestamp,
             server_id=srv.id,
+            subject=trace_subject,
             operation="proxy",
             http_method=request.method,
             url=incoming_url,
@@ -200,8 +234,6 @@ async def proxy_request(
         incoming_path=request.url.path,
         incoming_query=request.url.query or None,
     )
-
-    caller = caller_from_request(request)
 
     async def build_headers() -> dict[str, str]:
         return await build_outbound_headers(
@@ -253,6 +285,7 @@ async def proxy_request(
         entry = Entry(
             timestamp=request_start_timestamp,
             server_id=srv.id,
+            subject=trace_subject,
             operation="proxy",
             http_method=request.method,
             url=incoming_url,
@@ -325,6 +358,7 @@ async def proxy_request(
         entry = Entry(
             timestamp=request_start_timestamp,
             server_id=srv.id,
+            subject=trace_subject,
             operation="proxy",
             http_method=request.method,
             url=incoming_url,
@@ -351,6 +385,7 @@ async def proxy_request(
                 entry = Entry(
                     timestamp=request_start_timestamp,
                     server_id=srv.id,
+                    subject=trace_subject,
                     operation="proxy",
                     http_method=request.method,
                     url=incoming_url,

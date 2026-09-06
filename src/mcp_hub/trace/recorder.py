@@ -176,6 +176,10 @@ class TraceEntry:
     request_headers: dict[str, str] = field(default_factory=dict)
     outbound_headers: dict[str, str] = field(default_factory=dict)
     response_headers: dict[str, str] = field(default_factory=dict)
+    # Who made the request. Used to scope the trace view so one caller cannot read
+    # another's arguments and timings; empty for background work and for the
+    # single-user auth modes, where there is nobody to hide from.
+    subject: str = ""
 
 
 class TraceRecorder:
@@ -199,11 +203,20 @@ class TraceRecorder:
                 self._buffers[entry.server_id] = deque(maxlen=self._limit)
             self._buffers[entry.server_id].append(entry)
 
-    def list(self, server_id: str) -> list[TraceEntry]:
+    def list(self, server_id: str, *, subject: str | None = None) -> list[TraceEntry]:
+        """Entries for a server, optionally only those made by ``subject``.
+
+        ``subject=None`` returns everything, which is what an admin and the
+        single-user auth modes get. Passing a subject filters to that caller's own
+        requests: a shared server's trace would otherwise disclose every other
+        caller's arguments and timings."""
         with self._lock:
             if server_id not in self._buffers:
                 return []
-            return list(self._buffers[server_id])
+            entries = list(self._buffers[server_id])
+        if subject is None:
+            return entries
+        return [e for e in entries if getattr(e, "subject", "") == subject]
 
     def clear(self, server_id: str) -> None:
         with self._lock:

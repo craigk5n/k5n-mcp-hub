@@ -31,6 +31,7 @@ class RegisterRequest(BaseModel):
     ema_resource_as_token_url: str = ""
     ema_resource_id: str = ""
     ema_subject_token_type: Literal["id_token", "access_token"] = "id_token"
+    required_scope: str = ""
     trace_verbose: bool = False
 
     @field_validator("id", "url", mode="before")

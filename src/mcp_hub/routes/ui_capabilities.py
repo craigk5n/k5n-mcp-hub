@@ -15,6 +15,7 @@ from mcp_hub.mcp.validation import validate_tool_schemas
 from mcp_hub.models.server import RegisteredServer
 from mcp_hub.registry.service import Registry
 from mcp_hub.utils import utcnow
+from mcp_hub.auth.authorize import require_server_access
 
 router = APIRouter(prefix="/ui", tags=["ui"])
 
@@ -41,6 +42,7 @@ async def get_server_tools(
     server = await registry.get(server_id)
     if server is None:
         raise HTTPException(status_code=404, detail="Server not found")
+    require_server_access(request, server)
 
     tools: list[Any] = []
     prompts: list[Any] = []
@@ -135,6 +137,7 @@ async def refresh_server_capabilities(
     server = await registry.get(server_id)
     if server is None:
         raise HTTPException(status_code=404, detail="Server not found")
+    require_server_access(request, server)
 
     try:
         await discovery_service.discover_immediately(server, timeout=30)
@@ -154,6 +157,7 @@ async def get_server_capabilities(
     server = await registry.get(server_id)
     if server is None:
         raise HTTPException(status_code=404, detail="Server not found")
+    require_server_access(request, server)
 
     tools: list[Any] = []
     prompts: list[Any] = []

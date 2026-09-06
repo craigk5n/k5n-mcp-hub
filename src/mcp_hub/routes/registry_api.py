@@ -6,6 +6,7 @@ from fastapi.responses import PlainTextResponse
 
 from mcp_hub.models import RegisteredServer
 from mcp_hub.registry.service import Registry
+from mcp_hub.auth.authorize import require_admin
 
 logger = logging.getLogger(__name__)
 
@@ -33,6 +34,7 @@ async def unregister_server(
     registry: Registry = Depends(get_registry),
     _: None = Depends(auth_dependency),
 ) -> PlainTextResponse:
+    require_admin(request)
     stripped_id = id.strip()
     if not stripped_id:
         return PlainTextResponse("id is required", status_code=400)
