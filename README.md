@@ -135,6 +135,11 @@ with the IdP's error; it never falls back to the server's own credential, which 
 run the call with broader rights and look like success. Background health checks and
 discovery keep the service identity and never borrow a user's token.
 
+**To turn it on**, follow the
+[operator guide](docs/operator-guide-obo.md) — IdP setup, the four required
+settings, registering a server, and a troubleshooting table keyed to the errors the
+hub actually emits.
+
 The design decisions, including why impersonation is the default shape and delegation
 is opt-in, are recorded in [`docs/adr/`](docs/adr/README.md). A working
 Keycloak-backed stack that demonstrates the whole flow lives in
