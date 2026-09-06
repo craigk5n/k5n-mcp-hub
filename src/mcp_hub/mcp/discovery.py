@@ -150,7 +150,13 @@ class DiscoveryService:
         else:
             self._poll_not_before.pop(server.id, None)
 
-        await self._store_capabilities(server, tools_raw, prompts_raw, resources_raw)
+        await self._store_capabilities(
+            server,
+            tools_raw,
+            prompts_raw,
+            resources_raw,
+            client_issues=list(getattr(client, "schema_issues", []) or []),
+        )
         return True
 
     async def _discover_handshake(self, server: RegisteredServer, *, timeout: float) -> None:
@@ -189,7 +195,13 @@ class DiscoveryService:
             except Exception as e:
                 logger.warning("Failed to list resources for %s: %s", server.id, e)
 
-            await self._store_capabilities(server, tools_raw, prompts_raw, resources_raw)
+            await self._store_capabilities(
+                server,
+                tools_raw,
+                prompts_raw,
+                resources_raw,
+                client_issues=list(getattr(client, "schema_issues", []) or []),
+            )
 
     async def _store_capabilities(
         self,
@@ -197,6 +209,7 @@ class DiscoveryService:
         tools_raw: Any,
         prompts_raw: Any,
         resources_raw: Any,
+        client_issues: list[str] | None = None,
     ) -> None:
         tools = extract_list_payload(tools_raw, "tools")
         prompts = extract_list_payload(prompts_raw, "prompts")
@@ -209,6 +222,17 @@ class DiscoveryService:
         else:
             server.schema_conformant = None
             server.schema_issues = []
+
+        # Defects the client had to work around to parse the response at all. These are
+        # invisible to `validate_tool_schemas`, which only ever sees the repaired tools —
+        # so without this a server whose response was salvaged would report as fully
+        # conformant, and the operator would never learn their server needs fixing.
+        if client_issues:
+            server.schema_conformant = False
+            server.schema_issues = [
+                *server.schema_issues,
+                *(i for i in client_issues if i not in server.schema_issues),
+            ]
 
         server.tools = tools
         server.prompts = prompts

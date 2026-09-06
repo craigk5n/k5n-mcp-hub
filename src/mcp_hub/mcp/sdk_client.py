@@ -1,9 +1,12 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 from contextlib import AsyncExitStack
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Literal
+
+from pydantic import ValidationError
 
 from mcp_hub.auth.caller import CallerIdentity
 from mcp_hub.mcp.auth import apply_server_auth
@@ -137,6 +140,67 @@ def _as_dicts(items: Any) -> list[dict]:
     return out
 
 
+logger = logging.getLogger(__name__)
+
+
+def _find_validation_error(exc: BaseException) -> ValidationError | None:
+    """The pydantic error inside `exc`, however deeply it is wrapped.
+
+    anyio task groups raise ExceptionGroups and the SDK re-raises with __cause__
+    chains, so the error we care about is rarely the one we are handed."""
+    seen: set[int] = set()
+
+    def walk(e: BaseException | None) -> ValidationError | None:
+        if e is None or id(e) in seen:
+            return None
+        seen.add(id(e))
+        if isinstance(e, ValidationError):
+            return e
+        for sub in getattr(e, "exceptions", None) or ():
+            found = walk(sub)
+            if found is not None:
+                return found
+        return walk(e.__cause__) or walk(e.__context__)
+
+    return walk(exc)
+
+
+def _normalize_schema_defects(items: list[dict], kind: str) -> tuple[list[dict], list[str]]:
+    """Repair only defects whose correct form is unambiguous.
+
+    Currently one: `"properties": []`. JSON Schema requires an object there, and PHP's
+    json_encode emits `[]` for an empty associative array — a common enough server bug
+    to be worth absorbing. An empty array and an empty object both mean "no
+    properties", so the coercion cannot change a tool's meaning. Anything less
+    clear-cut is left alone and simply reported.
+    """
+    issues: list[str] = []
+
+    def repair(node: Any, path: str) -> Any:
+        if isinstance(node, list):
+            return [repair(v, f"{path}[{i}]") for i, v in enumerate(node)]
+        if not isinstance(node, dict):
+            return node
+        out: dict[str, Any] = {}
+        for key, value in node.items():
+            where = f"{path}.{key}" if path else key
+            if key == "properties" and value == []:
+                issues.append(
+                    f"{where} was [] (an empty JSON array); JSON Schema requires an "
+                    "object here, so it was read as {}"
+                )
+                out[key] = {}
+            else:
+                out[key] = repair(value, where)
+        return out
+
+    repaired = [
+        repair(item, str(item.get("name") or item.get("uri") or f"{kind}[{i}]"))
+        for i, item in enumerate(items)
+    ]
+    return repaired, issues
+
+
 class MCPClient:
     def __init__(
         self,
@@ -155,6 +219,10 @@ class MCPClient:
         # Captured from the `mcp-session-id` response header (see _open_transport);
         # `mcp` 2.x no longer yields an accessor for it.
         self._session_id: str = ""
+        # Defects tolerated while parsing this server's list responses. Discovery
+        # copies these onto the server record so a repaired response is still
+        # reported as non-conformant rather than passing silently.
+        self.schema_issues: list[str] = []
         self._transport_type: Literal["http", "sse"] = "http"
         self._headers: dict[str, str] = {}
         self._exit_stack: AsyncExitStack | None = None
@@ -315,6 +383,62 @@ class MCPClient:
                 status_code=_extract_status_code(e),
             ) from e
 
+    async def _list_leniently(
+        self, method: str, attr: str, *, timeout: float, cause: ValidationError
+    ) -> list[dict]:
+        """Re-ask for the same list, bypassing the SDK's per-revision validation.
+
+        `ClientSession.send_request` validates the response against the *negotiated
+        revision's* wire model (`_methods.validate_server_result`) before it ever
+        applies the caller's `result_type`, and catches only KeyError from it. So
+        passing a laxer result model does not help: the strict check has already
+        raised. One rung lower, `Dispatcher.send_raw_request` returns the result dict
+        with no validation at all, which is exactly what we want here.
+
+        `_dispatcher` is private API. It is used deliberately rather than re-issuing
+        raw HTTP: the session already owns the transport, auth headers, session id and
+        SSRF pin, and duplicating that would mean duplicating the streamable-HTTP and
+        SSE handling too. If a future SDK drops the attribute, the fallback degrades to
+        the original error rather than misreporting an empty capability list.
+        """
+        dispatcher = getattr(self._session, "_dispatcher", None)
+        if dispatcher is None or not hasattr(dispatcher, "send_raw_request"):
+            raise MCPClientError(
+                f"List {method} failed: {_flatten_exc(cause)}",
+                kind="list",
+            ) from cause
+
+        async def fetch(cursor: str | None) -> Any:
+            params = {"cursor": cursor} if cursor else None
+            return await asyncio.wait_for(
+                dispatcher.send_raw_request(method, params, {"timeout": timeout}),
+                timeout=timeout,
+            )
+
+        def merge(acc: Any, page: Any) -> Any:
+            acc.setdefault(attr, []).extend((page or {}).get(attr, []))
+            return acc
+
+        raw = await collect_pages(fetch, merge=merge, label=f"{self.base_url} {method}")
+        items = _as_dicts((raw or {}).get(attr, []))
+        repaired, issues = _normalize_schema_defects(items, attr)
+
+        summary = (
+            f"{method} did not validate against the MCP schema for this protocol "
+            f"revision: {cause.error_count()} error(s)"
+        )
+        for issue in [summary, *issues]:
+            if issue not in self.schema_issues:
+                self.schema_issues.append(issue)
+        logger.warning(
+            "%s returned a non-conformant %s; parsed it leniently (%d item(s)): %s",
+            self.base_url,
+            method,
+            len(repaired),
+            "; ".join(issues) or str(cause).splitlines()[0],
+        )
+        return repaired
+
     async def list(self, method: str, timeout: float = 30.0) -> Any:
         if not self._session:
             raise MCPClientError(
@@ -344,7 +468,21 @@ class MCPClient:
                     getattr(acc, attr).extend(getattr(page, attr, []))
                     return acc
 
-                result = await collect_pages(fetch, merge=merge, label=f"{self.base_url} {method}")
+                try:
+                    result = await collect_pages(
+                        fetch, merge=merge, label=f"{self.base_url} {method}"
+                    )
+                except Exception as strict_error:
+                    # Only a schema-validation failure is recoverable this way. A
+                    # transport error, timeout or protocol error must still surface:
+                    # retrying those leniently would turn a broken connection into a
+                    # confident empty capability list.
+                    validation_error = _find_validation_error(strict_error)
+                    if validation_error is None:
+                        raise
+                    return await self._list_leniently(
+                        method, attr, timeout=timeout, cause=validation_error
+                    )
                 return _as_dicts(getattr(result, attr, result))
             raise MCPClientError(
                 f"Unknown method: {method}. Must be one of: tools/list, prompts/list, resources/list",

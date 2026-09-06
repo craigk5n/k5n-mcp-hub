@@ -572,3 +572,39 @@ class TestDiscoveryStartup:
             with TestClient(app):
                 pass
             assert mock_run.await_count == 0
+
+
+class TestTolerantParseIsReported:
+    """A leniently-parsed response must reach the server record as non-conformant.
+
+    The client repairs `properties: []` so downstream clients aren't handed an
+    invalid schema, which means `validate_tool_schemas` sees a clean tool and would
+    otherwise mark the server conformant — hiding the very defect we worked around.
+    """
+
+    @pytest.mark.asyncio
+    async def test_client_schema_issues_are_recorded_on_the_server(self) -> None:
+        repaired = [{"name": "bad", "inputSchema": {"type": "object", "properties": {}}}]
+
+        class TolerantMockMCPClient(MockMCPClient):
+            def __init__(
+                self,
+                base_url: str,
+                *,
+                server: RegisteredServer | None = None,
+                allow_private_networks: bool = False,
+                caller: object = None,
+            ) -> None:
+                super().__init__(base_url, server=server, tools=repaired, prompts=[], resources=[])
+                self.schema_issues = ["bad.inputSchema.properties was [] (an empty JSON array)"]
+
+        registry = MockRegistry()
+        service = DiscoveryService(registry)  # type: ignore[arg-type]
+        server = make_server(id="server-lenient", url="https://test.example.com/mcp")
+
+        with patch("mcp_hub.mcp.discovery.MCPClient", TolerantMockMCPClient):
+            await service.discover_immediately(server)
+
+        assert server.tools == repaired, "the repaired tools must still be kept"
+        assert server.schema_conformant is False, "a repaired response is not conformant"
+        assert any("properties" in issue for issue in server.schema_issues)

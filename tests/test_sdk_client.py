@@ -300,3 +300,161 @@ class TestSDKTwoMigration:
                 result = await client.handshake()
 
         assert result.transport == "sse"
+
+
+class TestTolerantListParsing:
+    """A server that gets one tool's schema wrong must not cost us every other tool.
+
+    Real case: a WebCalendar MCP server emitted `"properties": []` for one of nine
+    tools (PHP's json_encode turns an empty array into `[]`, but JSON Schema requires
+    an object). The SDK validates the whole `ListToolsResult`, so that single defect
+    made all nine tools — plus prompts and resources — undiscoverable. A gateway
+    fronting servers it does not control has to be more forgiving than the SDK.
+    """
+
+    def _validation_error(self) -> Exception:
+        """The genuine pydantic error, not a hand-written stand-in.
+
+        Deliberately the *versioned* wire model, not `mcp.types.ListToolsResult`: the
+        latter types `inputSchema` as a bare `dict[str, Any]` and accepts this payload
+        happily. The strictness lives in the per-revision models
+        (`mcp_types._v2025_11_25`), where `properties` is `dict[str, Any]` inside a
+        restricted JSON Schema subset — and the hub advertises
+        `MCP-Protocol-Version: 2025-11-25`, so that is what real responses are
+        validated against. Testing against the lax model would have proved nothing.
+        """
+        from pydantic import ValidationError
+
+        from mcp_types._v2025_11_25 import ListToolsResult
+
+        try:
+            ListToolsResult.model_validate(
+                {
+                    "tools": [
+                        {"name": "ok", "inputSchema": {"type": "object", "properties": {}}},
+                        {"name": "bad", "inputSchema": {"type": "object", "properties": []}},
+                    ]
+                }
+            )
+        except ValidationError as e:
+            return e
+        raise AssertionError("expected ListToolsResult to reject properties: []")
+
+    _PAYLOAD = {
+        "tools": [
+            {"name": "ok", "inputSchema": {"type": "object", "properties": {}}},
+            {"name": "bad", "inputSchema": {"type": "object", "properties": []}},
+        ]
+    }
+
+    def _session_that_fails_strictly(self) -> Any:
+        """Mirrors the real ClientSession's actual failure shape.
+
+        Both `list_tools` and `send_request` raise: the SDK runs
+        `_methods.validate_server_result` against the negotiated revision's model
+        *before* applying any caller-supplied `result_type`, so a laxer result model
+        does not rescue a malformed payload. Only `_dispatcher.send_raw_request`,
+        one rung lower, returns the result unvalidated. An earlier version of this
+        double let `send_request` succeed, which made a broken implementation look
+        like it worked.
+        """
+        err = self._validation_error()
+        payload = self._PAYLOAD
+
+        class _Dispatcher:
+            def __init__(self) -> None:
+                self.calls: list[tuple[str, Any]] = []
+
+            async def send_raw_request(
+                self, method: str, params: Any = None, opts: Any = None
+            ) -> dict:
+                self.calls.append((method, params))
+                return dict(payload)
+
+        class _Session:
+            def __init__(self) -> None:
+                self._dispatcher = _Dispatcher()
+
+            async def list_tools(self, params: Any = None) -> Any:
+                raise err
+
+            async def send_request(self, request: Any, result_type: Any, **kw: Any) -> Any:
+                raise err
+
+        return _Session()
+
+    @pytest.mark.asyncio
+    async def test_malformed_tool_no_longer_discards_the_whole_list(self) -> None:
+        client = MCPClient("http://localhost:3000/mcp", caller=SERVICE_IDENTITY)
+        client._session = self._session_that_fails_strictly()
+
+        result = await client.list("tools/list")
+
+        assert [t["name"] for t in result] == ["ok", "bad"]
+
+    @pytest.mark.asyncio
+    async def test_equivalent_empty_schema_is_normalized(self) -> None:
+        # `[]` and `{}` both mean "no properties", so coercing loses nothing and stops
+        # the hub propagating the defect to stricter clients downstream.
+        client = MCPClient("http://localhost:3000/mcp", caller=SERVICE_IDENTITY)
+        client._session = self._session_that_fails_strictly()
+
+        result = await client.list("tools/list")
+
+        assert result[1]["inputSchema"]["properties"] == {}
+
+    @pytest.mark.asyncio
+    async def test_tolerated_response_is_recorded_as_non_conformant(self) -> None:
+        client = MCPClient("http://localhost:3000/mcp", caller=SERVICE_IDENTITY)
+        client._session = self._session_that_fails_strictly()
+
+        await client.list("tools/list")
+
+        assert client.schema_issues, "a tolerated defect must be reported, not hidden"
+        assert any("properties" in issue for issue in client.schema_issues)
+
+    @pytest.mark.asyncio
+    async def test_conformant_response_records_no_issues(self) -> None:
+        client = MCPClient("http://localhost:3000/mcp", caller=SERVICE_IDENTITY)
+        client._session = MockClientSession()
+
+        result = await client.list("tools/list")
+
+        assert result[0]["name"] == "tool1"
+        assert client.schema_issues == []
+
+    @pytest.mark.asyncio
+    async def test_transport_failure_is_not_papered_over(self) -> None:
+        # Only a schema-validation failure is recoverable. Retrying a dead connection
+        # leniently would turn "the server is unreachable" into "the server has no
+        # tools", which is a far worse lie than an error.
+        class _Session:
+            async def list_tools(self, params: Any = None) -> Any:
+                raise ConnectionError("connection reset")
+
+        client = MCPClient("http://localhost:3000/mcp", caller=SERVICE_IDENTITY)
+        client._session = _Session()  # type: ignore[assignment]
+
+        with pytest.raises(MCPClientError) as exc:
+            await client.list("tools/list")
+
+        assert "connection reset" in str(exc.value)
+        assert client.schema_issues == []
+
+    @pytest.mark.asyncio
+    async def test_missing_dispatcher_reports_the_original_error(self) -> None:
+        # `_dispatcher` is private SDK API. If a future version drops it, the fallback
+        # must surface the real validation failure rather than claim zero tools.
+        err = self._validation_error()
+
+        class _Session:
+            async def list_tools(self, params: Any = None) -> Any:
+                raise err
+
+        client = MCPClient("http://localhost:3000/mcp", caller=SERVICE_IDENTITY)
+        client._session = _Session()  # type: ignore[assignment]
+
+        with pytest.raises(MCPClientError) as exc:
+            await client.list("tools/list")
+
+        assert "validation error" in str(exc.value).lower()
