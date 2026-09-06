@@ -96,7 +96,12 @@ async def token(
         }
         return JSONResponse(
             {
-                "access_token": _sign({**identity, "aud": HUB_AUDIENCE, "scope": "mcp:invoke"}),
+                # Whatever the caller asked for. A real IdP would grant only what the
+                # user is entitled to; this stub lets the suite drive both allow and
+                # deny cases without needing per-user policy.
+                "access_token": _sign(
+                    {**identity, "aud": HUB_AUDIENCE, "scope": scope or "mcp:invoke"}
+                ),
                 "id_token": _sign({**identity, "aud": "mcp-client"}),
                 "token_type": "Bearer",
                 "expires_in": 900,

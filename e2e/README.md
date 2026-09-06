@@ -80,6 +80,21 @@ The stub is the load-bearing piece. A downstream that accepted anything would le
 the test pass whether or not an exchange happened, so it rejects a wrong `aud` with
 `401` plus a `WWW-Authenticate` challenge, and reports back `sub`, `azp`, and `act`.
 
+## Authorization
+
+Under `auth.type: jwt` the hub enforces per-server authorization, so the stack has to
+model it: the server is registered with `required_scope: files:use`, alice and bob log
+in requesting that scope, and registration is done with a separate `mcp:admin` token.
+
+Two checks exist purely to prove enforcement rather than assume it: a login that does
+*not* request `files:use` is refused with 403, and registering without `mcp:admin` is
+refused too.
+
+Both scopes are declared as **optional** client scopes, which is what lets one login
+have them and another not. A real deployment would gate them by role or group instead
+of letting the client ask; here the point is to exercise the hub's enforcement, not
+the IdP's policy engine.
+
 ## The realm
 
 Three clients, two users:

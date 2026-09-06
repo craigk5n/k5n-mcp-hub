@@ -39,6 +39,10 @@ ALICE_PASSWORD = required_env("KC_ALICE_PASSWORD")
 BOB_PASSWORD = required_env("KC_BOB_PASSWORD")
 TOKEN_URL = f"{KEYCLOAK}/realms/{REALM}/protocol/openid-connect/token"
 SERVER_ID = "files"
+# The hub enforces per-server authorization under auth.type: jwt. A caller needs the
+# server's required_scope; registering it needs the admin scope.
+SERVER_SCOPE = "files:use"
+ADMIN_SCOPE = "mcp:admin"
 
 failures: list[str] = []
 checks = 0
@@ -59,16 +63,20 @@ def claims(token: str) -> dict:
     return json.loads(base64.urlsafe_b64decode(payload + "=="))
 
 
-def login(client: httpx.Client, username: str, password: str) -> str:
-    response = client.post(
-        TOKEN_URL,
-        data={
-            "grant_type": "password",
-            "client_id": "mcp-client",
-            "username": username,
-            "password": password,
-        },
-    )
+def login(client: httpx.Client, username: str, password: str, *scopes: str) -> str:
+    """Log in, optionally requesting extra scopes.
+
+    They are optional client scopes in the realm, so a login that does not ask for
+    one gets a token without it — which is how the deny case below is produced."""
+    data = {
+        "grant_type": "password",
+        "client_id": "mcp-client",
+        "username": username,
+        "password": password,
+    }
+    if scopes:
+        data["scope"] = "openid " + " ".join(scopes)
+    response = client.post(TOKEN_URL, data=data)
     response.raise_for_status()
     return response.json()["access_token"]
 
@@ -110,8 +118,11 @@ def main() -> int:
         wait_for(client, f"{STUB}/health", "mcp-stub")
         wait_for(client, f"{HUB}/healthz", "hub")
 
-        alice = login(client, "alice", ALICE_PASSWORD)
-        bob = login(client, "bob", BOB_PASSWORD)
+        alice = login(client, "alice", ALICE_PASSWORD, SERVER_SCOPE)
+        bob = login(client, "bob", BOB_PASSWORD, SERVER_SCOPE)
+        # An admin token to register with, and a scopeless one to prove enforcement.
+        admin = login(client, "alice", ALICE_PASSWORD, ADMIN_SCOPE)
+        outsider = login(client, "bob", BOB_PASSWORD)
 
         print("\nthe hub as an OAuth resource server")
         metadata = client.get(f"{HUB}/.well-known/oauth-protected-resource")
@@ -136,7 +147,7 @@ def main() -> int:
         print("\nregistering the downstream server for on-behalf-of")
         registered = client.post(
             f"{HUB}/v1/register",
-            headers={"Authorization": f"Bearer {alice}"},
+            headers={"Authorization": f"Bearer {admin}"},
             json={
                 "id": SERVER_ID,
                 "url": f"{STUB}/mcp",
@@ -147,6 +158,7 @@ def main() -> int:
                 "oauth_client_id": "k5n-mcp-hub",
                 "oauth_client_secret": HUB_CLIENT_SECRET,
                 "obo_audience": "mcp-server-files",
+                "required_scope": SERVER_SCOPE,
             },
         )
         check(
@@ -212,6 +224,22 @@ def main() -> int:
                 identity.get("act") is None,
                 str(identity.get("act")),
             )
+
+        print("\nper-server authorization")
+        check(
+            "a caller without the server's scope is refused",
+            call_tool(client, outsider).status_code == 403,
+            f"HTTP {call_tool(client, outsider).status_code}",
+        )
+        check(
+            "registering without the admin scope is refused",
+            client.post(
+                f"{HUB}/v1/register",
+                headers={"Authorization": f"Bearer {alice}"},
+                json={"id": "sneaky", "url": f"{STUB}/mcp", "registration_type": "self"},
+            ).status_code
+            == 403,
+        )
 
         print("\nfailing closed")
         no_token = client.post(

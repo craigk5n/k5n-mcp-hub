@@ -20,6 +20,8 @@ RESOURCE_AS = os.environ.get("RESOURCE_AS", "http://ema-resource-as:9300").rstri
 HUB = os.environ.get("HUB", "http://hub:8080").rstrip("/")
 MCP = os.environ.get("MCP", "http://ema-mcp:9400").rstrip("/")
 SERVER_ID = "files"
+SERVER_SCOPE = "files:use"
+ADMIN_SCOPE = "mcp:admin"
 RESOURCE_ID = f"{MCP}/mcp"
 
 failures: list[str] = []
@@ -53,10 +55,15 @@ def wait_for(client: httpx.Client, url: str, label: str, timeout: float = 120.0)
     raise SystemExit(f"timed out waiting for {label} at {url}")
 
 
-def login(client: httpx.Client, username: str, password: str) -> tuple[str, str]:
+def login(client: httpx.Client, username: str, password: str, *scopes: str) -> tuple[str, str]:
     response = client.post(
         f"{IDP}/token",
-        data={"grant_type": "password", "username": username, "password": password},
+        data={
+            "grant_type": "password",
+            "username": username,
+            "password": password,
+            "scope": " ".join(scopes),
+        },
     )
     response.raise_for_status()
     body = response.json()
@@ -94,8 +101,10 @@ def main() -> int:
         ):
             wait_for(client, url, label)
 
-        alice_access, alice_id = login(client, "alice", "alice-pw")
-        bob_access, bob_id = login(client, "bob", "bob-pw")
+        alice_access, alice_id = login(client, "alice", "alice-pw", SERVER_SCOPE)
+        bob_access, bob_id = login(client, "bob", "bob-pw", SERVER_SCOPE)
+        admin_access, _ = login(client, "alice", "alice-pw", ADMIN_SCOPE)
+        outsider_access, outsider_id = login(client, "bob", "bob-pw", "unrelated:scope")
 
         print("\nthe resource authorization server advertises the grant profile")
         metadata = client.get(f"{RESOURCE_AS}/.well-known/oauth-authorization-server").json()
@@ -108,9 +117,10 @@ def main() -> int:
         print("\nregistering the downstream server for enterprise-managed auth")
         registered = client.post(
             f"{HUB}/v1/register",
-            headers={"Authorization": f"Bearer {alice_access}"},
+            headers={"Authorization": f"Bearer {admin_access}"},
             json={
                 "id": SERVER_ID,
+                "required_scope": SERVER_SCOPE,
                 "url": RESOURCE_ID,
                 "name": "Files",
                 "registration_type": "self",
@@ -179,6 +189,14 @@ def main() -> int:
                 identity.get("azp") == "k5n-mcp-hub",
                 str(identity.get("azp")),
             )
+
+        print("\nper-server authorization")
+        refused = call_tool(client, outsider_access, outsider_id)
+        check(
+            "a caller without the server's scope is refused",
+            refused.status_code == 403,
+            f"HTTP {refused.status_code}",
+        )
 
         print("\nfailing closed")
         # ADR 0006: the server is configured for id_token, so a caller who sends none

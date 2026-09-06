@@ -39,6 +39,12 @@ def required_env(name: str) -> str:
 
 HUB_SECRET = required_env("KC_HUB_CLIENT_SECRET")
 AGENT_CLIENT = "mcp-client"
+# Scopes the hub enforces: one per server, plus the admin scope. Declared as
+# *optional* client scopes so the e2e runner can request different sets for
+# different logins and exercise both allow and deny. A real deployment would gate
+# these by role or group rather than letting the client ask for them.
+SERVER_SCOPE = "files:use"
+ADMIN_SCOPE = "mcp:admin"
 TARGET_CLIENT = "mcp-server-files"
 USERS = {
     "alice": required_env("KC_ALICE_PASSWORD"),
@@ -95,6 +101,35 @@ def user_definition(username: str, password: str) -> dict[str, object]:
     }
 
 
+def create_client_scope(client: httpx.Client, headers: dict[str, str], name: str) -> None:
+    """A client scope whose name lands in the token's `scope` claim."""
+    response = client.post(
+        f"{BASE}/admin/realms/{REALM}/client-scopes",
+        headers=headers,
+        json={
+            "name": name,
+            "protocol": "openid-connect",
+            "attributes": {"include.in.token.scope": "true", "display.on.consent.screen": "false"},
+        },
+    )
+    if response.status_code not in (201, 409):
+        response.raise_for_status()
+
+
+def attach_optional_scope(
+    client: httpx.Client, headers: dict[str, str], client_id: str, scope_name: str
+) -> None:
+    clients = client.get(
+        f"{BASE}/admin/realms/{REALM}/clients", headers=headers, params={"clientId": client_id}
+    ).json()
+    scopes = client.get(f"{BASE}/admin/realms/{REALM}/client-scopes", headers=headers).json()
+    scope_id = next(s["id"] for s in scopes if s["name"] == scope_name)
+    client.put(
+        f"{BASE}/admin/realms/{REALM}/clients/{clients[0]['id']}/optional-client-scopes/{scope_id}",
+        headers=headers,
+    ).raise_for_status()
+
+
 def main() -> None:
     with httpx.Client(timeout=30.0) as client:
         headers = admin_headers(client)
@@ -149,6 +184,10 @@ def main() -> None:
                 f"{BASE}/admin/realms/{REALM}/clients", headers=headers, json=definition
             )
             response.raise_for_status()
+
+        for scope_name in (SERVER_SCOPE, ADMIN_SCOPE):
+            create_client_scope(client, headers, scope_name)
+            attach_optional_scope(client, headers, AGENT_CLIENT, scope_name)
 
         # Two users, so cross-user cache isolation can be exercised for real.
         for username, password in USERS.items():
