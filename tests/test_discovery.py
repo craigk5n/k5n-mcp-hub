@@ -527,3 +527,48 @@ class TestTtlPacing:
         assert fake_stateless_mcp_server.handler_call_count > count_after_first, (
             "an explicit discovery request must not be blocked by the ttl hint"
         )
+
+
+class TestDiscoveryStartup:
+    """The periodic discovery loop must actually be started.
+
+    `poll_once`/`run_forever` were fully implemented and tested, but nothing in
+    `app.py` ever created a task for them, so capabilities were only ever refreshed
+    on registration or by the UI's refresh button. A hub left running showed
+    `last_capability_sync: null` forever, and the `ttlMs` pacing hints had no
+    scheduler behind them.
+    """
+
+    def test_lifespan_starts_discovery_loop(self) -> None:
+        from unittest.mock import AsyncMock, patch
+
+        from fastapi.testclient import TestClient
+
+        from mcp_hub.app import create_app
+
+        with patch(
+            "mcp_hub.mcp.discovery.DiscoveryService.run_forever", new_callable=AsyncMock
+        ) as mock_run:
+            app = create_app()
+            with TestClient(app):
+                assert len(app.state.context.background_tasks) >= 1
+            assert mock_run.await_count >= 1
+
+    def test_discovery_loop_can_be_disabled(self) -> None:
+        from unittest.mock import AsyncMock, patch
+
+        from fastapi.testclient import TestClient
+
+        from mcp_hub.app import create_app
+        from mcp_hub.config import load_settings
+
+        settings = load_settings()
+        settings.discovery.enabled = False
+
+        with patch(
+            "mcp_hub.mcp.discovery.DiscoveryService.run_forever", new_callable=AsyncMock
+        ) as mock_run:
+            app = create_app(settings)
+            with TestClient(app):
+                pass
+            assert mock_run.await_count == 0

@@ -8,6 +8,8 @@ import yaml
 from pydantic import BaseModel, Field, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+from mcp_hub.mcp.constants import MCP_DISCOVERY_INTERVAL_SECONDS
+
 
 def _coerce_positive_int(v: object, default: int) -> int:
     """Return a positive int, falling back to ``default``.
@@ -176,6 +178,27 @@ class SecurityConfig(BaseModel):
     allow_private_networks: bool = False
 
 
+class DiscoveryConfig(BaseModel):
+    """Periodic capability (tools/prompts/resources) discovery.
+
+    Separate from `healthcheck` because they answer different questions and cost
+    differently: a health check is one cheap probe, whereas discovery performs a full
+    handshake plus three list calls against every registered server. An operator who
+    wants reachability monitoring without that traffic can turn this off alone.
+
+    `interval_seconds` is a floor, not a schedule: servers that return `ttlMs` pacing
+    hints are not re-polled before those expire (see `DiscoveryService.poll_once`).
+    """
+
+    enabled: bool = True
+    interval_seconds: int = MCP_DISCOVERY_INTERVAL_SECONDS
+
+    @field_validator("interval_seconds", mode="before")
+    @classmethod
+    def validate_interval(cls, v: object) -> int:
+        return _coerce_positive_int(v, MCP_DISCOVERY_INTERVAL_SECONDS)
+
+
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(
         env_prefix="MCPHUB_",
@@ -187,6 +210,7 @@ class Settings(BaseSettings):
     storage: StorageConfig = Field(default_factory=StorageConfig)
     auth: AuthConfig = Field(default_factory=AuthConfig)
     healthcheck: HealthCheckConfig = Field(default_factory=HealthCheckConfig)
+    discovery: DiscoveryConfig = Field(default_factory=DiscoveryConfig)
     trace: TraceConfig = Field(default_factory=TraceConfig)
     security: SecurityConfig = Field(default_factory=SecurityConfig)
 
@@ -197,6 +221,7 @@ class Settings(BaseSettings):
             storage=StorageConfig(),
             auth=AuthConfig(),
             healthcheck=HealthCheckConfig(),
+            discovery=DiscoveryConfig(),
             trace=TraceConfig(),
             security=SecurityConfig(),
         )
@@ -286,6 +311,10 @@ def load_settings(path: str | None = None) -> Settings:
         _deep_merge(defaults.healthcheck.model_dump(), yaml_config.get("healthcheck", {})),
         nested_env_vars.get("healthcheck", {}),
     )
+    discovery_dict = _deep_merge(
+        _deep_merge(defaults.discovery.model_dump(), yaml_config.get("discovery", {})),
+        nested_env_vars.get("discovery", {}),
+    )
     trace_dict = _deep_merge(
         _deep_merge(defaults.trace.model_dump(), yaml_config.get("trace", {})),
         nested_env_vars.get("trace", {}),
@@ -300,6 +329,7 @@ def load_settings(path: str | None = None) -> Settings:
         storage=StorageConfig(**storage_dict),
         auth=AuthConfig(**auth_dict),
         healthcheck=HealthCheckConfig(**healthcheck_dict),
+        discovery=DiscoveryConfig(**discovery_dict),
         trace=TraceConfig(**trace_dict),
         security=SecurityConfig(**security_dict),
     )

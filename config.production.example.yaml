@@ -58,6 +58,20 @@ healthcheck:
   # Leave false unless you want a flapping backend removed from the registry outright.
   auto_unregister: false
 
+discovery:
+  # enabled: Whether to periodically re-discover each server's tools, prompts and
+  # resources. On by default. Separate from `healthcheck` because it costs more: a
+  # health check is one cheap probe, while discovery performs a full handshake plus
+  # three list calls against every registered server. Turn it off to keep health
+  # monitoring without that traffic — capabilities then refresh only at registration
+  # and when you press "Refresh capabilities" in the admin UI.
+  enabled: true
+
+  # interval_seconds: How often (in seconds) to re-discover capabilities. This is a
+  # floor, not a schedule: servers returning `ttlMs` pacing hints are not re-polled
+  # before those hints expire.
+  interval_seconds: 30
+
 trace:
   # Captured bodies are redacted for credential-shaped fields, but they still contain
   # request arguments. Keep the limit modest on a shared deployment.

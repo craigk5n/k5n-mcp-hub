@@ -112,6 +112,25 @@ healthcheck:
 # Trace Configuration
 # =============================================================================
 # Controls request/response tracing for debugging.
+discovery:
+  # enabled: Whether to periodically re-discover each server's tools, prompts and
+  # resources. On by default. Separate from `healthcheck` because it costs more: a
+  # health check is one cheap probe, while discovery performs a full handshake plus
+  # three list calls against every registered server. Turn it off to keep health
+  # monitoring without that traffic — capabilities then refresh only at registration
+  # and when you press "Refresh capabilities" in the admin UI.
+  enabled: true
+
+  # interval_seconds: How often (in seconds) to re-discover capabilities. This is a
+  # floor, not a schedule: servers returning `ttlMs` pacing hints are not re-polled
+  # before those hints expire.
+  #
+  # 10 minutes rather than the 30s default: discovery is a full handshake plus three
+  # list calls against every registered server, and this hub fronts remote production
+  # sites. Capability sets change rarely; reachability is the health checker's job and
+  # still runs every 30s.
+  interval_seconds: 600
+
 trace:
   # body_limit: Maximum number of body bytes to capture per request/response.
   body_limit: 10000

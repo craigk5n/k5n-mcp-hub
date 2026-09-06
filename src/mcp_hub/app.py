@@ -122,6 +122,26 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         )
         register_background_task(app, asyncio.create_task(health_checker.run_forever()))
 
+    # Start periodic capability discovery. `DiscoveryService` had `poll_once`/`run_forever`
+    # implemented and tested from the start, but nothing ever created a task for them, so
+    # capabilities were only refreshed at registration or by the UI's refresh button — a
+    # long-running hub reported `last_capability_sync: null` indefinitely, and the `ttlMs`
+    # pacing hints had no scheduler behind them. Same guards as the health checker, and the
+    # loop swallows per-server errors itself, so one unreachable backend cannot stop the rest.
+    discovery_service = getattr(app.state, "discovery_service", None)
+    if (
+        settings is not None
+        and discovery_service is not None
+        and getattr(app.state, "registry", None) is not None
+        and settings.discovery.enabled
+    ):
+        register_background_task(
+            app,
+            asyncio.create_task(
+                discovery_service.run_forever(interval_seconds=settings.discovery.interval_seconds)
+            ),
+        )
+
     try:
         yield
     finally:
