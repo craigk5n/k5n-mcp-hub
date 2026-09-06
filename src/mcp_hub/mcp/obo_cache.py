@@ -33,8 +33,14 @@ class OBOCacheKey:
     server_id: str
     audience: str
     scope: str
+    # RFC 8707 resource indicator (OBO) or the resource id named in the ID-JAG (EMA).
+    # It changes what the issued token is valid for, so it has to be in the key: a
+    # config change would otherwise keep serving tokens minted under the old value
+    # until they expired, and look like the change had not taken effect.
+    resource: str = ""
     # "obo" (one leg) or "ema" (two legs). The two produce different tokens for the
-    # same server, so an entry from one must never satisfy the other.
+    # same server, so an entry from one must never satisfy the other. For EMA this
+    # also carries the subject-token choice, which changes IdP policy evaluation.
     flow: str = "obo"
 
 

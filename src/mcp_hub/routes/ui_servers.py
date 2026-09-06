@@ -92,7 +92,7 @@ async def list_servers(request: Request) -> HTMLResponse:
     templates = request.app.state.templates
 
     servers = await registry.list()
-    servers_data = [s.model_dump(mode="json") for s in servers]
+    servers_data = [s.sanitize_for_ui().model_dump(mode="json") for s in servers]
 
     _schedule_background_probe(request)
 
@@ -110,7 +110,7 @@ async def get_server_health_status(request: Request, server_id: str) -> HTMLResp
     if server is None:
         raise HTTPException(status_code=404, detail="Server not found")
 
-    server_data = server.model_dump(mode="json")
+    server_data = server.sanitize_for_ui().model_dump(mode="json")
 
     server_data["last_checked"] = server.last_checked
 

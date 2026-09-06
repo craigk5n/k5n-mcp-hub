@@ -357,7 +357,10 @@ def obo_cache_key(server: RegisteredServer, caller: Principal) -> OBOCacheKey:
             server_id=server.id or server.url,
             audience=server.ema_resource_as_issuer,
             scope=server.obo_scope,
-            flow="ema",
+            resource=server.ema_resource_id,
+            # The subject-token choice changes which identity the IdP evaluates, so a
+            # token fetched under one must not satisfy the other.
+            flow=f"ema:{server.ema_subject_token_type}",
         )
     return OBOCacheKey(
         subject=caller.subject,
@@ -365,6 +368,7 @@ def obo_cache_key(server: RegisteredServer, caller: Principal) -> OBOCacheKey:
         server_id=server.id or server.url,
         audience=server.obo_audience,
         scope=server.obo_scope,
+        resource=server.obo_resource,
     )
 
 

@@ -58,6 +58,14 @@ _FIELD_ALTERNATION = "|".join(sorted(SENSITIVE_BODY_FIELDS))
 # trace, so a mid-JSON cut is the common case, not an edge one.
 _JSONISH = re.compile(rf'("(?:{_FIELD_ALTERNATION})"\s*:\s*")([^"]*)', re.IGNORECASE)
 _FORMISH = re.compile(rf"\b({_FIELD_ALTERNATION})=([^&\s]+)", re.IGNORECASE)
+# Prose, which is what an IdP's `error_description` actually looks like:
+#   subject_token 'eyJhbGci...' is not active
+# Neither the JSON nor the form pattern matches that, so a rejected token echoed back
+# in an error message would otherwise survive redaction.
+_PROSEISH = re.compile(
+    rf"\b({_FIELD_ALTERNATION})\b(\s*[:=]?\s*)(['\"])([^'\"]+)(['\"])",
+    re.IGNORECASE,
+)
 
 BodyT = TypeVar("BodyT", str, bytes)
 
@@ -77,7 +85,10 @@ def _redact_structure(value: Any) -> Any:
 
 def _redact_text(text: str) -> str:
     text = _JSONISH.sub(lambda m: f"{m.group(1)}{REDACTED}", text)
-    return _FORMISH.sub(lambda m: f"{m.group(1)}={REDACTED}", text)
+    text = _FORMISH.sub(lambda m: f"{m.group(1)}={REDACTED}", text)
+    return _PROSEISH.sub(
+        lambda m: f"{m.group(1)}{m.group(2)}{m.group(3)}{REDACTED}{m.group(5)}", text
+    )
 
 
 def sanitize_trace_body(body: BodyT) -> BodyT:

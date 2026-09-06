@@ -768,6 +768,56 @@ Still open for an exposed/multi-tenant deployment:
       Done as Story 7.2: `TraceRecorder.add` redacts OAuth-shaped credential fields in
       JSON and form bodies, with a textual fallback for truncated ones.
 
+## Security pass findings (2026-09-06)
+
+Adversarial review of the auth surface added in Epics 5-8. Two findings are fixed;
+two need a product decision first, because the fix depends on what this hub is meant
+to be.
+
+### Open — needs a decision on the authorization model
+
+- [ ] **No per-server authorization.** Any authenticated caller can proxy to any
+      registered server via `X-MCP-Target-Server`; nothing between reading that header
+      and `registry.get()` consults the principal. For an `obo`/`ema` server this is
+      mostly benign — the exchange is per user, and the IdP and backend decide. For a
+      server holding a **static** credential (bearer, basic, or client-credentials
+      oauth) the hub will use its stored credential on behalf of *any* authenticated
+      user, which is the privilege escalation OBO exists to prevent, sitting one
+      registration away from it.
+
+      Epic 5 created this: before `auth.type: jwt` every caller was equally
+      anonymous, so there was nothing to authorize. The hub now distinguishes users
+      without acting on the distinction. Options, roughly in order of effort: require
+      a scope per server (`obo_scope`-style, checked against the caller's token);
+      an explicit allow-list of subjects or groups per server; or declare the hub
+      single-tenant and say so in the README, refusing to start `auth.type: jwt`
+      alongside static-credential servers.
+
+- [ ] **Traces are not scoped to the caller.** The trace buffer is keyed by server,
+      so any authenticated user can read every other user's request URLs, timings,
+      and — with `trace_verbose` — bodies for that server. Headers and
+      credential-shaped body fields are redacted, so this is not credential
+      disclosure, but it is cross-user request disclosure. The same decision as above
+      governs it: single-tenant makes it a non-issue, multi-tenant makes it a leak.
+
+### Fixed
+
+- [x] **IdP error text rendered unsanitized in the admin UI.** `sanitize_for_api`
+      drops `obo_error`/`ema_error` precisely because IdP `error_description` can echo
+      the token it rejected — and `ui_servers.py` rendered raw `model_dump()`, so the
+      servers page printed them. Confirmed by planting a token string in `obo_error`
+      and finding it in the page HTML while `/api/servers` scrubbed it.
+      Fixed with `sanitize_for_ui()`, which keeps the diagnostic (an operator who
+      cannot see *why* an exchange failed cannot fix it) but runs it through the trace
+      redactor. That redactor only matched JSON and form shapes, so it was extended to
+      prose — `subject_token 'eyJ...' is not active` is what an IdP actually returns.
+
+- [x] **Cache key omitted fields that shape the issued token.** `obo_resource`,
+      `ema_resource_id` and `ema_subject_token_type` were absent from `OBOCacheKey`,
+      so changing any of them on an existing server kept serving tokens minted under
+      the old configuration until they expired — the change appearing not to take
+      effect. All three are in the key now.
+
 ## Product / usefulness follow-ups (from AUDIT_local.md §3)
 
 - [ ] Interop with the official MCP registry API (import/export).

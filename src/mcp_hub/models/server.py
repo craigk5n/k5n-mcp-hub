@@ -189,6 +189,28 @@ class RegisteredServer(BaseModel):
         degrade the same way when no service credential exists (ADR 0004)."""
         return self.auth_type in ("obo", "ema") and not self.has_service_credential
 
+    def sanitize_for_ui(self) -> "RegisteredServer":
+        """Safe to render in the admin UI.
+
+        Keeps the exchange error, because an operator who cannot see *why* a token
+        exchange failed cannot fix it — but runs it through the same credential
+        redaction the trace bodies use. IdP `error_description` text is written by
+        the IdP and can echo the token that was rejected; ``sanitize_for_api``
+        drops these fields entirely for exactly that reason, and the servers page
+        was rendering them raw."""
+        from mcp_hub.trace.recorder import sanitize_trace_body
+
+        return self.model_copy(
+            update={
+                "bearer_token": "",
+                "basic_password": "",
+                "oauth_client_secret": "",
+                "oauth_token_error": sanitize_trace_body(self.oauth_token_error),
+                "obo_error": sanitize_trace_body(self.obo_error),
+                "ema_error": sanitize_trace_body(self.ema_error),
+            }
+        )
+
     def sanitize_for_api(self) -> "RegisteredServer":
         return self.model_copy(
             update={
