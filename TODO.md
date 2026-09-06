@@ -850,16 +850,16 @@ driven by tests rather than by mocks that agree with me.
 
 - TDD: this story *is* the fixture the rest of the epic tests against.
 - Acceptance criteria:
-  - [ ] `tests/fixtures/echo_stdio_server.py` exposes `echo` and `count_chars` over
+  - [x] `tests/fixtures/echo_stdio_server.py` exposes `echo` and `count_chars` over
         stdio, built on `mcp.server.mcpserver.MCPServer` (2.x renamed FastMCP to
         MCPServer; `run()` already defaults to `transport="stdio"`).
-  - [ ] No new dependency — it uses the `mcp` package already pinned in
+  - [x] No new dependency — it uses the `mcp` package already pinned in
         `pyproject.toml`, so CI's clean-install gate stays honest.
-  - [ ] Verified reachable via `mcp.client.stdio.stdio_client`: initialize returns
+  - [x] Verified reachable via `mcp.client.stdio.stdio_client`: initialize returns
         `protocolVersion 2025-11-25`, `tools/list` returns both tools, and
         `tools/call echo` round-trips. (Confirmed working 2026-09-06 before this
         epic was written.)
-  - [ ] Note for 9.5: `MCPServer` advertises `prompts` and `resources` even with
+  - [x] Note for 9.5: `MCPServer` advertises `prompts` and `resources` even with
         none registered, so it exercises the *advertised* branch of `_advertises`,
         not the skip branch. A server that advertises tools only is also needed.
 
@@ -870,13 +870,13 @@ default configuration makes registration unauthenticated.
 
 - TDD: extend `tests/test_config.py` and `tests/test_app.py` first.
 - Acceptance criteria:
-  - [ ] `stdio.enabled` (default `false`) and `stdio.allowed_commands` (name →
+  - [x] `stdio.enabled` (default `false`) and `stdio.allowed_commands` (name →
         `{command, args, env, cwd}`) in `config.py`, documented in `config.yaml`
         and `config.production.example.yaml`.
-  - [ ] The hub **fails to start** when `stdio.enabled` is true and `auth.type` is
+  - [x] The hub **fails to start** when `stdio.enabled` is true and `auth.type` is
         not `jwt`, naming both settings. A warning is not enough: it would put an
         exec primitive on the network of anyone who skims the release notes.
-  - [ ] `--dev` does not relax this, the way it deliberately does not touch
+  - [x] `--dev` does not relax this, the way it deliberately does not touch
         `auth.type`.
   - [ ] With `stdio.enabled` false, a stdio registration is refused with a message
         naming the flag — so upgrading cannot silently add the capability.

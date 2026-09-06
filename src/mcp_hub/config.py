@@ -199,6 +199,42 @@ class DiscoveryConfig(BaseModel):
         return _coerce_positive_int(v, MCP_DISCOVERY_INTERVAL_SECONDS)
 
 
+class StdioCommandConfig(BaseModel):
+    """One allowlisted program a stdio server may be registered against.
+
+    The command and its arguments live here, in operator-controlled config, and never
+    in a registration request. A caller names an entry; it cannot supply a binary or
+    an argument. That puts argument injection (`-c 'import os…'`, `--config=/etc/…`)
+    out of reach by construction rather than by validation, which is the only kind of
+    defence worth having against something that ends in `exec`.
+    """
+
+    command: str
+    args: list[str] = Field(default_factory=list)
+    env: dict[str, str] = Field(default_factory=dict)
+    cwd: str = ""
+
+    @field_validator("command")
+    @classmethod
+    def validate_command_not_blank(cls, v: str) -> str:
+        if not v.strip():
+            raise ValueError("stdio.allowed_commands entries need a command")
+        return v.strip()
+
+
+class StdioConfig(BaseModel):
+    """stdio MCP servers. Off by default -- see ADR 0007.
+
+    Unlike every other backend, a stdio server is a program the hub forks and execs,
+    so enabling this converts `POST /v1/register` from an SSRF surface into an
+    arbitrary-code-execution surface. The cross-check against `auth.type` lives on
+    `Settings` because it spans two sections.
+    """
+
+    enabled: bool = False
+    allowed_commands: dict[str, StdioCommandConfig] = Field(default_factory=dict)
+
+
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(
         env_prefix="MCPHUB_",
@@ -211,8 +247,33 @@ class Settings(BaseSettings):
     auth: AuthConfig = Field(default_factory=AuthConfig)
     healthcheck: HealthCheckConfig = Field(default_factory=HealthCheckConfig)
     discovery: DiscoveryConfig = Field(default_factory=DiscoveryConfig)
+    stdio: StdioConfig = Field(default_factory=StdioConfig)
     trace: TraceConfig = Field(default_factory=TraceConfig)
     security: SecurityConfig = Field(default_factory=SecurityConfig)
+
+    @model_validator(mode="after")
+    def validate_stdio_requires_authenticated_registration(self) -> Settings:
+        """Refuse to start with stdio enabled on a hub anyone may register against.
+
+        `require_admin` guards `POST /v1/register`, but `is_admin` returns True
+        unconditionally when `auth.type` is not `jwt` -- `none` and `basic` are
+        single-user modes with no tenancy to enforce. That is a reasonable trade
+        while the worst a stray registration achieves is an SSRF-pinned fetch. Once
+        registration can fork and exec, it is remote code execution for anyone who
+        can reach the port, which on a default local install is every host on the
+        LAN (the hub already warns about exactly that at startup).
+
+        Refusing to start rather than warning is deliberate: a warning puts an exec
+        endpoint on the network of everyone who skims a release note.
+        """
+        if self.stdio.enabled and self.auth.type != "jwt":
+            raise ValueError(
+                f"stdio.enabled is true but auth.type is {self.auth.type or 'basic'!r}. "
+                "Registering a stdio server runs a program, and registration is only "
+                "restricted to admins under auth.type: jwt. Set auth.type: jwt (see "
+                "docs/operator-guide-obo.md), or leave stdio.enabled false."
+            )
+        return self
 
     @classmethod
     def from_defaults(cls) -> Settings:
@@ -222,6 +283,7 @@ class Settings(BaseSettings):
             auth=AuthConfig(),
             healthcheck=HealthCheckConfig(),
             discovery=DiscoveryConfig(),
+            stdio=StdioConfig(),
             trace=TraceConfig(),
             security=SecurityConfig(),
         )
@@ -315,6 +377,10 @@ def load_settings(path: str | None = None) -> Settings:
         _deep_merge(defaults.discovery.model_dump(), yaml_config.get("discovery", {})),
         nested_env_vars.get("discovery", {}),
     )
+    stdio_dict = _deep_merge(
+        _deep_merge(defaults.stdio.model_dump(), yaml_config.get("stdio", {})),
+        nested_env_vars.get("stdio", {}),
+    )
     trace_dict = _deep_merge(
         _deep_merge(defaults.trace.model_dump(), yaml_config.get("trace", {})),
         nested_env_vars.get("trace", {}),
@@ -330,6 +396,7 @@ def load_settings(path: str | None = None) -> Settings:
         auth=AuthConfig(**auth_dict),
         healthcheck=HealthCheckConfig(**healthcheck_dict),
         discovery=DiscoveryConfig(**discovery_dict),
+        stdio=StdioConfig(**stdio_dict),
         trace=TraceConfig(**trace_dict),
         security=SecurityConfig(**security_dict),
     )

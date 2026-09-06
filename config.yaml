@@ -131,6 +131,36 @@ discovery:
   # still runs every 30s.
   interval_seconds: 600
 
+stdio:
+  # enabled: Whether stdio MCP servers (programs, not URLs) may be registered.
+  #
+  # OFF BY DEFAULT, AND DELIBERATELY AWKWARD TO TURN ON. Every other backend is a
+  # URL: the hub connects out, and a hostile registration is bounded by the
+  # SSRF-pinned transport. A stdio server is a command line, so registering one asks
+  # the hub to fork and exec it.
+  #
+  # Registration is restricted to admins only under `auth.type: jwt` -- `none` and
+  # `basic` are single-user modes where everyone is an admin -- so the hub REFUSES TO
+  # START if this is true while auth.type is anything else. See
+  # docs/adr/0007-stdio-servers-are-opt-in-and-service-identity-only.md.
+  enabled: false
+
+  # allowed_commands: The programs a stdio server may be registered against, by name.
+  # A registration names an entry here; it can supply neither the binary nor its
+  # arguments, which keeps argument injection out of reach by construction.
+  #
+  # stdio servers run under a single service identity shared by all callers -- one
+  # process cannot act as two users -- so `auth_type: obo` and `ema` are refused for
+  # them. `required_scope` still governs who may reach the server.
+  #
+  # allowed_commands:
+  #   everything:
+  #     command: npx
+  #     args: ["-y", "@modelcontextprotocol/server-everything"]
+  #     env: {LOG_LEVEL: "info"}
+  #     cwd: ""
+  allowed_commands: {}
+
 trace:
   # body_limit: Maximum number of body bytes to capture per request/response.
   body_limit: 10000
