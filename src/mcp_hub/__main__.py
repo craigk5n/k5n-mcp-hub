@@ -76,6 +76,7 @@ def resolve_settings(
     host_override: str | None,
     port_override: int | None,
 ) -> Settings:
+    """Settings for uvicorn. Pure: see ``export_cli_overrides`` for the app's copy."""
     settings = load_settings(config_path)
     if host_override is not None:
         settings.server.http_host = host_override
@@ -84,9 +85,29 @@ def resolve_settings(
     return settings
 
 
+def export_cli_overrides(host_override: str | None, port_override: int | None) -> None:
+    """Make --host/--port reach the app, not just uvicorn.
+
+    uvicorn loads ``create_app`` as a factory, which calls ``load_settings()`` itself,
+    so the Settings object built above only tells uvicorn where to listen. The app
+    would still believe whatever config.yaml says — which matters twice over: the
+    startup exposure warning would not fire for ``--host 0.0.0.0``, and generated
+    download scripts would advertise the wrong host and port. Exporting the documented
+    env overrides is how the values actually arrive, the same mechanism ``--dev`` uses.
+
+    Kept separate from ``resolve_settings`` because it mutates the environment, and a
+    function named "resolve" should not.
+    """
+    if host_override is not None:
+        os.environ["MCPHUB_SERVER__HTTP_HOST"] = host_override
+    if port_override is not None:
+        os.environ["MCPHUB_SERVER__HTTP_PORT"] = str(port_override)
+
+
 def main(args: Sequence[str] | None = None) -> None:
     parsed = parse_args(args)
     settings = resolve_settings(parsed.config, parsed.host, parsed.port)
+    export_cli_overrides(parsed.host, parsed.port)
     if parsed.dev:
         apply_dev_mode(settings)
 

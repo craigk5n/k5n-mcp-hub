@@ -227,3 +227,62 @@ class TestShippedDefaultConfig:
         )
         assert result.trace.body_limit == defaults.trace.body_limit
         assert result.trace.capture_sse == defaults.trace.capture_sse
+
+
+class TestExposedWithoutAuthIsWarned:
+    """The shipped config is local-first (no auth, private networks reachable). Copying
+    it onto a host that binds a public interface is the realistic way to get burned,
+    and nothing said so."""
+
+    def _warnings(self, **overrides) -> list[str]:
+        import logging
+        from unittest.mock import patch
+
+        from mcp_hub.app import warn_about_exposure
+        from mcp_hub.config import AuthConfig, SecurityConfig, ServerConfig, Settings
+
+        settings = Settings(
+            server=ServerConfig(**overrides.pop("server", {})),
+            auth=AuthConfig(**overrides.pop("auth", {})),
+            security=SecurityConfig(**overrides.pop("security", {})),
+        )
+        records: list[str] = []
+        with patch.object(
+            logging.getLogger("mcp_hub.app"),
+            "warning",
+            side_effect=lambda msg, *a, **k: records.append(msg % a if a else msg),
+        ):
+            warn_about_exposure(settings)
+        return records
+
+    def test_loopback_without_auth_is_silent(self) -> None:
+        # The default local case must not nag.
+        assert self._warnings(server={"http_host": "127.0.0.1"}, auth={"type": "none"}) == []
+
+    def test_public_bind_without_auth_warns(self) -> None:
+        warnings = self._warnings(server={"http_host": "0.0.0.0"}, auth={"type": "none"})
+
+        assert any("no authentication" in w for w in warnings)
+
+    def test_public_bind_with_jwt_does_not_warn_about_auth(self) -> None:
+        warnings = self._warnings(server={"http_host": "0.0.0.0"}, auth={"type": "jwt"})
+
+        assert not any("no authentication" in w for w in warnings)
+
+    def test_public_bind_with_private_networks_warns(self) -> None:
+        # An exposed hub that will happily proxy to 169.254.169.254 is an SSRF pivot.
+        warnings = self._warnings(
+            server={"http_host": "0.0.0.0"},
+            auth={"type": "jwt"},
+            security={"allow_private_networks": True},
+        )
+
+        assert any("private" in w.lower() for w in warnings)
+
+    def test_loopback_with_private_networks_is_silent(self) -> None:
+        assert (
+            self._warnings(
+                server={"http_host": "127.0.0.1"}, security={"allow_private_networks": True}
+            )
+            == []
+        )

@@ -98,6 +98,17 @@ The image binds `0.0.0.0` inside the container (so a published `-p` port is reac
 
 ## Configuration
 
+Two example configs ship with the project:
+
+| File | For |
+|---|---|
+| `config.yaml` | **Local development.** No auth, private networks reachable, registry persisted to a file. Do not deploy it as-is. |
+| `config.production.example.yaml` | **A deployment.** `auth.type: jwt` with per-server authorization, private networks refused, and the settings a shared hub needs. Start here, then follow the [operator guide](docs/operator-guide-obo.md). |
+
+The hub warns at startup if it is bound to a non-loopback address with either no
+authentication or private networks enabled — the two ways the local config becomes
+dangerous when copied onto a server.
+
 Configuration is loaded from `config.yaml` at the repository root. Environment variables can override config values using two patterns:
 
 - **Bare env var** (highest priority): `SERVER_HTTP_PORT` sets the HTTP port directly.

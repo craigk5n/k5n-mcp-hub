@@ -13,7 +13,12 @@ from unittest.mock import patch
 
 import pytest
 
-from mcp_hub.__main__ import apply_dev_mode, parse_args, resolve_settings
+from mcp_hub.__main__ import (
+    apply_dev_mode,
+    export_cli_overrides,
+    parse_args,
+    resolve_settings,
+)
 from mcp_hub.config import AuthConfig, JWTAuthConfig, Settings
 
 
@@ -80,6 +85,14 @@ class TestEffect:
 
 
 class TestWithoutTheFlag:
+    def test_resolve_settings_has_no_side_effects(self, tmp_path) -> None:
+        # It leaked into a neighbouring test when it did.
+        with patch.dict(os.environ, {}, clear=False):
+            os.environ.pop("MCPHUB_SERVER__HTTP_PORT", None)
+            resolve_settings(str(tmp_path / "none.yaml"), "0.0.0.0", 9000)
+
+            assert "MCPHUB_SERVER__HTTP_PORT" not in os.environ
+
     def test_settings_are_untouched(self, tmp_path) -> None:
         with patch.dict(os.environ, {}, clear=False):
             os.environ.pop("MCPHUB_SECURITY__ALLOW_PRIVATE_NETWORKS", None)
@@ -96,3 +109,39 @@ class TestWithoutTheFlag:
             settings = resolve_settings(str(config), None, None)
 
         assert settings.security.allow_private_networks is True
+
+
+class TestCLIOverridesReachTheApp:
+    """uvicorn loads create_app as a factory that re-reads settings, so mutating the
+    Settings object only told uvicorn where to listen. The app itself still believed
+    config.yaml — which silenced the exposure warning and made generated download
+    scripts advertise the wrong host and port."""
+
+    def test_host_override_is_exported(self, tmp_path) -> None:
+        with patch.dict(os.environ, {}, clear=False):
+            os.environ.pop("MCPHUB_SERVER__HTTP_HOST", None)
+            export_cli_overrides("0.0.0.0", None)
+
+            assert os.environ["MCPHUB_SERVER__HTTP_HOST"] == "0.0.0.0"
+
+    def test_port_override_is_exported(self, tmp_path) -> None:
+        with patch.dict(os.environ, {}, clear=False):
+            os.environ.pop("MCPHUB_SERVER__HTTP_PORT", None)
+            export_cli_overrides(None, 9000)
+
+            assert os.environ["MCPHUB_SERVER__HTTP_PORT"] == "9000"
+
+    def test_the_app_then_sees_the_overridden_host(self, tmp_path) -> None:
+        from mcp_hub.config import load_settings
+
+        with patch.dict(os.environ, {}, clear=False):
+            export_cli_overrides("0.0.0.0", None)
+            # What create_app does: re-read from scratch.
+            assert load_settings(str(tmp_path / "none.yaml")).server.http_host == "0.0.0.0"
+
+    def test_no_override_exports_nothing(self, tmp_path) -> None:
+        with patch.dict(os.environ, {}, clear=False):
+            os.environ.pop("MCPHUB_SERVER__HTTP_HOST", None)
+            export_cli_overrides(None, None)
+
+            assert "MCPHUB_SERVER__HTTP_HOST" not in os.environ

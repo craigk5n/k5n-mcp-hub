@@ -1,10 +1,19 @@
-# k5n-mcp-hub Configuration File
-# ==========================
+# k5n-mcp-hub — LOCAL DEVELOPMENT configuration
+# ============================================
 #
-# This file contains the default configuration for the k5n-mcp-hub MCP server.
-# All values in this file match the application's built-in defaults, so starting
-# the app with this file present behaves identically to running with no config
-# file at all. This file serves as documentation for all available options.
+# >> This file is tuned for running the hub on your own machine. Do not deploy it
+# >> as-is. For a multi-user or internet-reachable deployment start from
+# >> config.production.example.yaml instead, and read docs/operator-guide-obo.md.
+#
+# It documents every available option, and most values match the built-in defaults.
+# Three deliberately do not, because they suit local work and nothing else:
+#
+#   storage.type: json                  (default: inmemory) persist across restarts
+#   security.allow_private_networks:    (default: false)    reach localhost/LAN servers
+#   auth.type: none                     (default: none)     no login for local use
+#
+# The hub warns at startup if it is bound to a non-loopback address with either no
+# authentication or private networks enabled.
 #
 # To override any setting, uncomment and modify the relevant section(s).
 
@@ -113,5 +122,7 @@ trace:
 
 # Security
 security:
-  # Allow registering/probing MCP servers on localhost/LAN (needed for a local-first hub).
+  # Allow registering/probing MCP servers on localhost/LAN. Needed for local work and
+  # wrong for anything exposed: an internet-reachable hub with this on is an SSRF pivot
+  # into whatever network it sits in. The built-in default is false.
   allow_private_networks: true

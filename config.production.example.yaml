@@ -1,0 +1,65 @@
+# k5n-mcp-hub — deployment configuration
+# =====================================
+#
+# A starting point for a multi-user or internet-reachable deployment. It differs from
+# the repo's config.yaml, which is tuned for a laptop, in the three ways that matter:
+# authentication is on, private networks are unreachable, and the registry persists.
+#
+# Walkthrough, including the IdP side: docs/operator-guide-obo.md
+#
+# Secrets do not belong in this file. Everything here can be supplied by environment
+# instead (MCPHUB_ prefix, __ for nesting) — see .env.example.
+
+server:
+  # Bind a public interface only behind a reverse proxy that terminates TLS.
+  http_host: "0.0.0.0"
+  http_port: 8080
+
+storage:
+  # The registry holds bearer tokens and client secrets. Put it on a volume that is
+  # backed up and access-controlled like any other credential store.
+  type: json
+  json:
+    path: /data/mcp_servers.json
+
+auth:
+  # jwt makes the hub an OAuth 2.1 resource server AND turns on per-server
+  # authorization. The hub refuses to start if issuer, audience or jwks_uri is missing.
+  type: jwt
+  jwt:
+    issuer: "https://idp.example.com/realms/mcp-hub"
+    audience: "k5n-mcp-hub"
+    jwks_uri: "https://idp.example.com/realms/mcp-hub/protocol/openid-connect/certs"
+
+    # Scope granting admin rights: registering and deleting servers, editing
+    # credentials, toggling fault injection, and reading every caller's traces.
+    admin_scope: "mcp:admin"
+
+    # Optional: reject tokens lacking these before any backend sees them.
+    required_scopes: []
+
+    # Clock-skew tolerance for exp/nbf, in seconds.
+    leeway_seconds: 30
+
+    # The hub's public identity in RFC 9728 metadata. Set this when behind a proxy —
+    # it is otherwise derived from the request URL, which will be the internal one.
+    resource: "https://hub.example.com"
+
+security:
+  # Refuse to proxy to loopback, LAN and link-local addresses. Leaving this true on an
+  # exposed hub turns it into an SSRF pivot into your internal network.
+  allow_private_networks: false
+
+healthcheck:
+  enabled: true
+  interval_seconds: 30
+  timeout_seconds: 5
+  failure_threshold: 3
+  # Leave false unless you want a flapping backend removed from the registry outright.
+  auto_unregister: false
+
+trace:
+  # Captured bodies are redacted for credential-shaped fields, but they still contain
+  # request arguments. Keep the limit modest on a shared deployment.
+  body_limit: 4000
+  capture_sse: false

@@ -34,6 +34,35 @@ logger = logging.getLogger(__name__)
 
 SHUTDOWN_TIMEOUT_SECONDS = 5
 
+# Addresses that keep the hub reachable only from this machine.
+LOOPBACK_HOSTS = frozenset({"127.0.0.1", "localhost", "::1", ""})
+
+
+def warn_about_exposure(settings: Settings) -> None:
+    """Warn when the hub is bound somewhere reachable with local-first settings.
+
+    The shipped config.yaml is deliberately local-first — no auth, private networks
+    reachable — which is right on a laptop and wrong on a host that binds a public
+    interface. Copying that file onto a server is the realistic way to get burned, so
+    say so at startup rather than leaving it to be discovered."""
+    if settings.server.http_host in LOOPBACK_HOSTS:
+        return
+
+    if settings.auth.type in ("none", "noauth", ""):
+        logger.warning(
+            "k5n-mcp-hub is bound to %s with no authentication: anyone who can reach "
+            "this port can register servers, read traces and proxy through it. Set "
+            "auth.type (see docs/operator-guide-obo.md) or bind 127.0.0.1.",
+            settings.server.http_host,
+        )
+    if settings.security.allow_private_networks:
+        logger.warning(
+            "k5n-mcp-hub is bound to %s with security.allow_private_networks enabled: "
+            "it will proxy to loopback, LAN and link-local addresses, which makes it an "
+            "SSRF pivot into this network. Set it false for any exposed deployment.",
+            settings.server.http_host,
+        )
+
 
 @dataclass
 class AppContext:
@@ -244,6 +273,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.state.trace_recorder = trace_recorder
     app.state.templates = _create_jinja2_environment()
     app.state.fixture_store = FixtureStore()
+
+    warn_about_exposure(settings)
 
     _mount_routers(app)
     _mount_static(app)
