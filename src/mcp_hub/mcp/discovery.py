@@ -23,6 +23,23 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
+def _advertises(capabilities: dict[str, Any] | None, kind: str) -> bool:
+    """Whether to ask this server for `kind`, given what it advertised.
+
+    Deliberately asymmetric. A non-empty capability object is a positive statement, so
+    anything absent from it is skipped -- that is the whole point, and it removes two
+    wasted round trips and two recurring warnings per cycle for a tools-only server.
+
+    But `None` and `{}` mean the server said nothing usable, and absence of information
+    must not become information: skipping there would silently blank the capabilities of
+    every server that under-reports, turning a cosmetic omission into missing tools.
+    Those are probed exactly as before.
+    """
+    if not capabilities:
+        return True
+    return kind in capabilities
+
+
 def extract_list_payload(
     raw: Any, kind: Literal["tools", "prompts", "resources"]
 ) -> list[Any] | None:
@@ -172,28 +189,33 @@ class DiscoveryService:
             # each sub-call fell back to its own 30s default, so a slow/hanging backend could
             # block discovery (and, when called synchronously, the caller) for minutes.
             await client.handshake(timeout=timeout)
+            capabilities: dict[str, Any] | None = None
             if client.initialize_result is not None:
                 result = client.initialize_result
                 server.record_protocol_metadata(result.protocol_version, transport=result.transport)
+                capabilities = result.capabilities
 
             tools_raw: Any = None
             prompts_raw: Any = None
             resources_raw: Any = None
 
-            try:
-                tools_raw = await client.list("tools/list", timeout=timeout)
-            except Exception as e:
-                logger.warning("Failed to list tools for %s: %s", server.id, e)
+            if _advertises(capabilities, "tools"):
+                try:
+                    tools_raw = await client.list("tools/list", timeout=timeout)
+                except Exception as e:
+                    logger.warning("Failed to list tools for %s: %s", server.id, e)
 
-            try:
-                prompts_raw = await client.list("prompts/list", timeout=timeout)
-            except Exception as e:
-                logger.warning("Failed to list prompts for %s: %s", server.id, e)
+            if _advertises(capabilities, "prompts"):
+                try:
+                    prompts_raw = await client.list("prompts/list", timeout=timeout)
+                except Exception as e:
+                    logger.warning("Failed to list prompts for %s: %s", server.id, e)
 
-            try:
-                resources_raw = await client.list("resources/list", timeout=timeout)
-            except Exception as e:
-                logger.warning("Failed to list resources for %s: %s", server.id, e)
+            if _advertises(capabilities, "resources"):
+                try:
+                    resources_raw = await client.list("resources/list", timeout=timeout)
+                except Exception as e:
+                    logger.warning("Failed to list resources for %s: %s", server.id, e)
 
             await self._store_capabilities(
                 server,

@@ -38,6 +38,13 @@ class InitializeResult:
     protocol_version: str
     session_id: str
     transport: Literal["http", "sse"]
+    # What the server said it supports, as advertised at `initialize` -- dumped with
+    # exclude_none, so a key is present only if the server actually claimed it. The
+    # SDK's model carries every capability as an explicit None otherwise, which would
+    # make "prompts" in capabilities true for every server on earth and gate nothing.
+    # None means the server told us nothing, which is not the same as "supports
+    # nothing"; see `_advertises` in discovery.py.
+    capabilities: dict[str, Any] | None = None
 
 
 class MCPClientError(Exception):
@@ -353,12 +360,21 @@ class MCPClient:
             # hosted server is what caught it.)
             self._transport_type = "sse"
 
+            # exclude_none is what makes this usable as a gate: the SDK model carries
+            # every capability it knows about, set to None when unsupported, so a plain
+            # dump would claim the server supports prompts, resources and everything
+            # else. by_alias keeps the wire spelling (listChanged).
+            advertised: dict[str, Any] | None = None
+            if result.capabilities is not None:
+                advertised = result.capabilities.model_dump(exclude_none=True, by_alias=True)
+
             self._initialize_result = InitializeResult(
                 server_name=result.server_info.name,
                 server_version=result.server_info.version,
                 protocol_version=str(result.protocol_version),
                 session_id=session_id,
                 transport=self._transport_type,
+                capabilities=advertised,
             )
 
             # `mcp` 2.x made ClientNotification a union type rather than a wrapper

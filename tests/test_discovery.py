@@ -608,3 +608,86 @@ class TestTolerantParseIsReported:
         assert server.tools == repaired, "the repaired tools must still be kept"
         assert server.schema_conformant is False, "a repaired response is not conformant"
         assert any("properties" in issue for issue in server.schema_issues)
+
+
+class TestCapabilityGatedDiscovery:
+    """Only ask for what the server said it has.
+
+    MCP says a client should call only the methods a server advertised at
+    `initialize`. Calling everything unconditionally cost two wasted round trips and
+    two WARNING lines per server per cycle against real servers -- one of them a
+    production site -- and warnings that fire every cycle for a healthy server train
+    an operator to ignore warnings, which is how a genuine schema failure went
+    unnoticed for weeks.
+    """
+
+    def _client(self, capabilities: Any) -> tuple[Any, list[str]]:
+        calls: list[str] = []
+
+        class GatedMockMCPClient(MockMCPClient):
+            def __init__(
+                self,
+                base_url: str,
+                *,
+                server: RegisteredServer | None = None,
+                allow_private_networks: bool = False,
+                caller: object = None,
+            ) -> None:
+                super().__init__(
+                    base_url,
+                    server=server,
+                    tools=[{"name": "t", "inputSchema": {"type": "object", "properties": {}}}],
+                    prompts=[{"name": "p"}],
+                    resources=[{"uri": "r://x", "name": "r"}],
+                )
+
+            async def handshake(self, timeout: float = 30.0) -> InitializeResult:
+                self._initialize_result = InitializeResult(
+                    server_name="test-server",
+                    server_version="1.0.0",
+                    protocol_version="2025-11-25",
+                    session_id="test-session",
+                    transport="http",
+                    capabilities=capabilities,
+                )
+                return self._initialize_result
+
+            async def list(self, method: str, timeout: float = 30.0) -> Any:
+                calls.append(method)
+                return await super().list(method, timeout)
+
+        return GatedMockMCPClient, calls
+
+    async def _run(self, capabilities: Any) -> list[str]:
+        client_cls, calls = self._client(capabilities)
+        service = DiscoveryService(MockRegistry())  # type: ignore[arg-type]
+        server = make_server(id="s", url="https://test.example.com/mcp")
+        with patch("mcp_hub.mcp.discovery.MCPClient", client_cls):
+            await service.discover_immediately(server)
+        return calls
+
+    @pytest.mark.asyncio
+    async def test_tools_only_server_is_not_asked_for_prompts_or_resources(self) -> None:
+        # Exactly what WebCalendar advertises: {"tools": {"listChanged": true}}.
+        calls = await self._run({"tools": {"listChanged": True}})
+        assert calls == ["tools/list"]
+
+    @pytest.mark.asyncio
+    async def test_advertised_capabilities_are_all_requested(self) -> None:
+        calls = await self._run({"tools": {}, "prompts": {}, "resources": {}})
+        assert sorted(calls) == ["prompts/list", "resources/list", "tools/list"]
+
+    @pytest.mark.asyncio
+    async def test_server_that_advertises_nothing_is_still_probed(self) -> None:
+        # `None` means the server told us nothing, not that it supports nothing.
+        # Skipping here would silently blank the capabilities of every server that
+        # omits the field, so absence of information must not become information.
+        calls = await self._run(None)
+        assert sorted(calls) == ["prompts/list", "resources/list", "tools/list"]
+
+    @pytest.mark.asyncio
+    async def test_empty_capability_object_is_treated_as_unknown(self) -> None:
+        # `{}` is under-reporting, not a claim of having nothing. Probe anyway rather
+        # than regress servers that send an empty object but do implement tools.
+        calls = await self._run({})
+        assert sorted(calls) == ["prompts/list", "resources/list", "tools/list"]
