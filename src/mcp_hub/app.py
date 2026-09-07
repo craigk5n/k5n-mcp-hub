@@ -360,7 +360,7 @@ def _mount_routers(app: FastAPI) -> None:
     from mcp_hub.routes import registry_api
     from mcp_hub.routes import proxy
     from mcp_hub.routes import ui_servers
-    from mcp_hub.routes import ui_capabilities
+    from mcp_hub.routes import ui_capabilities, ui_registry
     from mcp_hub.routes import ui_trace
     from mcp_hub.routes import ui_playground
     from mcp_hub.routes import ui_agents
@@ -380,6 +380,7 @@ def _mount_routers(app: FastAPI) -> None:
     app.include_router(ui_servers.router)
     app.include_router(ui_servers.api_router)
     app.include_router(ui_capabilities.router)
+    app.include_router(ui_registry.router)
     app.include_router(ui_trace.router)
     app.include_router(ui_playground.router)
     app.include_router(ui_agents.router)

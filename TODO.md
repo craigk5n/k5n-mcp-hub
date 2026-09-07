@@ -1039,12 +1039,15 @@ own. "Export" means writing a reviewable `server.json`, not pushing one.
 **Story 10.4 — Browse and import in the admin UI**
 
 - Acceptance criteria:
-  - [ ] A search box over the registry, results showing name, description, transport
+  - [x] A search box over the registry, results showing name, description, transport
         and whether a credential is required.
-  - [ ] The provenance is recorded and shown: which registry, which record, which
+  - [x] The provenance is recorded and shown: which registry, which record, which
         version, and when it was imported.
-  - [ ] Import is one action from a result, landing in the same Add Server flow so the
-        operator sees what will be registered before it is.
+  - [x] Import is one action from a result, behind a confirm dialog showing the id,
+        URL and any credential requirement, so the operator sees what will be
+        registered before it is. (A confirm panel rather than a prefilled Add Server
+        dialog: the registry browser is its own page, and reaching across pages to
+        prefill a form would be more machinery for the same guarantee.)
 
 **Story 10.5 — Export a reviewable `server.json`**
 

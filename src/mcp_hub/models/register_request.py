@@ -14,6 +14,11 @@ class RegisterRequest(BaseModel):
     # than blocked by validation (ADR 0007).
     transport_kind: Literal["http", "stdio"] = "http"
     stdio_command_name: str = ""
+    # Set by the registry import route, not by hand: these say the record was
+    # described elsewhere, which is a claim only the importer is in a position to make.
+    registry_source: str = ""
+    registry_name: str = ""
+    registry_version: str = ""
     name: str = ""
     version: str = ""
     description: str = ""

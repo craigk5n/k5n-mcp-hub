@@ -64,6 +64,15 @@ class RegisteredServer(BaseModel):
     # leaving the on-disk shape additive rather than migrated (see ADR 0007).
     transport_kind: Literal["http", "stdio"] = "http"
     stdio_command_name: str = ""
+    # Where this server came from, when it came from a registry rather than an
+    # operator typing it in. Those are different things: a registry record was written
+    # by someone else and can change under you, so an operator reading a card months
+    # later needs to be able to tell which it was, and against which index and version.
+    # Empty for a hand-registered server.
+    registry_source: str = ""
+    registry_name: str = ""
+    registry_version: str = ""
+    imported_at: datetime | None = None
     name: str = ""
     version: str = ""
     description: str = ""

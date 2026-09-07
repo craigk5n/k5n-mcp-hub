@@ -1,0 +1,55 @@
+{% if error %}
+<div class="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded mb-4">{{ error }}</div>
+{% endif %}
+
+{% if not results and not error %}
+<p class="text-sm text-gray-500">No servers matched{% if query %} &ldquo;{{ query }}&rdquo;{% endif %}.</p>
+{% endif %}
+
+<div class="space-y-4">
+{% for r in results %}
+  <div class="bg-white border border-gray-200 rounded-lg p-4" data-registry-result="{{ r.name }}">
+    <div class="flex items-start justify-between gap-4">
+      <div class="min-w-0">
+        <h3 class="font-medium text-gray-900 truncate">{{ r.title }}</h3>
+        <p class="text-xs text-gray-500 font-mono truncate">{{ r.name }}{% if r.version %} &middot; {{ r.version }}{% endif %}</p>
+      </div>
+      {% if r.importable %}
+      <button type="button"
+              class="shrink-0 bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium py-1.5 px-3 rounded-md"
+              onclick="confirmRegistryImport(this)"
+              data-name="{{ r.name }}"
+              data-server-id="{{ r.server_id }}"
+              data-url="{{ r.remotes[0].url }}"
+              data-credentials="{{ r.credentials | length }}">Import&hellip;</button>
+      {% else %}
+      <span class="shrink-0 text-xs text-amber-800 bg-amber-100 border border-amber-200 px-2 py-1 rounded">stdio &mdash; config required</span>
+      {% endif %}
+    </div>
+
+    {% if r.description %}<p class="mt-2 text-sm text-gray-700">{{ r.description }}</p>{% endif %}
+
+    {% for remote in r.remotes %}
+    <p class="mt-1 text-xs text-gray-500 font-mono truncate">{{ remote.transport }} &middot; {{ remote.url }}</p>
+    {% endfor %}
+
+    {% if r.credentials %}
+    <p class="mt-2 text-xs text-amber-900 bg-amber-50 border border-amber-200 rounded px-2 py-1">
+      Needs a credential you must supply after importing:
+      {% for c in r.credentials %}<code>{{ c.name }}</code>{% if c.description %} &mdash; {{ c.description }}{% endif %}{% if not loop.last %}; {% endif %}{% endfor %}
+    </p>
+    {% endif %}
+
+    {% if r.stdio_instruction %}
+    <details class="mt-2">
+      <summary class="text-xs text-gray-600 cursor-pointer">This is a program, not a URL &mdash; how to use it</summary>
+      <pre class="mt-1 bg-gray-50 border border-gray-200 rounded p-2 text-xs overflow-x-auto whitespace-pre-wrap">{{ r.stdio_instruction }}</pre>
+    </details>
+    {% endif %}
+
+    {% if r.repository_url %}
+    <p class="mt-1 text-xs text-gray-500">Source: <a class="underline" href="{{ r.repository_url }}" rel="noreferrer noopener" target="_blank">{{ r.repository_url }}</a></p>
+    {% endif %}
+  </div>
+{% endfor %}
+</div>

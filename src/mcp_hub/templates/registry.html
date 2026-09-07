@@ -1,0 +1,106 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link rel="icon" type="image/svg+xml" href="/static/images/icon.svg">
+    <link rel="alternate icon" href="/static/images/favicon.ico" sizes="any">
+    <title>MCP Registry - k5n-mcp-hub</title>
+    <script src="/static/vendor/htmx.min.js"></script>
+    <script src="/static/vendor/tailwind.js"></script>
+    <style>#registry-import-dialog::backdrop { background: rgba(0, 0, 0, 0.5); }</style>
+</head>
+<body class="bg-gray-50 min-h-screen">
+    <header class="bg-white shadow">
+        <div class="container mx-auto px-4 py-4 flex items-center justify-between">
+            <a href="/ui/servers" class="inline-flex items-center gap-3 hover:opacity-80">
+                <img src="/static/images/icon.svg" alt="k5n-mcp-hub logo" width="36" height="36" class="rounded-lg">
+                <span class="text-xl font-semibold text-gray-800">k5n-mcp-hub</span>
+            </a>
+            <a href="/ui/servers" class="text-sm text-blue-700 hover:underline">&larr; Servers</a>
+        </div>
+    </header>
+<div class="p-8">
+  <div class="max-w-4xl mx-auto">
+    <h1 class="text-2xl font-bold mb-1">MCP Registry</h1>
+    <p class="text-sm text-gray-600 mb-6">
+      Search the public index at <code class="text-xs">{{ registry_source }}</code> and import a server.
+      Importing registers it here exactly as if you had typed it in, including URL validation.
+      The hub never publishes back to the registry.
+    </p>
+
+    <form hx-post="/ui/registry/search" hx-target="#registry-results" hx-swap="innerHTML"
+          class="flex gap-2 mb-6">
+      <input type="search" name="q" placeholder="Search by name, e.g. weather"
+             class="flex-1 rounded-md border border-gray-300 px-3 py-2 text-sm">
+      <button type="submit" class="bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium py-2 px-4 rounded-md">
+        Search
+      </button>
+    </form>
+
+    <div id="registry-results"></div>
+  </div>
+</div>
+
+<dialog id="registry-import-dialog" class="rounded-lg p-0 w-full max-w-lg">
+  <form method="dialog" class="p-6">
+    <h2 class="text-lg font-semibold mb-4">Import this server?</h2>
+    <!-- Show exactly what will be registered before it is: an import is a
+         registration, and the operator should not have to guess what it produced. -->
+    <dl class="text-sm space-y-2 mb-4">
+      <div><dt class="text-gray-500 text-xs">Registry name</dt><dd class="font-mono" data-field="name"></dd></div>
+      <div><dt class="text-gray-500 text-xs">Server id here</dt><dd class="font-mono" data-field="server-id"></dd></div>
+      <div><dt class="text-gray-500 text-xs">URL</dt><dd class="font-mono break-all" data-field="url"></dd></div>
+    </dl>
+    <p data-field="credential-note" class="hidden text-xs text-amber-900 bg-amber-50 border border-amber-200 rounded px-2 py-1 mb-4"></p>
+    <div id="registry-import-error" class="hidden text-sm text-red-700 bg-red-50 border border-red-200 rounded px-2 py-1 mb-4"></div>
+    <div class="flex justify-end gap-2">
+      <button type="button" class="px-3 py-1.5 text-sm rounded-md border" onclick="document.getElementById('registry-import-dialog').close()">Cancel</button>
+      <button type="button" class="px-3 py-1.5 text-sm rounded-md bg-blue-600 text-white" onclick="doRegistryImport()">Import</button>
+    </div>
+  </form>
+</dialog>
+
+<script>
+  let _pendingImport = null;
+
+  function confirmRegistryImport(btn) {
+    _pendingImport = btn.dataset.name;
+    const d = document.getElementById('registry-import-dialog');
+    d.querySelector('[data-field="name"]').textContent = btn.dataset.name;
+    d.querySelector('[data-field="server-id"]').textContent = btn.dataset.serverId;
+    d.querySelector('[data-field="url"]').textContent = btn.dataset.url;
+    const note = d.querySelector('[data-field="credential-note"]');
+    const needs = parseInt(btn.dataset.credentials || '0', 10);
+    note.classList.toggle('hidden', needs === 0);
+    if (needs) {
+      note.textContent = 'This server needs a credential. Import first, then edit the server to add it — ' +
+                         'the registry only says one is required, never what it is.';
+    }
+    document.getElementById('registry-import-error').classList.add('hidden');
+    d.showModal();
+  }
+
+  async function doRegistryImport() {
+    if (!_pendingImport) return;
+    const err = document.getElementById('registry-import-error');
+    try {
+      const resp = await fetch('/v1/registry/import', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: _pendingImport }),
+      });
+      if (!resp.ok) {
+        err.textContent = await resp.text();
+        err.classList.remove('hidden');
+        return;
+      }
+      window.location.href = '/ui/servers';
+    } catch (e) {
+      err.textContent = String(e);
+      err.classList.remove('hidden');
+    }
+  }
+</script>
+</body>
+</html>

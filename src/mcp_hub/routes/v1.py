@@ -182,6 +182,10 @@ async def register_from_data(
         url=url.strip(),
         transport_kind=validated.transport_kind,
         stdio_command_name=validated.stdio_command_name,
+        registry_source=validated.registry_source,
+        registry_name=validated.registry_name,
+        registry_version=validated.registry_version,
+        imported_at=utcnow() if validated.registry_name else None,
         healthy=True,
         consecutive_fails=0,
         last_checked=utcnow(),
@@ -385,6 +389,13 @@ async def import_from_registry(
     try:
         remote_index = int(body.get("remote_index") or 0)
         payload = to_register_payload(record, remote_index=remote_index)
+        # From settings, not from the client object: it is the configured answer to
+        # "which registry", it is always present, and reading it off the client made
+        # the field silently empty whenever the client did not happen to expose it.
+        settings = getattr(request.app.state, "settings", None)
+        payload["registry_source"] = getattr(getattr(settings, "registry", None), "base_url", "")
+        payload["registry_name"] = record.name
+        payload["registry_version"] = record.version
     except (ValueError, TypeError) as e:
         return PlainTextResponse(str(e), status_code=400)
 
