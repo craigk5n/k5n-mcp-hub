@@ -1,7 +1,7 @@
 # 0009 — OpenTelemetry is optional, off by default, and redacted
 
-**Status:** Proposed
-**Date:** 2026-09-07
+**Status:** Accepted
+**Date:** 2026-09-07 (accepted 2026-09-07)
 **Context:** OpenTelemetry traces and metrics (TODO.md Epic 11)
 
 ## Context
