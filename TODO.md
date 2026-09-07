@@ -1116,11 +1116,11 @@ Note the naming: `trace.*` stays request/response capture. OpenTelemetry lives u
         checks. Not blanket auto-instrumentation: those packages are pre-1.0
         (`0.65b0` against a stable `1.44.0` SDK) and capture route and header detail
         the hub has deliberate opinions about.
-  - [ ] **Still open:** OBO/EMA token-exchange spans. `exchange_token` is a
-        module-level function several layers below `app.state`, so it needs either an
-        `otel` argument threaded through `apply_server_auth` (touching ~8 call sites)
-        or a module-level provider. Deferred rather than rushed: a global would be the
-        easy option and the one most likely to leak between tests.
+  - [x] OBO token-exchange spans, threaded through `apply_server_auth` as an
+        optional argument rather than reached for via a module-level provider — a
+        global would have been easier and the one most likely to leak between tests.
+        Existing call sites are unchanged; only the proxy passes one. EMA leg 2 has no
+        span yet, and is not testable against a real receiver anyway (Epic 8).
   - [x] Spans carry `mcp.server.id`, method, outcome and duration. The caller's
         subject appears **only** when `otel.include_subject` is true, and then only
         the `sub` claim.

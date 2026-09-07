@@ -1,3 +1,4 @@
+from typing import Any
 import asyncio
 import base64
 import logging
@@ -20,6 +21,8 @@ from mcp_hub.mcp.id_jag import (
     exchange_for_access_token,
 )
 from mcp_hub.mcp.obo_cache import OBOCacheKey, OBOTokenCache
+from mcp_hub.observability.otel import disabled_provider as _disabled_provider
+from mcp_hub.observability.otel import record_error
 from mcp_hub.mcp.token_exchange import (
     ExchangeRequest,
     ExchangedToken,
@@ -153,6 +156,7 @@ async def apply_server_auth(
     id_jag: IDJagFn = exchange_for_access_token,
     client: httpx.AsyncClient | None = None,
     allow_private_networks: bool = False,
+    otel: Any = None,
 ) -> None:
     """Apply server authentication to the given headers.
 
@@ -195,6 +199,7 @@ async def apply_server_auth(
             exchange=exchange,
             client=client,
             allow_private_networks=allow_private_networks,
+            otel=otel,
         )
         return
 
@@ -264,8 +269,10 @@ async def _apply_obo_auth(
     exchange: ExchangeFn,
     client: httpx.AsyncClient | None,
     allow_private_networks: bool,
+    otel: Any = None,
 ) -> None:
     """Exchange the caller's token for one bound to this backend, or fail closed."""
+    provider = otel or _disabled_provider()
     if not isinstance(caller, Principal) or not caller.can_act_as_obo_subject():
         raise _obo_failure(
             server,
@@ -308,10 +315,32 @@ async def _apply_obo_auth(
             allow_private_networks=allow_private_networks,
         )
 
-    try:
-        access_token = await obo_cache.token(key, fetch=fetch, subject_expires_at=caller.expires_at)
-    except TokenExchangeError as exc:
-        raise _obo_failure(server, exc.summary()) from exc
+    # Spans the exchange, not the cache hit: a cached token does no network work and
+    # tracing it would drown the signal an operator is actually looking for.
+    with provider.span(
+        "mcp.token_exchange",
+        {
+            "mcp.server.id": server.id,
+            "mcp.auth.flow": "obo",
+            # Configuration, not a secret -- and the single most useful attribute when
+            # exchanges start failing, since `invalid_target` means exactly this value
+            # is not a client the IdP knows.
+            "mcp.auth.audience": server.obo_audience,
+            "mcp.auth.delegated": server.obo_actor_token_source == "client_credentials",
+            **provider.subject_attributes(caller.subject),
+        },
+    ) as span:
+        try:
+            access_token = await obo_cache.token(
+                key, fetch=fetch, subject_expires_at=caller.expires_at
+            )
+        except TokenExchangeError as exc:
+            # The type only. `exc.summary()` carries the IdP's error_description, which
+            # is where a rejected token has been echoed back before -- the reason
+            # sanitize_trace_body has a prose pattern for it. The full text still
+            # reaches the server record and the admin UI, which are not third parties.
+            record_error(span, exc)
+            raise _obo_failure(server, exc.summary()) from exc
 
     # Only Authorization. The static-bearer path also mirrors the token into
     # X-MCP-Token for backends behind Apache, but a user-scoped token gets no second

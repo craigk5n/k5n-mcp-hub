@@ -2,7 +2,7 @@ import json
 import logging
 import time
 from contextlib import AsyncExitStack
-from typing import AsyncGenerator, Protocol
+from typing import Any, AsyncGenerator, Protocol
 
 import httpx
 from fastapi import HTTPException, Request, Response
@@ -51,6 +51,7 @@ async def build_outbound_headers(
     caller: CallerIdentity,
     allow_private_networks: bool = False,
     body: bytes | None = None,
+    otel: Any = None,
 ) -> dict[str, str]:
     """Build outbound headers for the MCP reverse proxy from incoming request headers.
 
@@ -97,7 +98,11 @@ async def build_outbound_headers(
         _inject_stateless_request_headers(outbound, body)
 
     await apply_server_auth(
-        outbound, server, caller=caller, allow_private_networks=allow_private_networks
+        outbound,
+        server,
+        caller=caller,
+        allow_private_networks=allow_private_networks,
+        otel=otel,
     )
 
     return outbound
@@ -331,6 +336,7 @@ async def proxy_request(
             caller=caller,
             allow_private_networks=allow_private_networks,
             body=request_body,
+            otel=otel,
         )
 
     try:
