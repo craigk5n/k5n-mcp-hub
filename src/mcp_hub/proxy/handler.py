@@ -17,6 +17,7 @@ from mcp_hub.mcp.auth import OBOAuthError, apply_server_auth, invalidate_obo_tok
 from mcp_hub.mcp.constants import STATELESS_PROTOCOL_VERSION, resolve_protocol_version
 from mcp_hub.models.server import RegisteredServer
 from mcp_hub.proxy.fault_injection import apply_fault_injection
+from mcp_hub.proxy.stdio_proxy import forward_to_stdio
 from mcp_hub.proxy.url import compose_backend_url
 from mcp_hub.registry.service import Registry
 from mcp_hub.utils import SafePinnedTransport
@@ -228,6 +229,42 @@ async def proxy_request(
         )
         trace_recorder.add(entry)
         return fault_response
+
+    if srv.is_stdio:
+        # A subprocess, not a URL: no outbound HTTP, no SSE to tee. Everything before
+        # this point (authorization, the denial trace, body capture, fault injection)
+        # applies unchanged, which is the point of branching here rather than earlier.
+        stdio_result = await forward_to_stdio(
+            pool=getattr(request.app.state, "stdio_pool", None),
+            server=srv,
+            request_body=request_body,
+        )
+        elapsed_ms = (time.perf_counter() - start_time) * 1000
+        trace_recorder.add(
+            Entry(
+                timestamp=request_start_timestamp,
+                server_id=srv.id,
+                subject=trace_subject,
+                operation="proxy",
+                http_method=request.method,
+                url=incoming_url,
+                outbound_url=srv.url,
+                status=stdio_result.status_code,
+                duration_ms=elapsed_ms,
+                error=stdio_result.error,
+                request_headers=request_headers,
+                response_headers={},
+                request_body=captured_request_body,
+                response_body=truncate_body(stdio_result.body, settings.body_limit)
+                if verbose
+                else b"",
+            )
+        )
+        return Response(
+            content=stdio_result.body,
+            status_code=stdio_result.status_code,
+            media_type="application/json" if stdio_result.body else None,
+        )
 
     outbound_url = compose_backend_url(
         server_url=srv.url,

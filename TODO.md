@@ -939,7 +939,7 @@ HTTP server's.
         `_store_capabilities` path, so `_advertises` gating, tolerant parsing and
         `schema_issues` all apply unchanged.
   - [x] `health/checker.py` uses process liveness plus a `ping`, not an HTTP GET.
-  - [ ] `proxy/handler.py` routes `X-MCP-Target-Server` to the stdio session.
+  - [x] `proxy/handler.py` routes `X-MCP-Target-Server` to the stdio session.
         Tracing captures request and response bodies as it does for HTTP; the
         sanitizer applies.
   - [ ] The admin UI shows the server with its transport, and states plainly that
