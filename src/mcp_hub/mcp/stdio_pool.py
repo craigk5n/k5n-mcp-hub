@@ -52,6 +52,9 @@ class _Entry:
 
     task: asyncio.Task[None] | None = None
     session: Any = None
+    # Advertised at initialize, dumped with exclude_none so a key is present only if
+    # the server actually claimed it -- discovery gates its list calls on this.
+    capabilities: dict[str, Any] | None = None
     ready: asyncio.Event = field(default_factory=asyncio.Event)
     stop: asyncio.Event = field(default_factory=asyncio.Event)
     error: BaseException | None = None
@@ -63,6 +66,11 @@ class StdioPool:
     def __init__(self, config: StdioConfig) -> None:
         self._config = config
         self._entries: dict[str, _Entry] = {}
+
+    def capabilities(self, server_id: str) -> dict[str, Any] | None:
+        """What this server advertised at initialize, or None if it is not running."""
+        entry = self._entries.get(server_id)
+        return entry.capabilities if entry else None
 
     def is_running(self, server_id: str) -> bool:
         entry = self._entries.get(server_id)
@@ -134,7 +142,11 @@ class StdioPool:
         try:
             async with stdio_client(params) as (read, write):
                 async with ClientSession(read, write) as session:
-                    await session.initialize()
+                    init = await session.initialize()
+                    if init.capabilities is not None:
+                        entry.capabilities = init.capabilities.model_dump(
+                            exclude_none=True, by_alias=True
+                        )
                     entry.session = session
                     entry.ready.set()
                     logger.info("stdio server %s started", server_id)

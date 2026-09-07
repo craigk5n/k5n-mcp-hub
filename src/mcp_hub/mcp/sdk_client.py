@@ -8,7 +8,7 @@ from typing import TYPE_CHECKING, Any, Literal
 
 from pydantic import ValidationError
 
-from mcp_hub.auth.caller import CallerIdentity
+from mcp_hub.auth.caller import SERVICE_IDENTITY, CallerIdentity
 from mcp_hub.mcp.auth import apply_server_auth
 from mcp_hub.mcp.constants import METHOD_NOT_FOUND, resolve_protocol_version
 from mcp_hub.mcp.pagination import collect_pages
@@ -234,6 +234,31 @@ class MCPClient:
         self._headers: dict[str, str] = {}
         self._exit_stack: AsyncExitStack | None = None
         self._conn_lock: asyncio.Lock | None = None
+
+    @classmethod
+    def wrapping(
+        cls, session: Any, *, base_url: str, capabilities: dict[str, Any] | None = None
+    ) -> "MCPClient":
+        """A client over a session someone else owns and will close.
+
+        Used for stdio, where `StdioPool` holds the transport open in its own task
+        (anyio requires the scope to be exited by the task that entered it, so this
+        client must never enter or exit it). Everything below `list()` -- pagination,
+        the lenient re-parse, schema_issues -- then applies to stdio unchanged, which
+        is the point: a second implementation would drift, and the drift would only
+        show up on the servers least able to cope with it.
+        """
+        client = cls(base_url, caller=SERVICE_IDENTITY)
+        client._session = session
+        client._initialize_result = InitializeResult(
+            server_name="",
+            server_version="",
+            protocol_version="",
+            session_id="",
+            transport="http",
+            capabilities=capabilities,
+        )
+        return client
 
     @property
     def initialize_result(self) -> InitializeResult | None:

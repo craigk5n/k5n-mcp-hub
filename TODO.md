@@ -935,10 +935,10 @@ HTTP server's.
 
 - TDD: drive every criterion against the Story 9.1 echo server, not a mock.
 - Acceptance criteria:
-  - [ ] `discovery.py` reaches stdio servers through the same
+  - [x] `discovery.py` reaches stdio servers through the same
         `_store_capabilities` path, so `_advertises` gating, tolerant parsing and
         `schema_issues` all apply unchanged.
-  - [ ] `health/checker.py` uses process liveness plus a `ping`, not an HTTP GET.
+  - [x] `health/checker.py` uses process liveness plus a `ping`, not an HTTP GET.
   - [ ] `proxy/handler.py` routes `X-MCP-Target-Server` to the stdio session.
         Tracing captures request and response bodies as it does for HTTP; the
         sanitizer applies.

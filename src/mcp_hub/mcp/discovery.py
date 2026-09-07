@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING, Any, Literal
 
 from mcp_hub.mcp.constants import (
     MCP_DISCOVERY_INTERVAL_SECONDS,
+    PROTOCOL_VERSION,
     STATELESS_PROTOCOL_VERSION,
 )
 from mcp_hub.auth.caller import SERVICE_IDENTITY
@@ -90,9 +91,16 @@ def extract_ttl_ms(raw: Any) -> float | None:
 
 
 class DiscoveryService:
-    def __init__(self, registry: Registry, *, allow_private_networks: bool = False) -> None:
+    def __init__(
+        self,
+        registry: Registry,
+        *,
+        allow_private_networks: bool = False,
+        stdio_pool: Any = None,
+    ) -> None:
         self._registry = registry
         self._allow_private_networks = allow_private_networks
+        self._stdio_pool = stdio_pool
         # Per-server earliest next poll (monotonic seconds), from ttlMs freshness
         # hints on stateless list results. Only poll_once honors this — an explicit
         # discover_immediately call always runs.
@@ -104,6 +112,10 @@ class DiscoveryService:
         # Probe `server/discover` (2026-07-28) first unless the server is already
         # known to speak a handshake revision — the recorded version acts as a
         # cache so legacy servers aren't re-probed on every poll.
+        if server.is_stdio:
+            await self._discover_stdio(server, timeout=timeout)
+            return
+
         recorded = (server.mcp_protocol_version or "").strip()
         if not recorded or recorded == STATELESS_PROTOCOL_VERSION:
             if await self._discover_stateless(server, timeout=timeout):
@@ -175,6 +187,58 @@ class DiscoveryService:
             client_issues=list(getattr(client, "schema_issues", []) or []),
         )
         return True
+
+    async def _discover_stdio(self, server: RegisteredServer, *, timeout: float) -> None:
+        """Discover a subprocess-backed server.
+
+        Deliberately built on the same `MCPClient.list` and `_store_capabilities` as
+        HTTP: capability gating, the lenient re-parse of a non-conformant response and
+        `schema_issues` all apply to stdio without a second implementation to keep in
+        step. Only where the session comes from differs -- the pool owns it, because
+        anyio requires whoever entered the transport's scope to exit it.
+        """
+        if self._stdio_pool is None:
+            raise RuntimeError(
+                f"server {server.id!r} is a stdio server but this hub has no stdio pool; "
+                "stdio.enabled is probably false"
+            )
+
+        self._poll_not_before.pop(server.id, None)
+        session = await self._stdio_pool.session(server)
+        capabilities = self._stdio_pool.capabilities(server.id)
+        client = MCPClient.wrapping(session, base_url=server.url, capabilities=capabilities)
+
+        server.record_protocol_metadata(PROTOCOL_VERSION, transport="stdio")
+
+        tools_raw: Any = None
+        prompts_raw: Any = None
+        resources_raw: Any = None
+
+        if _advertises(capabilities, "tools"):
+            try:
+                tools_raw = await client.list("tools/list", timeout=timeout)
+            except Exception as e:
+                logger.warning("Failed to list tools for %s: %s", server.id, e)
+
+        if _advertises(capabilities, "prompts"):
+            try:
+                prompts_raw = await client.list("prompts/list", timeout=timeout)
+            except Exception as e:
+                logger.warning("Failed to list prompts for %s: %s", server.id, e)
+
+        if _advertises(capabilities, "resources"):
+            try:
+                resources_raw = await client.list("resources/list", timeout=timeout)
+            except Exception as e:
+                logger.warning("Failed to list resources for %s: %s", server.id, e)
+
+        await self._store_capabilities(
+            server,
+            tools_raw,
+            prompts_raw,
+            resources_raw,
+            client_issues=list(getattr(client, "schema_issues", []) or []),
+        )
 
     async def _discover_handshake(self, server: RegisteredServer, *, timeout: float) -> None:
         # Handshake revisions carry no ttl hints; drop any stale pacing entry.
@@ -260,6 +324,28 @@ class DiscoveryService:
         server.prompts = prompts
         server.resources = resources
         server.last_capability_sync = utcnow()
+
+        # Re-read the health fields before writing. `Registry.register` replaces the
+        # whole record, and the object we hold was read before we went and talked to
+        # the server -- so without this, a health result produced in the meantime is
+        # silently reverted. That is a lost update between two background loops on
+        # independent timers: with a 600s discovery interval it self-heals within a
+        # health cycle and is nearly invisible, but at matched 30s intervals a server
+        # flaps between healthy and unhealthy forever. Seen in a running container.
+        get = getattr(self._registry, "get", None)
+        if get is not None:
+            current = await get(server.id)
+            if current is not None:
+                for name in (
+                    "healthy",
+                    "healthy_since",
+                    "consecutive_fails",
+                    "uptime_seconds",
+                    "last_checked",
+                    "rate_limited",
+                    "supports_health_endpoint",
+                ):
+                    setattr(server, name, getattr(current, name))
 
         await self._registry.register(server)
 

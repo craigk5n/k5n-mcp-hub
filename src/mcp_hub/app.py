@@ -120,6 +120,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             app.state.trace_recorder,
             settings.trace,
             allow_private_networks=settings.security.allow_private_networks,
+            stdio_pool=getattr(app.state, "stdio_pool", None),
         )
         register_background_task(app, asyncio.create_task(health_checker.run_forever()))
 
@@ -312,7 +313,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     # (local-first mode). The flag is threaded explicitly into the SSRF-pinned transport via
     # each MCPClient/DiscoveryService — never a process-global — so it can't leak across apps.
     allow_private_networks = settings.security.allow_private_networks
-    discovery_service = DiscoveryService(registry, allow_private_networks=allow_private_networks)
+    stdio_pool = StdioPool(settings.stdio)
+    discovery_service = DiscoveryService(
+        registry, allow_private_networks=allow_private_networks, stdio_pool=stdio_pool
+    )
 
     app.state.settings = settings
     app.state.metrics = metrics
@@ -327,7 +331,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     # Owns one long-lived subprocess per registered stdio server. Constructed
     # unconditionally (it starts nothing until a stdio server is used) so routes
     # can read it off app.state the way they read every other subsystem.
-    app.state.stdio_pool = StdioPool(settings.stdio)
+    app.state.stdio_pool = stdio_pool
     trace_recorder = TraceRecorder()
     app.state.trace_recorder = trace_recorder
     app.state.templates = _create_jinja2_environment()

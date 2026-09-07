@@ -4,6 +4,7 @@ import asyncio
 import logging
 import time
 from dataclasses import dataclass
+from typing import Any
 
 import httpx
 
@@ -137,12 +138,14 @@ class HealthChecker:
         trace_settings: TraceConfig,
         *,
         allow_private_networks: bool = False,
+        stdio_pool: Any = None,
     ) -> None:
         self._registry = registry
         self._settings = settings
         self._trace_recorder = trace_recorder
         self._trace_settings = trace_settings
         self._allow_private_networks = allow_private_networks
+        self._stdio_pool = stdio_pool
         self._parser = HealthParser()
 
     async def run_forever(self) -> None:
@@ -164,10 +167,61 @@ class HealthChecker:
             for srv in servers:
                 await self._check_single_server(srv, client)
 
+    async def _check_stdio_server(self, srv: RegisteredServer) -> None:
+        """Liveness for a subprocess: is the process up, and does it answer a ping?
+
+        There is no URL to GET. Probing `build_health_url("stdio:echo")` over HTTP,
+        which is what happened before this existed, fails for reasons that say nothing
+        about the server. Starting the process if it is not already running is
+        deliberate -- a stdio server is only "down" if it cannot be run.
+        """
+        healthy = False
+        error = ""
+
+        if self._stdio_pool is None:
+            error = "no stdio pool configured"
+        else:
+            try:
+                session = await self._stdio_pool.session(srv)
+                await asyncio.wait_for(session.send_ping(), timeout=self._settings.timeout_seconds)
+                healthy = True
+            except Exception as e:
+                error = str(e)
+                logger.warning("stdio health check failed for %s: %s", srv.id, e)
+
+        # Field-scoped updates, not `register(srv)`. Registering writes the whole
+        # object, so it would stamp every other field from a snapshot read before the
+        # probe -- reverting anything discovery wrote in between. The HTTP path has
+        # always used these helpers for exactly that reason.
+        consecutive_fails = 0 if healthy else srv.consecutive_fails + 1
+        await self._registry.update_health_and_uptime(
+            srv.id,
+            healthy=healthy,
+            consecutive_fails=consecutive_fails,
+            uptime=0.0,
+        )
+        # A stdio server has no /health endpoint to discover, ever.
+        if srv.supports_health_endpoint is not False:
+            await self._registry.set_supports_health_endpoint(srv.id, False)
+
+        # Keep the caller's object in step with what was just persisted.
+        srv.healthy = healthy
+        srv.consecutive_fails = consecutive_fails
+        srv.supports_health_endpoint = False
+
+        if not healthy and self._settings.auto_unregister:
+            if srv.consecutive_fails >= self._settings.failure_threshold:
+                logger.warning("auto-unregistering unhealthy stdio server %s: %s", srv.id, error)
+                await self._registry.unregister(srv.id)
+
     async def _check_single_server(self, srv: RegisteredServer, client: httpx.AsyncClient) -> None:
         healthy = False
         uptime = 0.0
         rate_limited = False
+
+        if srv.is_stdio:
+            await self._check_stdio_server(srv)
+            return
 
         if srv.supports_health_endpoint is not False:
             result = await check_service_health(

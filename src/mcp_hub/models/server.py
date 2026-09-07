@@ -72,7 +72,10 @@ class RegisteredServer(BaseModel):
     updated_at: datetime | None = None
     registration_type: Literal["self", "manual", ""] = ""
     mcp_protocol_version: str = ""
-    mcp_transport: Literal["http", "sse", ""] = ""
+    # "sse" is this codebase's marker for streamable HTTP (see _health_badge.html
+    # and ui_downloads.is_streamable); "stdio" was added for Epic 9. Additive: no
+    # existing value changes meaning, so stored records keep loading.
+    mcp_transport: Literal["http", "sse", "stdio", ""] = ""
     mcp_conformant: bool | None = None
     auth_type: Literal["bearer", "basic", "oauth", "obo", "ema", ""] = ""
     bearer_token: str = ""
@@ -156,7 +159,7 @@ class RegisteredServer(BaseModel):
     def record_protocol_metadata(
         self,
         protocol_version: str | None,
-        transport: Literal["http", "sse", ""] | None = None,
+        transport: Literal["http", "sse", "stdio", ""] | None = None,
     ) -> bool:
         """Record a negotiated/advertised MCP protocol version (and optionally the
         transport), keeping ``mcp_conformant`` in sync.
