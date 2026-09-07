@@ -1,7 +1,7 @@
 # 0008 — The hub imports from the MCP registry but never publishes to it
 
-**Status:** Proposed
-**Date:** 2026-09-06
+**Status:** Accepted
+**Date:** 2026-09-06 (accepted 2026-09-07)
 **Context:** MCP registry interop (TODO.md Epic 10)
 
 ## Context

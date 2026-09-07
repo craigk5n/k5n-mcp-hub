@@ -1,7 +1,7 @@
 # 0007 — stdio servers are opt-in, allowlisted, and service-identity only
 
-**Status:** Proposed
-**Date:** 2026-09-06
+**Status:** Accepted
+**Date:** 2026-09-06 (accepted 2026-09-07)
 **Context:** stdio MCP server support (TODO.md Epic 9)
 
 ## Context
