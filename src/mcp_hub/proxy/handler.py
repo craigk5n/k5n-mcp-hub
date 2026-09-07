@@ -17,7 +17,7 @@ from mcp_hub.mcp.auth import OBOAuthError, apply_server_auth, invalidate_obo_tok
 from mcp_hub.mcp.constants import STATELESS_PROTOCOL_VERSION, resolve_protocol_version
 from mcp_hub.models.server import RegisteredServer
 from mcp_hub.proxy.fault_injection import apply_fault_injection
-from mcp_hub.observability.otel import record_error
+from mcp_hub.observability.otel import SPAN_REQUEST_ID, record_error
 from mcp_hub.proxy.stdio_proxy import forward_to_stdio
 from mcp_hub.proxy.url import compose_backend_url
 from mcp_hub.registry.service import Registry
@@ -277,6 +277,11 @@ async def proxy_request(
     # so it carries the method, and so an authorization refusal above is recorded by the
     # trace recorder (which can hold the detail) rather than by an exporter that cannot.
     span_attributes: dict[str, object] = {
+        # The id the middleware already put on the request and echoed to the caller,
+        # so a span in a collector and an entry in the hub's own trace view can be
+        # joined. Without it the two systems describe the same request with no way to
+        # line them up, which makes the pair worth less than either alone.
+        SPAN_REQUEST_ID: getattr(request.state, "request_id", "") or "",
         "mcp.server.id": srv.id,
         "mcp.method": _method_for_span(request_body),
         # The allowlist entry name for stdio, never the command: that is operator

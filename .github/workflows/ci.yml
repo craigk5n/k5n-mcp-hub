@@ -63,7 +63,7 @@ jobs:
           pip install -e '.[otel]'
           pytest -q tests/test_otel_shim.py tests/test_otel_config.py \
                 tests/test_otel_spans.py tests/test_otel_token_exchange.py \
-                tests/test_otel_metrics.py
+                tests/test_otel_metrics.py tests/test_otel_correlation.py
 
       # Non-blocking vulnerability scan of the project's own declared dependencies.
       # Drop `continue-on-error` to make known CVEs fail the build.

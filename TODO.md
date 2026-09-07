@@ -1140,9 +1140,9 @@ Note the naming: `trace.*` stays request/response capture. OpenTelemetry lives u
 **Story 11.5 — Correlation and docs**
 
 - Acceptance criteria:
-  - [ ] `X-Request-ID` is recorded on the span, so an entry in the admin UI's trace
+  - [x] `X-Request-ID` is recorded on the span, so an entry in the admin UI's trace
         view can be found in the collector and vice versa.
-  - [ ] README and operator docs cover the extra, the settings, and what
+  - [x] README and operator docs cover the extra, the settings, and what
         `include_subject` implies — that user identities leave for a system with its
         own retention and access control, possibly one the operator does not run.
 

@@ -182,6 +182,73 @@ Register a server with the **Add Server** button on the home page (or `POST /v1/
 
 > **Register the exact endpoint URL, including its path.** The hub proxies the base `/mcp` route to the server URL verbatim — it does not add or strip a trailing slash. Register `https://api.x.com/mcp` (no trailing slash) for hosted servers that serve at exactly that path; register `.../mcp/` (with the slash) for SDK/Starlette-mounted servers that redirect `/mcp` to `/mcp/`, since the hub does not follow redirects. If a proxied call unexpectedly returns 404, check the trailing slash first.
 
+## OpenTelemetry
+
+The hub can export spans and metrics to an OTLP collector. It is **optional and off by
+default**, because it is the only feature that sends data about every request to a
+third party.
+
+```bash
+pip install 'k5n-mcp-hub[otel]'
+```
+
+```yaml
+otel:
+  enabled: true
+  endpoint: "http://localhost:4318"
+  service_name: "k5n-mcp-hub"
+```
+
+Enabling it without those packages installed is a **startup error**, not a silent
+no-op: telemetry that quietly exports nothing looks exactly like telemetry that works.
+
+### What you get
+
+Spans on the paths worth watching — proxied calls (HTTP and stdio), capability
+discovery, health checks, and on-behalf-of token exchange — plus per-server metrics
+`mcp.hub.proxy.requests`, `.duration` and `.errors`, attributed with `mcp.server.id`.
+That last part is the reason to bother: `/metrics` can tell you twelve requests
+failed, but not which server failed them.
+
+Spans carry the `X-Request-ID`, which the hub also echoes on the response and shows in
+its own trace view, so a slow call found in your collector can be looked up here and
+vice versa.
+
+`/metrics` is unchanged and keeps emitting exactly what it always has.
+
+### What is deliberately not exported
+
+Not the caller's identity, not credentials, not bodies, not error text.
+
+- **Headers and bodies never become attributes.** Not the `Authorization` header on a
+  proxied call, not a tool's arguments.
+- **Failures record the exception type, never its message.** An IdP's
+  `error_description` has been observed quoting the very token it rejected; the full
+  text still reaches the admin UI, which is not a third party.
+- **URLs are exported without query strings or userinfo**, both of which routinely
+  carry credentials.
+- **stdio spans name the allowlist entry, not the command line** — that is your
+  config, and your local paths are nobody else's business.
+
+The caller's `sub` claim is exported **only** if you set:
+
+```yaml
+otel:
+  include_subject: true
+```
+
+Think about that one before enabling it. It puts user identities into a second system
+with its own retention and access control — possibly one you do not operate. It is
+never added to *metrics* regardless, since a per-user counter is unbounded
+cardinality rather than useful signal.
+
+Reasoning in [ADR 0009](docs/adr/0009-opentelemetry-is-optional-and-redacted.md).
+
+> **`otel` is not `trace`.** This section is OpenTelemetry export. The separate
+> `trace:` section configures the hub's own request/response capture for the admin UI,
+> which never leaves the process. Two different things that ordinary speech calls the
+> same word.
+
 ## MCP registry
 
 Browse the public index at `registry.modelcontextprotocol.io` from the admin UI
