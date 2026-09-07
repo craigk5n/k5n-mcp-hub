@@ -1101,11 +1101,11 @@ Note the naming: `trace.*` stays request/response capture. OpenTelemetry lives u
 **Story 11.2 — A shim the rest of the code talks to**
 
 - Acceptance criteria:
-  - [ ] `observability/otel.py` exposes a tiny span API that is a no-op when disabled,
+  - [x] `observability/otel.py` exposes a tiny span API that is a no-op when disabled,
         so call sites never branch on whether telemetry is on.
-  - [ ] The SDK is imported lazily and only when enabled, keeping the blast radius of
+  - [x] The SDK is imported lazily and only when enabled, keeping the blast radius of
         an SDK API change to this module.
-  - [ ] Attribute helpers refuse anything derived from a header, body or credential
+  - [x] Attribute helpers refuse anything derived from a header, body or credential
         field, and strip query strings from URLs — the rule `sanitize_trace_body`
         already enforces for the UI, applied where it is harder to audit.
 

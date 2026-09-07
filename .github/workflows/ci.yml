@@ -49,6 +49,20 @@ jobs:
       - name: Pytest
         run: pytest -q
 
+      # Deliberately AFTER the clean-install run above, and as a separate step rather
+      # than by installing the extra up front. The main run must keep proving that the
+      # suite passes with only the base dependencies -- that is what catches a module
+      # importing something pyproject does not declare, and installing the OpenTelemetry
+      # SDK earlier would hide exactly that for `opentelemetry`.
+      #
+      # But the tests that prove no credential reaches an exporter need the real SDK,
+      # and skipping the checks that protect a security property is not a gate at all.
+      # So: install the extra, then re-run only those tests.
+      - name: Pytest (optional-feature packages)
+        run: |
+          pip install -e '.[otel]'
+          pytest -q tests/test_otel_shim.py tests/test_otel_config.py
+
       # Non-blocking vulnerability scan of the project's own declared dependencies.
       # Drop `continue-on-error` to make known CVEs fail the build.
       - name: pip-audit (declared dependencies)

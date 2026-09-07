@@ -48,6 +48,14 @@ local-first tool where the common case is one developer with no collector runnin
 CI's clean-install gate exists to keep declared dependencies honest, and adding a
 tree nobody uses to satisfy an optional feature works against it.
 
+Worth being precise, because it changes what "optional" costs: **`opentelemetry-api`
+is already installed**, as a transitive dependency of `mcp`. Only the SDK, the
+exporter and their proto packages are added by the extra. So the API's types (`Status`,
+`StatusCode`) can be relied on unconditionally, and the thing being made optional is
+the exporting machinery rather than OpenTelemetry as such. (Discovered by removing the
+packages to simulate a default install, which broke `mcp` — a good reminder that a
+dependency claim is worth checking rather than assuming.)
+
 ## Decision
 
 **Optional dependency, off by default, and nothing sensitive in a span unless the
