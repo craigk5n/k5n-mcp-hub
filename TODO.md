@@ -1012,13 +1012,16 @@ own. "Export" means writing a reviewable `server.json`, not pushing one.
 **Story 10.2 — Map a registry record onto a registration**
 
 - Acceptance criteria:
-  - [ ] `remotes[]` → `url` + `mcp_transport`; `name`/`description` carried across;
-        server id derived from the registry name, sanitised for the hub's id rules.
-  - [ ] `headers[]` with `isSecret: true` become a **prompt**, never a stored value:
+  - [x] `remotes[]` → `url`; `name`/`description` carried across; server id derived
+        from the registry name, sanitised for the hub's id rules. ~~`mcp_transport`~~
+        is deliberately **not** mapped: the registry's "sse" means legacy SSE while
+        this codebase's "sse" marks *streamable HTTP*, so there is no honest mapping,
+        and discovery determines it from the handshake anyway.
+  - [x] `headers[]` with `isSecret: true` become a **prompt**, never a stored value:
         the record tells us a credential is needed, not what it is.
-  - [ ] A record with several `remotes[]` makes the operator choose rather than
+  - [x] A record with several `remotes[]` makes the operator choose rather than
         guessing at the first entry.
-  - [ ] `packages[]` (stdio) records are shown with the command they would need and a
+  - [x] `packages[]` (stdio) records are shown with the command they would need and a
         pointer to `stdio.allowed_commands` — never auto-registered. A registry record
         is precisely the untrusted input ADR 0007's allowlist exists to refuse.
 
