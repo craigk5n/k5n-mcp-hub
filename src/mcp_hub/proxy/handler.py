@@ -166,6 +166,10 @@ async def proxy_request(
         )
 
     otel = getattr(request.app.state, "otel", None)
+    # Before the registry lookup, so a call for an unregistered server can be timed
+    # like any other. The few microseconds this adds to every other measurement are
+    # worth having one clock rather than two.
+    start_time = time.perf_counter()
 
     srv = await registry.get(target_id)
     if srv is None:
@@ -175,12 +179,17 @@ async def proxy_request(
             with otel.span("mcp.proxy", {"mcp.server.id": target_id}) as span:
                 span.set_attribute("mcp.outcome", "server_not_found")
                 span.set_status_error()
+            otel.record_proxy_request(
+                target_id,
+                duration_ms=(time.perf_counter() - start_time) * 1000,
+                outcome="server_not_found",
+                error=True,
+            )
         return Response(
             content="Server not found",
             status_code=404,
         )
 
-    start_time = time.perf_counter()
     request_start_timestamp = utcnow()
     incoming_url = str(request.url)
 
@@ -309,13 +318,21 @@ async def proxy_request(
             )
         )
         if otel is not None:
+            failed = bool(stdio_result.error)
             with otel.span("mcp.proxy", span_attributes) as span:
                 span.set_attribute("http.response.status_code", stdio_result.status_code)
-                if stdio_result.error:
+                if failed:
                     # The outcome, not the message: a backend's error text is exactly
                     # where credentials have turned up before.
                     span.set_attribute("mcp.outcome", "error")
                     span.set_status_error()
+            otel.record_proxy_request(
+                srv.id,
+                duration_ms=elapsed_ms,
+                outcome="error" if failed else "ok",
+                transport="stdio",
+                error=failed,
+            )
 
         return Response(
             content=stdio_result.body,
@@ -398,6 +415,13 @@ async def proxy_request(
                 # with credentials in it; the hub's own trace entry above already has
                 # the full string for an admin who needs it.
                 record_error(span, e)
+            otel.record_proxy_request(
+                srv.id,
+                duration_ms=elapsed_ms,
+                outcome="backend_unreachable",
+                transport=srv.mcp_transport or "http",
+                error=True,
+            )
         return Response(
             content="Backend unreachable",
             status_code=502,
@@ -513,12 +537,20 @@ async def proxy_request(
         # An SSE stream can stay open indefinitely (2026-07-28 subscriptions), and a
         # span that ended only at stream close would be useless for latency and would
         # keep the exporter holding it open for hours.
+        failed = resp.status_code >= 500
         with otel.span("mcp.proxy", span_attributes) as span:
             span.set_attribute("http.response.status_code", resp.status_code)
             span.set_attribute("url.full", outbound_url)
-            if resp.status_code >= 500:
+            if failed:
                 span.set_attribute("mcp.outcome", "error")
                 span.set_status_error()
+        otel.record_proxy_request(
+            srv.id,
+            duration_ms=(time.perf_counter() - start_time) * 1000,
+            outcome="error" if failed else "ok",
+            transport=srv.mcp_transport or "http",
+            error=failed,
+        )
 
     return StreamingResponse(
         stream_response_body(),

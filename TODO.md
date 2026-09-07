@@ -1132,9 +1132,9 @@ Note the naming: `trace.*` stays request/response capture. OpenTelemetry lives u
 **Story 11.4 — Metrics alongside `/metrics`**
 
 - Acceptance criteria:
-  - [ ] Request count, duration and error count exported as OTel metrics with a
+  - [x] Request count, duration and error count exported as OTel metrics with a
         `mcp.server.id` attribute — the labelling `/metrics` does not have.
-  - [ ] `/metrics` keeps emitting exactly what it emits today. It is a documented
+  - [x] `/metrics` keeps emitting exactly what it emits today. It is a documented
         contract, and an operator scraping it should not have to care this exists.
 
 **Story 11.5 — Correlation and docs**

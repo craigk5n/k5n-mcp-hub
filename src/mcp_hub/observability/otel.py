@@ -26,6 +26,13 @@ SPAN_SERVER_ID = "mcp.server.id"
 SPAN_SUBJECT = "mcp.caller.subject"
 SPAN_REQUEST_ID = "mcp.request.id"
 
+# Metric names. Stable like the span attribute names: a dashboard built on these
+# should keep working. Namespaced `mcp.hub.` so they cannot be confused with the
+# Prometheus text at /metrics, which keeps its own `mcp_hub_` names unchanged.
+METRIC_PROXY_REQUESTS = "mcp.hub.proxy.requests"
+METRIC_PROXY_DURATION = "mcp.hub.proxy.duration"
+METRIC_PROXY_ERRORS = "mcp.hub.proxy.errors"
+
 
 # Attribute keys that must never be exported, matched as substrings on a lowercased
 # key. Deliberately broad: an exporter ships continuously to a system the hub's
@@ -166,13 +173,27 @@ def _import_sdk() -> Any:
     Not imported at module scope: with `otel.enabled` false this must never run, and
     the default install does not have these packages at all.
     """
+    from opentelemetry import metrics as otel_metrics
     from opentelemetry import trace as otel_trace
+    from opentelemetry.exporter.otlp.proto.http.metric_exporter import OTLPMetricExporter
     from opentelemetry.exporter.otlp.proto.http.trace_exporter import OTLPSpanExporter
+    from opentelemetry.sdk.metrics import MeterProvider
+    from opentelemetry.sdk.metrics.export import PeriodicExportingMetricReader
     from opentelemetry.sdk.resources import Resource
     from opentelemetry.sdk.trace import TracerProvider
     from opentelemetry.sdk.trace.export import BatchSpanProcessor
 
-    return otel_trace, OTLPSpanExporter, Resource, TracerProvider, BatchSpanProcessor
+    return {
+        "trace": otel_trace,
+        "metrics": otel_metrics,
+        "span_exporter": OTLPSpanExporter,
+        "metric_exporter": OTLPMetricExporter,
+        "resource": Resource,
+        "tracer_provider": TracerProvider,
+        "span_processor": BatchSpanProcessor,
+        "meter_provider": MeterProvider,
+        "metric_reader": PeriodicExportingMetricReader,
+    }
 
 
 class OtelProvider:
@@ -182,9 +203,11 @@ class OtelProvider:
     never branch on whether telemetry is on — the branch is here, once.
     """
 
-    def __init__(self, config: OtelConfig, tracer: Any = None) -> None:
+    def __init__(self, config: OtelConfig, tracer: Any = None, meter: Any = None) -> None:
         self.config = config
         self._tracer = tracer
+        self._meter = meter
+        self._instruments: dict[str, Any] = {}
 
     @property
     def enabled(self) -> bool:
@@ -193,6 +216,54 @@ class OtelProvider:
     @property
     def include_subject(self) -> bool:
         return bool(self.config.include_subject)
+
+    def record_proxy_request(
+        self,
+        server_id: str,
+        *,
+        duration_ms: float,
+        outcome: str = "ok",
+        transport: str = "",
+        error: bool = False,
+    ) -> None:
+        """Count and time one proxied call.
+
+        Attributes are kept deliberately small. A metric attribute is not a span
+        attribute: every distinct value is a separate time series, so a caller subject
+        or a URL here would multiply cardinality without bound. The subject is never a
+        metric attribute even when `include_subject` is on for traces -- that setting
+        is about identifying a request, not about partitioning a counter per user.
+        """
+        if self._meter is None:
+            return
+
+        attributes: dict[str, Any] = {"mcp.server.id": server_id, "mcp.outcome": outcome}
+        if transport:
+            attributes["mcp.transport"] = transport
+
+        try:
+            self._counter(METRIC_PROXY_REQUESTS, "Proxied MCP calls.").add(1, attributes)
+            self._histogram(METRIC_PROXY_DURATION, "Proxied MCP call duration.", "ms").record(
+                duration_ms, attributes
+            )
+            if error:
+                self._counter(METRIC_PROXY_ERRORS, "Failed proxied MCP calls.").add(1, attributes)
+        except Exception:  # noqa: BLE001 - telemetry must never break the caller
+            logger.debug("otel: could not record proxy metrics", exc_info=True)
+
+    def _counter(self, name: str, description: str) -> Any:
+        instrument = self._instruments.get(name)
+        if instrument is None:
+            instrument = self._meter.create_counter(name, description=description)
+            self._instruments[name] = instrument
+        return instrument
+
+    def _histogram(self, name: str, description: str, unit: str) -> Any:
+        instrument = self._instruments.get(name)
+        if instrument is None:
+            instrument = self._meter.create_histogram(name, unit=unit, description=description)
+            self._instruments[name] = instrument
+        return instrument
 
     def subject_attributes(self, subject: str) -> dict[str, Any]:
         """The caller's identity, if the operator opted into exporting it.
@@ -248,7 +319,7 @@ def build_provider(config: OtelConfig) -> OtelProvider:
         return OtelProvider(config)
 
     try:
-        otel_trace, exporter_cls, resource_cls, provider_cls, processor_cls = _import_sdk()
+        sdk = _import_sdk()
     except ImportError as e:
         raise OtelUnavailableError(
             "otel.enabled is true but the OpenTelemetry SDK is not installed. "
@@ -257,17 +328,31 @@ def build_provider(config: OtelConfig) -> OtelProvider:
             "working telemetry."
         ) from e
 
-    resource = resource_cls.create({"service.name": config.service_name})
-    provider = provider_cls(resource=resource)
-    provider.add_span_processor(
-        processor_cls(
-            exporter_cls(
-                endpoint=f"{config.endpoint.rstrip('/')}/v1/traces",
-                headers=dict(config.headers),
-            )
+    base = config.endpoint.rstrip("/")
+    resource = sdk["resource"].create({"service.name": config.service_name})
+
+    tracer_provider = sdk["tracer_provider"](resource=resource)
+    tracer_provider.add_span_processor(
+        sdk["span_processor"](
+            sdk["span_exporter"](endpoint=f"{base}/v1/traces", headers=dict(config.headers))
         )
     )
-    otel_trace.set_tracer_provider(provider)
-    logger.info("OpenTelemetry enabled, exporting to %s", config.endpoint)
+    sdk["trace"].set_tracer_provider(tracer_provider)
 
-    return OtelProvider(config, tracer=provider.get_tracer("mcp_hub"))
+    meter_provider = sdk["meter_provider"](
+        resource=resource,
+        metric_readers=[
+            sdk["metric_reader"](
+                sdk["metric_exporter"](endpoint=f"{base}/v1/metrics", headers=dict(config.headers))
+            )
+        ],
+    )
+    sdk["metrics"].set_meter_provider(meter_provider)
+
+    logger.info("OpenTelemetry enabled, exporting traces and metrics to %s", config.endpoint)
+
+    return OtelProvider(
+        config,
+        tracer=tracer_provider.get_tracer("mcp_hub"),
+        meter=meter_provider.get_meter("mcp_hub"),
+    )
