@@ -888,14 +888,14 @@ API and UI as any other.
 
 - TDD: extend `tests/test_register_request.py` and `tests/test_v1_routes.py` first.
 - Acceptance criteria:
-  - [ ] `RegisteredServer` gains `transport_kind: "http" | "stdio"` (default
+  - [x] `RegisteredServer` gains `transport_kind: "http" | "stdio"` (default
         `"http"`) and `stdio_command_name`. The registration body names an
         **allowlist entry**, never a command or arguments — argument injection is
         then unreachable by construction rather than by validation.
-  - [ ] `url` is populated as synthetic `stdio:<name>`, so the ~43 call sites that
+  - [x] `url` is populated as synthetic `stdio:<name>`, so the ~43 call sites that
         key off `server.url` keep working without a storage migration. Treat the
         on-disk shape as additive: existing records load unchanged.
-  - [ ] `auth_type: obo` and `auth_type: ema` are **rejected** for a stdio server,
+  - [x] `auth_type: obo` and `auth_type: ema` are **rejected** for a stdio server,
         with a message explaining that one shared process cannot act as two users.
   - [ ] `required_scope` still applies — it governs who may reach the server, which
         is orthogonal to what identity the server sees.

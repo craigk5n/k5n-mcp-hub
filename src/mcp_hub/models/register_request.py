@@ -1,11 +1,19 @@
 from typing import Any, Literal
 
-from pydantic import BaseModel, field_validator
+from pydantic import BaseModel, field_validator, model_validator
 
 
 class RegisterRequest(BaseModel):
     id: str
-    url: str
+    # Optional for a stdio server, which has no URL -- one is synthesized as
+    # `stdio:<name>` from the allowlist entry. Still required for HTTP.
+    url: str = ""
+    # A stdio registration names an ALLOWLIST ENTRY, never a command line. There is
+    # deliberately no `command`/`args`/`env`/`cwd` field here: the operator supplies
+    # those in config, so argument injection is unreachable by construction rather
+    # than blocked by validation (ADR 0007).
+    transport_kind: Literal["http", "stdio"] = "http"
+    stdio_command_name: str = ""
     name: str = ""
     version: str = ""
     description: str = ""
@@ -48,12 +56,25 @@ class RegisterRequest(BaseModel):
             raise ValueError("id is required")
         return v
 
-    @field_validator("url")
-    @classmethod
-    def validate_url_not_empty(cls, v: str) -> str:
-        if not v:
+    @model_validator(mode="after")
+    def validate_transport(self) -> "RegisterRequest":
+        if self.transport_kind == "stdio":
+            if not self.stdio_command_name.strip():
+                raise ValueError("stdio_command_name is required for a stdio server")
+            # One process, shared by every caller, with credentials fixed at spawn:
+            # it cannot act as two users. Accepting `obo` here would silently hand
+            # every caller whatever identity the process started with -- the exact
+            # escalation on-behalf-of exists to prevent (ADR 0003, ADR 0007).
+            if self.auth_type in ("obo", "ema"):
+                raise ValueError(
+                    f"auth_type {self.auth_type!r} is not available for a stdio server: "
+                    "one shared process cannot act on behalf of individual callers. "
+                    "Use a service credential, and required_scope to control who may "
+                    "reach it."
+                )
+        elif not self.url:
             raise ValueError("url is required")
-        return v
+        return self
 
     @field_validator("registration_type")
     @classmethod

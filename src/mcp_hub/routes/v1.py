@@ -80,7 +80,13 @@ async def _register_server_impl(
             loc = error.get("loc", [])
             err_type = error.get("type", "")
             msg = error.get("msg", "")
-            if ("id" in loc or "url" in loc) and (err_type == "missing" or "is required" in msg):
+            # `url` is now validated on the model as a whole (a stdio server has no
+            # URL), so its error arrives with an empty `loc` rather than loc=("url",).
+            # Match on the message too, or the documented "id and url required"
+            # response silently becomes ": Value error, url is required".
+            if ("id" in loc or "url" in loc or "url is required" in msg) and (
+                err_type == "missing" or "is required" in msg
+            ):
                 return PlainTextResponse("id and url required", status_code=400)
 
         first_error = errors[0]
@@ -90,6 +96,26 @@ async def _register_server_impl(
 
     server_id = validated.id
     url = validated.url
+
+    # stdio: the feature must be on, and the request may only name an entry the
+    # operator already allowlisted. Both checks live here rather than in the model
+    # because they depend on config, and both fail closed.
+    if validated.transport_kind == "stdio":
+        stdio_cfg = getattr(getattr(request.app.state, "settings", None), "stdio", None)
+        if stdio_cfg is None or not stdio_cfg.enabled:
+            return PlainTextResponse(
+                "stdio servers are disabled: set stdio.enabled (and see ADR 0007 for "
+                "why it also requires authenticated registration)",
+                status_code=400,
+            )
+        if validated.stdio_command_name not in stdio_cfg.allowed_commands:
+            allowed = ", ".join(sorted(stdio_cfg.allowed_commands)) or "(none configured)"
+            return PlainTextResponse(
+                f"{validated.stdio_command_name!r} is not an allowed stdio command. "
+                f"Allowlisted entries: {allowed}",
+                status_code=400,
+            )
+        url = f"stdio:{validated.stdio_command_name}"
 
     allow_private = bool(
         getattr(getattr(request.app.state, "settings", None), "security", None)
@@ -106,14 +132,20 @@ async def _register_server_impl(
 
     require_reachability = effective_registration_type != "self"
 
-    is_safe, error_msg, resolved_ips = await is_url_safe_for_discovery(
-        url, require_reachability, allow_private
-    )
-    if not is_safe:
-        return JSONResponse(
-            status_code=400,
-            content={"error": "URL validation failed"},
+    resolved_ips: list[str] = []
+    if validated.transport_kind == "stdio":
+        # Nothing to resolve or connect to: the safety boundary for a stdio server is
+        # the allowlist checked above, not DNS and IP-range validation.
+        pass
+    else:
+        is_safe, error_msg, resolved_ips = await is_url_safe_for_discovery(
+            url, require_reachability, allow_private
         )
+        if not is_safe:
+            return JSONResponse(
+                status_code=400,
+                content={"error": "URL validation failed"},
+            )
 
     oauth_discovery_url = validated.oauth_discovery_url
     if oauth_discovery_url:
@@ -129,6 +161,8 @@ async def _register_server_impl(
     srv = RegisteredServer(
         id=server_id,
         url=url.strip(),
+        transport_kind=validated.transport_kind,
+        stdio_command_name=validated.stdio_command_name,
         healthy=True,
         consecutive_fails=0,
         last_checked=utcnow(),

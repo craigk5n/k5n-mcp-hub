@@ -1,7 +1,14 @@
 from datetime import datetime, timezone
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, field_serializer, field_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    field_serializer,
+    field_validator,
+    model_validator,
+)
 
 
 DATETIME_FIELDS = (
@@ -51,6 +58,12 @@ class RegisteredServer(BaseModel):
 
     id: str
     url: str
+    # "http" for every URL-addressed backend; "stdio" for a program the hub runs.
+    # A stdio server's `url` is the synthetic `stdio:<allowlist name>` -- around 43
+    # call sites key off `server.url`, and a synthetic value keeps them working while
+    # leaving the on-disk shape additive rather than migrated (see ADR 0007).
+    transport_kind: Literal["http", "stdio"] = "http"
+    stdio_command_name: str = ""
     name: str = ""
     version: str = ""
     description: str = ""
@@ -185,6 +198,16 @@ class RegisteredServer(BaseModel):
             self.oauth_token_url or token_endpoint_from_metadata(self.oauth_metadata)
         )
         return bool(self.oauth_client_id and self.oauth_client_secret and has_token_endpoint)
+
+    @property
+    def is_stdio(self) -> bool:
+        return self.transport_kind == "stdio"
+
+    @model_validator(mode="after")
+    def synthesize_stdio_url(self) -> "RegisteredServer":
+        if self.is_stdio and self.stdio_command_name and not self.url.startswith("stdio:"):
+            object.__setattr__(self, "url", f"stdio:{self.stdio_command_name}")
+        return self
 
     @property
     def needs_user_identity(self) -> bool:
