@@ -37,6 +37,13 @@ ENV MCPHUB_SERVER__HTTP_HOST=0.0.0.0
 # by the non-root user so that (and any mounted config) works without running as root.
 RUN mkdir -p /app/.mcp_hub && chown -R 1000:1000 /app
 
+# A conventional mount point for persistent state (e.g. storage.json.path=/data/...),
+# created here so its ownership is right. Docker seeds a fresh named volume from the
+# image's directory, so a volume mounted at /data lands owned by UID 1000; without
+# this it is created root-owned and the non-root process cannot write to it, which
+# surfaces only at the first write as `PermissionError: /data/tmpXXXX`.
+RUN mkdir -p /data && chown 1000:1000 /data
+
 EXPOSE 8080
 
 USER 1000
