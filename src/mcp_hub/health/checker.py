@@ -11,6 +11,7 @@ import httpx
 from mcp_hub.config import HealthCheckConfig, TraceConfig
 from mcp_hub.health.parser import HealthParser
 from mcp_hub.health.url import build_health_url
+from mcp_hub.observability.otel import disabled_provider as _disabled_provider
 from mcp_hub.auth.caller import SERVICE_IDENTITY
 from mcp_hub.mcp.auth import apply_server_auth, needs_user_identity
 from mcp_hub.mcp.constants import STATELESS_PROTOCOL_VERSION
@@ -139,6 +140,7 @@ class HealthChecker:
         *,
         allow_private_networks: bool = False,
         stdio_pool: Any = None,
+        otel: Any = None,
     ) -> None:
         self._registry = registry
         self._settings = settings
@@ -146,6 +148,7 @@ class HealthChecker:
         self._trace_settings = trace_settings
         self._allow_private_networks = allow_private_networks
         self._stdio_pool = stdio_pool
+        self._otel = otel or _disabled_provider()
         self._parser = HealthParser()
 
     async def run_forever(self) -> None:
@@ -215,6 +218,15 @@ class HealthChecker:
                 await self._registry.unregister(srv.id)
 
     async def _check_single_server(self, srv: RegisteredServer, client: httpx.AsyncClient) -> None:
+        with self._otel.span("mcp.health", {"mcp.server.id": srv.id}) as span:
+            await self._check_single_server_inner(srv, client)
+            span.set_attribute("mcp.healthy", bool(srv.healthy))
+            if not srv.healthy:
+                span.set_status_error()
+
+    async def _check_single_server_inner(
+        self, srv: RegisteredServer, client: httpx.AsyncClient
+    ) -> None:
         healthy = False
         uptime = 0.0
         rate_limited = False

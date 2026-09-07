@@ -13,6 +13,8 @@ from mcp_hub.mcp.constants import (
 from mcp_hub.auth.caller import SERVICE_IDENTITY
 from mcp_hub.mcp.auth import needs_user_identity
 from mcp_hub.mcp.sdk_client import MCPClient, MCPClientError
+from mcp_hub.observability.otel import disabled_provider as _disabled_provider
+from mcp_hub.observability.otel import record_error
 from mcp_hub.mcp.stateless import StatelessMCPClient
 from mcp_hub.mcp.validation import validate_tool_schemas
 from mcp_hub.registry.service import Registry
@@ -97,16 +99,32 @@ class DiscoveryService:
         *,
         allow_private_networks: bool = False,
         stdio_pool: Any = None,
+        otel: Any = None,
     ) -> None:
         self._registry = registry
         self._allow_private_networks = allow_private_networks
         self._stdio_pool = stdio_pool
+        self._otel = otel or _disabled_provider()
         # Per-server earliest next poll (monotonic seconds), from ttlMs freshness
         # hints on stateless list results. Only poll_once honors this — an explicit
         # discover_immediately call always runs.
         self._poll_not_before: dict[str, float] = {}
 
     async def discover_immediately(
+        self, server: RegisteredServer, *, timeout: float = 30.0
+    ) -> None:
+        with self._otel.span(
+            "mcp.discovery",
+            {"mcp.server.id": server.id, "mcp.transport": "stdio" if server.is_stdio else "http"},
+        ) as span:
+            try:
+                await self._discover_immediately(server, timeout=timeout)
+            except Exception as e:
+                record_error(span, e)
+                raise
+            span.set_attribute("mcp.tools.count", len(server.tools or []))
+
+    async def _discover_immediately(
         self, server: RegisteredServer, *, timeout: float = 30.0
     ) -> None:
         # Probe `server/discover` (2026-07-28) first unless the server is already

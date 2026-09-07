@@ -26,6 +26,7 @@ from mcp_hub.trace.recorder import format_headers, sanitize_trace_headers
 from mcp_hub.health.checker import HealthChecker
 from mcp_hub.mcp.discovery import DiscoveryService
 from mcp_hub.mcp.registry_client import RegistryClient
+from mcp_hub.observability.otel import build_provider as build_otel_provider
 from mcp_hub.mcp.stdio_pool import StdioPool
 from mcp_hub.registry.service import Registry
 from mcp_hub.storage import InMemoryStorage, JSONFileStorage, StorageStrategy
@@ -122,6 +123,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             settings.trace,
             allow_private_networks=settings.security.allow_private_networks,
             stdio_pool=getattr(app.state, "stdio_pool", None),
+            otel=getattr(app.state, "otel", None),
         )
         register_background_task(app, asyncio.create_task(health_checker.run_forever()))
 
@@ -314,9 +316,16 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     # (local-first mode). The flag is threaded explicitly into the SSRF-pinned transport via
     # each MCPClient/DiscoveryService — never a process-global — so it can't leak across apps.
     allow_private_networks = settings.security.allow_private_networks
+    # Before the subsystems that take it. Always present, disabled or not, so nothing
+    # downstream branches on whether telemetry exists (ADR 0009). Raises here if it is
+    # enabled without the SDK -- at startup, where an operator sees it.
+    otel_provider = build_otel_provider(settings.otel)
     stdio_pool = StdioPool(settings.stdio)
     discovery_service = DiscoveryService(
-        registry, allow_private_networks=allow_private_networks, stdio_pool=stdio_pool
+        registry,
+        allow_private_networks=allow_private_networks,
+        stdio_pool=stdio_pool,
+        otel=otel_provider,
     )
 
     app.state.settings = settings
@@ -335,6 +344,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.state.stdio_pool = stdio_pool
     # Read-only client for the public MCP registry, for the import flow. The hub
     # never publishes to it (ADR 0008), so there is no credential to hold here.
+    app.state.otel = otel_provider
     app.state.registry_client = RegistryClient(
         base_url=settings.registry.base_url,
         allow_private_networks=allow_private_networks,

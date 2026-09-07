@@ -227,6 +227,16 @@ class OtelProvider:
             yield _NoOpSpan()
 
 
+def disabled_provider() -> OtelProvider:
+    """A provider that traces nothing.
+
+    So a subsystem constructed without telemetry -- in a test, or by a caller that
+    predates this feature -- still has the same object to talk to, rather than every
+    call site growing a `if self._otel is not None` branch.
+    """
+    return OtelProvider(OtelConfig())
+
+
 def build_provider(config: OtelConfig) -> OtelProvider:
     """Build a provider, or a disabled one.
 

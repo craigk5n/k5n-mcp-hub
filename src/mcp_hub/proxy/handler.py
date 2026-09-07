@@ -17,6 +17,7 @@ from mcp_hub.mcp.auth import OBOAuthError, apply_server_auth, invalidate_obo_tok
 from mcp_hub.mcp.constants import STATELESS_PROTOCOL_VERSION, resolve_protocol_version
 from mcp_hub.models.server import RegisteredServer
 from mcp_hub.proxy.fault_injection import apply_fault_injection
+from mcp_hub.observability.otel import record_error
 from mcp_hub.proxy.stdio_proxy import forward_to_stdio
 from mcp_hub.proxy.url import compose_backend_url
 from mcp_hub.registry.service import Registry
@@ -123,6 +124,26 @@ def _inject_stateless_request_headers(outbound: dict[str, str], body: bytes) -> 
         outbound["Mcp-Name"] = name
 
 
+def _method_for_span(body: bytes) -> str:
+    """The JSON-RPC method name, for a span attribute.
+
+    Only the method -- never params, which carry tool arguments and can hold anything
+    a caller passed. Parsing is best-effort: a body the hub is merely forwarding may
+    not be JSON at all, and telemetry must not be the thing that rejects it.
+    """
+    if not body:
+        return ""
+    try:
+        parsed = json.loads(body)
+    except (ValueError, TypeError):
+        return ""
+    if isinstance(parsed, dict):
+        method = parsed.get("method")
+        if isinstance(method, str):
+            return method
+    return ""
+
+
 async def proxy_request(
     request: Request,
     registry: Registry,
@@ -139,8 +160,16 @@ async def proxy_request(
             status_code=400,
         )
 
+    otel = getattr(request.app.state, "otel", None)
+
     srv = await registry.get(target_id)
     if srv is None:
+        # Traced too: a call for a server that is not registered is a real signal, and
+        # an operator chasing "why does nothing arrive" needs to see the attempt.
+        if otel is not None:
+            with otel.span("mcp.proxy", {"mcp.server.id": target_id}) as span:
+                span.set_attribute("mcp.outcome", "server_not_found")
+                span.set_status_error()
         return Response(
             content="Server not found",
             status_code=404,
@@ -230,6 +259,20 @@ async def proxy_request(
         trace_recorder.add(entry)
         return fault_response
 
+    # One span for the proxied call. Opened here rather than at the top of the function
+    # so it carries the method, and so an authorization refusal above is recorded by the
+    # trace recorder (which can hold the detail) rather than by an exporter that cannot.
+    span_attributes: dict[str, object] = {
+        "mcp.server.id": srv.id,
+        "mcp.method": _method_for_span(request_body),
+        # The allowlist entry name for stdio, never the command: that is operator
+        # config, and exporting it would put local paths and flags into a third-party
+        # system for no diagnostic gain.
+        "mcp.transport": "stdio" if srv.is_stdio else (srv.mcp_transport or "http"),
+    }
+    if otel is not None:
+        span_attributes.update(otel.subject_attributes(trace_subject))
+
     if srv.is_stdio:
         # A subprocess, not a URL: no outbound HTTP, no SSE to tee. Everything before
         # this point (authorization, the denial trace, body capture, fault injection)
@@ -260,6 +303,15 @@ async def proxy_request(
                 else b"",
             )
         )
+        if otel is not None:
+            with otel.span("mcp.proxy", span_attributes) as span:
+                span.set_attribute("http.response.status_code", stdio_result.status_code)
+                if stdio_result.error:
+                    # The outcome, not the message: a backend's error text is exactly
+                    # where credentials have turned up before.
+                    span.set_attribute("mcp.outcome", "error")
+                    span.set_status_error()
+
         return Response(
             content=stdio_result.body,
             status_code=stdio_result.status_code,
@@ -332,6 +384,14 @@ async def proxy_request(
             error=str(e),
         )
         trace_recorder.add(entry)
+        if otel is not None:
+            with otel.span("mcp.proxy", span_attributes) as span:
+                span.set_attribute("mcp.outcome", "backend_unreachable")
+                span.set_attribute("url.full", outbound_url)
+                # The exception type only. Its text names hosts and can carry a URL
+                # with credentials in it; the hub's own trace entry above already has
+                # the full string for an admin who needs it.
+                record_error(span, e)
         return Response(
             content="Backend unreachable",
             status_code=502,
@@ -379,6 +439,10 @@ async def proxy_request(
         except (httpx.ConnectError, httpx.ConnectTimeout, httpx.RemoteProtocolError) as e:
             await stack.aclose()
             logger.error(f"Backend unreachable on re-exchange: {e}")
+            if otel is not None:
+                with otel.span("mcp.proxy", span_attributes) as span:
+                    span.set_attribute("mcp.outcome", "backend_unreachable")
+                    record_error(span, e)
             return Response(content="Backend unreachable", status_code=502)
         except BaseException:
             await stack.aclose()
@@ -437,6 +501,18 @@ async def proxy_request(
                 )
                 trace_recorder.add(entry)
             await stack.aclose()
+
+    if otel is not None:
+        # Recorded when the upstream response *starts*, not when its body finishes.
+        # An SSE stream can stay open indefinitely (2026-07-28 subscriptions), and a
+        # span that ended only at stream close would be useless for latency and would
+        # keep the exporter holding it open for hours.
+        with otel.span("mcp.proxy", span_attributes) as span:
+            span.set_attribute("http.response.status_code", resp.status_code)
+            span.set_attribute("url.full", outbound_url)
+            if resp.status_code >= 500:
+                span.set_attribute("mcp.outcome", "error")
+                span.set_status_error()
 
     return StreamingResponse(
         stream_response_body(),

@@ -1112,17 +1112,22 @@ Note the naming: `trace.*` stays request/response capture. OpenTelemetry lives u
 **Story 11.3 — Spans on the paths that matter**
 
 - Acceptance criteria:
-  - [ ] Explicit spans on the proxy path, discovery, health checks and OBO/EMA token
-        exchange. Not blanket auto-instrumentation: those packages are pre-1.0
+  - [x] Explicit spans on the proxy path (HTTP and stdio), discovery and health
+        checks. Not blanket auto-instrumentation: those packages are pre-1.0
         (`0.65b0` against a stable `1.44.0` SDK) and capture route and header detail
         the hub has deliberate opinions about.
-  - [ ] Spans carry `mcp.server.id`, method, outcome and duration. The caller's
+  - [ ] **Still open:** OBO/EMA token-exchange spans. `exchange_token` is a
+        module-level function several layers below `app.state`, so it needs either an
+        `otel` argument threaded through `apply_server_auth` (touching ~8 call sites)
+        or a module-level provider. Deferred rather than rushed: a global would be the
+        easy option and the one most likely to leak between tests.
+  - [x] Spans carry `mcp.server.id`, method, outcome and duration. The caller's
         subject appears **only** when `otel.include_subject` is true, and then only
         the `sub` claim.
-  - [ ] A failed span records the error type, never the error text — IdP error
+  - [x] A failed span records the error type, never the error text — IdP error
         descriptions echo the token that was rejected, which is why
         `sanitize_trace_body` has a prose pattern for exactly that.
-  - [ ] stdio spans record the allowlist entry name, never the command line.
+  - [x] stdio spans record the allowlist entry name, never the command line.
 
 **Story 11.4 — Metrics alongside `/metrics`**
 
