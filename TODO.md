@@ -968,9 +968,102 @@ HTTP server's.
       *runs*, which is why "register any npm server from the UI" is not a supported
       flow.
 
+## MCP registry interop
+
+### Epic 10 — Import from the official MCP registry
+
+The public index at `registry.modelcontextprotocol.io` is a far better source of
+servers than pasting URLs out of READMEs. Its API, confirmed live 2026-09-06:
+
+```
+GET  /v0.1/servers?search=&cursor=&limit=&version=latest&updated_since=
+GET  /v0.1/servers/{serverName}/versions/{version}
+POST /v0.1/publish     ← requires a Registry JWT proving namespace ownership
+```
+
+Records carry `name` (reverse-DNS, e.g. `ai.smithery/foo`), `description`, `version`,
+`repository`, and then `remotes[]` (a URL + transport + header hints) or `packages[]`
+(npm/PyPI programs whose `transport.type` is `stdio`).
+
+**Import only — see [ADR 0008](docs/adr/0008-registry-import-yes-publish-no.md).**
+The hub never publishes: its records hold internal URLs and credentials, the public
+index is append-only, and publishing needs a namespace the operator can prove they
+own. "Export" means writing a reviewable `server.json`, not pushing one.
+
+**Story 10.1 — A client for the registry API**
+
+- TDD: `tests/test_registry_client.py` first, against recorded payloads.
+- Acceptance criteria:
+  - [x] `mcp/registry_client.py` wraps search/list/get over the **SSRF-pinned**
+        transport, like every other outbound call the hub makes.
+  - [x] Cursor pagination via `metadata.nextCursor`, bounded the way
+        `pagination.collect_pages` bounds capability listing — a registry that always
+        returns a cursor must cost a bounded number of round trips.
+  - [x] Defaults to `version=latest`; without it the list returns one row per version
+        and the same server appears repeatedly.
+  - [x] Tolerates schema drift: records in the live index carry `$schema` values of
+        2025-09-16, 2025-09-29 and 2025-12-11 today. Unknown fields are ignored, and a
+        record that cannot be parsed is skipped with a warning rather than failing the
+        whole page.
+  - [ ] The base URL is configurable (`registry.base_url`), so a private registry can
+        be used instead; off by default is not required — reading a public index is
+        not a privileged act.
+
+**Story 10.2 — Map a registry record onto a registration**
+
+- Acceptance criteria:
+  - [ ] `remotes[]` → `url` + `mcp_transport`; `name`/`description` carried across;
+        server id derived from the registry name, sanitised for the hub's id rules.
+  - [ ] `headers[]` with `isSecret: true` become a **prompt**, never a stored value:
+        the record tells us a credential is needed, not what it is.
+  - [ ] A record with several `remotes[]` makes the operator choose rather than
+        guessing at the first entry.
+  - [ ] `packages[]` (stdio) records are shown with the command they would need and a
+        pointer to `stdio.allowed_commands` — never auto-registered. A registry record
+        is precisely the untrusted input ADR 0007's allowlist exists to refuse.
+
+**Story 10.3 — Import through the existing registration path**
+
+- Acceptance criteria:
+  - [ ] Import calls the same registration logic as `POST /v1/register`, so
+        `is_url_safe_for_discovery` runs on the imported URL. A registry record is
+        attacker-influenceable: a `remotes[]` URL pointing at `169.254.169.254` must
+        be refused exactly as a typed one is.
+  - [ ] `require_admin` applies — importing is registering.
+  - [ ] Re-importing an existing id updates rather than duplicating, and never
+        overwrites a stored credential with a blank.
+
+**Story 10.4 — Browse and import in the admin UI**
+
+- Acceptance criteria:
+  - [ ] A search box over the registry, results showing name, description, transport
+        and whether a credential is required.
+  - [ ] The provenance is recorded and shown: which registry, which record, which
+        version, and when it was imported.
+  - [ ] Import is one action from a result, landing in the same Add Server flow so the
+        operator sees what will be registered before it is.
+
+**Story 10.5 — Export a reviewable `server.json`**
+
+- Acceptance criteria:
+  - [ ] Writes the registry's own schema for a selected server, to a file.
+  - [ ] **No secrets, ever** — the same redaction the API responses use.
+  - [ ] Names any loopback or private-range URL it wrote, since those are the entries
+        most likely to be a mistake to publish.
+  - [ ] Documented as "for you to review and publish with the official CLI", with the
+        reason the hub does not publish directly.
+
+**Deliberately out of scope**
+
+- [ ] `POST /v0.1/publish` and the Registry JWT auth exchanges (ADR 0008). This is an
+      absence by decision; code that "could grow into" publishing is also out.
+- [ ] Automatic background syncing from the registry. Import is an operator action;
+      a hub that silently registers new servers is a hub that silently acquires new
+      outbound dependencies.
+
 ## Product / usefulness follow-ups (from AUDIT_local.md §3)
 
-- [ ] Interop with the official MCP registry API (import/export).
+- [ ] Interop with the official MCP registry API — scoped as **Epic 10** above (import only; see ADR 0008).
 - [ ] Emit OpenTelemetry traces/metrics alongside `/metrics`.
 - [ ] Support stdio MCP servers (currently HTTP-only) — scoped as **Epic 9** above.
 - [x] Positioning decided (2026-09-05): **on-behalf-of is the headline

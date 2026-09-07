@@ -16,9 +16,10 @@ Format: `NNNN-short-title.md`, with `Status`, `Context`, `Decision`,
 | [0005](0005-hub-is-the-mcp-client-in-ema.md) | The hub plays the MCP Client role in Enterprise-Managed Authorization | Accepted |
 | [0006](0006-ema-subject-assertion-source.md) | Where the EMA subject assertion comes from | Accepted |
 | [0007](0007-stdio-servers-are-opt-in-and-service-identity-only.md) | stdio servers are opt-in, allowlisted, and service-identity only | Proposed |
+| [0008](0008-registry-import-yes-publish-no.md) | The hub imports from the MCP registry but never publishes to it | Proposed |
 
 ADRs 0001–0004 together specify on-behalf-of (OBO) token exchange, tracked as
 Epics 5–7 in [`TODO.md`](../../TODO.md). ADRs 0005–0006 cover Enterprise-Managed
 Authorization (ID-JAG), tracked as Epic 8. ADR 0007 covers stdio transport,
-tracked as Epic 9 — still Proposed, so it is a design under review rather than
+tracked as Epic 9, and ADR 0008 registry interop, tracked as Epic 10 — still Proposed, so it is a design under review rather than
 one the code implements.
