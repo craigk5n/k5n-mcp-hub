@@ -915,16 +915,16 @@ degrades to "unhealthy" rather than taking the hub with it.
 
 - TDD: extend `tests/test_app_shutdown.py` and a new `tests/test_stdio_pool.py`.
 - Acceptance criteria:
-  - [ ] One long-lived process per registered server, started lazily on first use,
+  - [x] One long-lived process per registered server, started lazily on first use,
         held on `app.state` beside the other subsystems.
-  - [ ] Exit is detected and the process restarted on next use, with backoff; a
+  - [x] Exit is detected and the process restarted on next use, with backoff; a
         server that will not stay up is marked unhealthy rather than retried hot.
-  - [ ] Processes are terminated on shutdown and reaped — no zombies, and no
+  - [x] Processes are terminated on shutdown and reaped — no zombies, and no
         surviving children when the hub is killed.
-  - [ ] Shutdown stays bounded. `_cancel_and_await_tasks` already refuses to block
+  - [x] Shutdown stays bounded. `_cancel_and_await_tasks` already refuses to block
         on a straggler; a process that ignores SIGTERM must get SIGKILL rather than
         extend that window.
-  - [ ] Concurrency is explicit: one stdin/stdout pair is a single stream. The SDK
+  - [x] Concurrency is explicit: one stdin/stdout pair is a single stream. The SDK
         session multiplexes by request id, but a server that serializes will
         serialize — document it, and do not let one slow call stall discovery.
 

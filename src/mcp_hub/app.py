@@ -25,6 +25,7 @@ from mcp_hub.middleware import create_request_id_metrics_middleware
 from mcp_hub.trace.recorder import format_headers, sanitize_trace_headers
 from mcp_hub.health.checker import HealthChecker
 from mcp_hub.mcp.discovery import DiscoveryService
+from mcp_hub.mcp.stdio_pool import StdioPool
 from mcp_hub.registry.service import Registry
 from mcp_hub.storage import InMemoryStorage, JSONFileStorage, StorageStrategy
 from mcp_hub.trace.recorder import TraceRecorder
@@ -147,6 +148,12 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     finally:
         logger.info("Application lifespan shutting down")
         await _cancel_and_await_tasks(context.background_tasks, SHUTDOWN_TIMEOUT_SECONDS)
+        # After the tasks, so a discovery pass in flight is not cut off mid-call, and
+        # bounded for the same reason shutdown is elsewhere: a server that will not
+        # die must not hold the process open.
+        stdio_pool = getattr(app.state, "stdio_pool", None)
+        if stdio_pool is not None:
+            await stdio_pool.close_all(timeout=SHUTDOWN_TIMEOUT_SECONDS)
 
 
 async def _cancel_and_await_tasks(tasks: list[asyncio.Task[Any]], timeout_seconds: float) -> None:
@@ -317,6 +324,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.state.authenticator = authenticator
     app.state.auth_required_dependency = auth_dependency
     app.state.discovery_service = discovery_service
+    # Owns one long-lived subprocess per registered stdio server. Constructed
+    # unconditionally (it starts nothing until a stdio server is used) so routes
+    # can read it off app.state the way they read every other subsystem.
+    app.state.stdio_pool = StdioPool(settings.stdio)
     trace_recorder = TraceRecorder()
     app.state.trace_recorder = trace_recorder
     app.state.templates = _create_jinja2_environment()
