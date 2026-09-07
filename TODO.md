@@ -873,13 +873,21 @@ default configuration makes registration unauthenticated.
   - [x] `stdio.enabled` (default `false`) and `stdio.allowed_commands` (name →
         `{command, args, env, cwd}`) in `config.py`, documented in `config.yaml`
         and `config.production.example.yaml`.
-  - [x] The hub **fails to start** when `stdio.enabled` is true and `auth.type` is
-        not `jwt`, naming both settings. A warning is not enough: it would put an
-        exec primitive on the network of anyone who skims the release notes.
+  - [x] The hub **fails to start** when `stdio.enabled` is true unless one of
+        `auth.type: jwt`, a loopback bind, or `stdio.trusted_network: true` holds.
+        A warning is not enough: it would put an exec primitive on the network of
+        anyone who skims the release notes. *(Gate amended 2026-09-06 — the original
+        jwt-only rule made the feature untestable without an IdP, which is a reason
+        to skip a feature rather than a security control. See ADR 0007.)*
   - [x] `--dev` does not relax this, the way it deliberately does not touch
         `auth.type`.
-  - [ ] With `stdio.enabled` false, a stdio registration is refused with a message
+  - [x] With `stdio.enabled` false, a stdio registration is refused with a message
         naming the flag — so upgrading cannot silently add the capability.
+  - [x] `docker-compose.stdio.yml` + `config.stdio.example.yaml` run a second,
+        containerised instance on `127.0.0.1:3001` with the echo fixture allowlisted.
+        A container is the recommended way to run stdio: it bounds what a spawned
+        program can *reach*, which the allowlist alone cannot, and keeps the
+        toolchains those servers need off the host.
 
 **Story 9.3 — Model and registration**
 

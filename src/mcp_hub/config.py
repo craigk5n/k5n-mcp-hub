@@ -10,6 +10,9 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from mcp_hub.mcp.constants import MCP_DISCOVERY_INTERVAL_SECONDS
 
+# Bind addresses that cannot be reached from another host.
+LOOPBACK_HOSTS = frozenset({"127.0.0.1", "::1", "localhost"})
+
 
 def _coerce_positive_int(v: object, default: int) -> int:
     """Return a positive int, falling back to ``default``.
@@ -233,6 +236,12 @@ class StdioConfig(BaseModel):
 
     enabled: bool = False
     allowed_commands: dict[str, StdioCommandConfig] = Field(default_factory=dict)
+    # An explicit statement that untrusted callers cannot reach this hub, satisfying
+    # the gate below on its own. It exists for the container case: the hub binds
+    # 0.0.0.0 *inside* a container and cannot see that the port was published as
+    # `-p 127.0.0.1:3001:8080`, so it cannot infer what is actually reachable. Named
+    # so an operator has to make the claim rather than tick a box.
+    trusted_network: bool = False
 
 
 class Settings(BaseSettings):
@@ -266,14 +275,26 @@ class Settings(BaseSettings):
         Refusing to start rather than warning is deliberate: a warning puts an exec
         endpoint on the network of everyone who skims a release note.
         """
-        if self.stdio.enabled and self.auth.type != "jwt":
-            raise ValueError(
-                f"stdio.enabled is true but auth.type is {self.auth.type or 'basic'!r}. "
-                "Registering a stdio server runs a program, and registration is only "
-                "restricted to admins under auth.type: jwt. Set auth.type: jwt (see "
-                "docs/operator-guide-obo.md), or leave stdio.enabled false."
-            )
-        return self
+        if not self.stdio.enabled:
+            return self
+
+        host = self.server.http_host.strip().lower()
+        loopback_only = host in LOOPBACK_HOSTS
+
+        if self.auth.type == "jwt" or loopback_only or self.stdio.trusted_network:
+            return self
+
+        raise ValueError(
+            f"stdio.enabled is true, but this hub binds {self.server.http_host!r} with "
+            f"auth.type {self.auth.type or 'basic'!r}. Registering a stdio server runs "
+            "a program, and registration is only restricted to admins under "
+            "auth.type: jwt. Choose one: set auth.type: jwt (see "
+            "docs/operator-guide-obo.md); bind a loopback address so nothing off-box "
+            "can reach it; or set stdio.trusted_network: true if untrusted callers "
+            "genuinely cannot reach this hub (a container published to host loopback, "
+            "for instance). See "
+            "docs/adr/0007-stdio-servers-are-opt-in-and-service-identity-only.md."
+        )
 
     @classmethod
     def from_defaults(cls) -> Settings:

@@ -22,31 +22,66 @@ class TestStdioDefaults:
         assert Settings.from_defaults().stdio.allowed_commands == {}
 
 
-class TestStdioRequiresRealAuthentication:
-    """`is_admin` returns True unconditionally when auth.type is not jwt, so
-    `require_admin` on POST /v1/register is a no-op in the default configuration.
-    That is tolerable when a hostile registration buys a fetch; it is not when it
-    buys arbitrary code execution."""
+class TestStdioGate:
+    """stdio.enabled requires one of three things (ADR 0007).
+
+    `is_admin` returns True unconditionally when auth.type is not jwt, so
+    `require_admin` on POST /v1/register does not actually restrict anything in the
+    default configuration. Tolerable when a hostile registration buys an SSRF-pinned
+    fetch; not when it buys fork+exec. Any one of these closes that:
+
+      - auth.type: jwt        -- registration genuinely requires an admin scope
+      - a loopback bind       -- nothing off-box can reach the endpoint at all
+      - trusted_network: true -- the operator states the claim explicitly, which is
+                                 what a container published to host loopback needs,
+                                 since the hub binds 0.0.0.0 inside it and cannot see
+                                 how the port was published
+    """
 
     @pytest.mark.parametrize("auth_type", ["none", "basic", "noauth", ""])
-    def test_refuses_to_start_without_jwt_auth(self, auth_type: str) -> None:
+    def test_exposed_and_unauthenticated_is_refused(self, auth_type: str) -> None:
         with pytest.raises(ValueError) as exc:
             Settings(
+                server={"http_host": "0.0.0.0"},
                 auth={"type": auth_type},
                 stdio={"enabled": True},
             )
-
         message = str(exc.value)
         assert "stdio.enabled" in message, "must name the setting that caused this"
-        assert "auth.type" in message, "must name the setting that fixes it"
+        assert "auth.type" in message and "trusted_network" in message, (
+            "must name every way out, not just one"
+        )
 
-    def test_permitted_with_jwt_auth(self) -> None:
-        settings = Settings(auth={"type": "jwt"}, stdio={"enabled": True})
+    def test_jwt_auth_permits_any_bind(self) -> None:
+        settings = Settings(
+            server={"http_host": "0.0.0.0"}, auth={"type": "jwt"}, stdio={"enabled": True}
+        )
         assert settings.stdio.enabled is True
 
-    def test_unauthenticated_hub_is_fine_while_stdio_is_off(self) -> None:
-        # The default local-first posture must be entirely unaffected.
-        settings = Settings(auth={"type": "none"}, stdio={"enabled": False})
+    @pytest.mark.parametrize("host", ["127.0.0.1", "::1", "localhost"])
+    def test_loopback_bind_permits_any_auth(self, host: str) -> None:
+        # Nothing off-box can reach it, so there is no one to escalate against.
+        settings = Settings(
+            server={"http_host": host}, auth={"type": "none"}, stdio={"enabled": True}
+        )
+        assert settings.stdio.enabled is True
+
+    def test_trusted_network_is_an_explicit_opt_out(self) -> None:
+        # The container case: 0.0.0.0 inside, published to host loopback outside.
+        settings = Settings(
+            server={"http_host": "0.0.0.0"},
+            auth={"type": "none"},
+            stdio={"enabled": True, "trusted_network": True},
+        )
+        assert settings.stdio.enabled is True
+
+    def test_trusted_network_defaults_to_false(self) -> None:
+        assert Settings.from_defaults().stdio.trusted_network is False
+
+    def test_unauthenticated_exposed_hub_is_fine_while_stdio_is_off(self) -> None:
+        settings = Settings(
+            server={"http_host": "0.0.0.0"}, auth={"type": "none"}, stdio={"enabled": False}
+        )
         assert settings.stdio.enabled is False
 
 

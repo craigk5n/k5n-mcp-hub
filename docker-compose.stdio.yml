@@ -1,0 +1,59 @@
+# A second hub instance, in a container, with stdio MCP servers enabled.
+#
+#   docker compose -f docker-compose.stdio.yml up --build
+#   open http://127.0.0.1:3001/ui/servers
+#
+# Why a container rather than a second process on the host: a stdio server is a
+# program the hub forks and execs. The command allowlist controls *which* program
+# runs; only a sandbox bounds what that program can then reach. Running it in a
+# container keeps a spawned server away from the host filesystem, the developer's
+# credentials, and the other services on the machine. It also keeps the toolchains
+# those servers need (node, uv) out of the host.
+#
+# See docs/adr/0007-stdio-servers-are-opt-in-and-service-identity-only.md.
+
+services:
+  hub-stdio:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: k5n-mcp-hub:stdio
+    container_name: k5n-mcp-hub-stdio
+
+    # 127.0.0.1 on the host side is load-bearing, not cosmetic. It is what makes
+    # `stdio.trusted_network: true` in config.stdio.example.yaml a true statement.
+    # Publishing this on 0.0.0.0 would put an exec endpoint on the LAN with no
+    # authentication in front of it; switch to auth.type: jwt before doing that.
+    ports:
+      - "127.0.0.1:3001:8080"
+
+    volumes:
+      - ./config.stdio.example.yaml:/app/config.yaml:ro
+      # The Story 9.1 echo server, read-only. It is the allowlisted `echo` entry.
+      - ./tests/fixtures:/app/fixtures:ro
+      # Registrations survive a restart without touching the repo-root
+      # mcp_servers.json that a local hub instance uses.
+      - hub-stdio-data:/data
+
+    environment:
+      # The image sets this too; repeated here so the bind is visible next to the
+      # published port it has to agree with.
+      MCPHUB_SERVER__HTTP_HOST: "0.0.0.0"
+
+    # The spawned MCP servers are children of the hub process. Without an init, a
+    # server that exits leaves a zombie, because PID 1 in a container does not reap
+    # by default — and this hub is designed to restart them (Story 9.4).
+    init: true
+
+    restart: unless-stopped
+
+    healthcheck:
+      test: ["CMD", "python3", "-c",
+             "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8080/healthz', timeout=3).status == 200 else 1)"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+volumes:
+  hub-stdio-data:

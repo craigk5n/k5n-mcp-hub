@@ -68,12 +68,29 @@ on-behalf-of.**
    With it false, `POST /v1/register` refuses a stdio registration outright, so
    an existing deployment cannot acquire an exec primitive by upgrading.
 
-2. **Refuse to enable it while registration is unauthenticated.** If
-   `stdio.enabled` is true and `auth.type` is not `jwt`, the hub **fails to
-   start**, naming both settings. The alternative — starting with a warning — puts
-   an RCE endpoint on the network of anyone who skims the release notes. This is
-   the one place the hub is deliberately less convenient than its local-first
-   posture elsewhere, and `--dev` does **not** relax it.
+2. **Refuse to enable it while untrusted callers could reach registration.** The
+   hub **fails to start** with `stdio.enabled` unless at least one of these holds:
+
+   | Condition | Why it closes the hole |
+   |---|---|
+   | `auth.type: jwt` | registration genuinely requires the admin scope |
+   | a loopback bind (`127.0.0.1`, `::1`, `localhost`) | nothing off-box can reach the endpoint at all |
+   | `stdio.trusted_network: true` | the operator states explicitly that untrusted callers cannot reach this hub |
+
+   Starting with a warning instead would put an RCE endpoint on the network of
+   anyone who skims a release note. `--dev` does **not** relax this.
+
+   The third condition exists because the hub cannot observe its own reachability.
+   In a container it binds `0.0.0.0` internally while the port may be published as
+   `-p 127.0.0.1:3001:8080`, which is loopback-only in practice and indistinguishable
+   from full exposure from inside. Rather than guess — container detection is both
+   unreliable and the wrong question — the operator makes the claim, under a name
+   that states what is being claimed.
+
+   *(Amended 2026-09-06. The original decision was `auth.type: jwt` only. That made
+   the feature untestable without an IdP, which surfaced immediately: the first
+   attempt to run a stdio instance locally was blocked by it. Requiring an IdP to
+   try a feature is not a security control, it is a reason to skip the feature.)*
 
 3. **Commands come from an operator allowlist, not from the request.** The
    registration body names an allowlist *entry*, not a command line.
@@ -106,8 +123,15 @@ on-behalf-of.**
   the admin UI with the same badges. The server card must show *service identity*
   plainly, so an operator reading a tool list never assumes per-user enforcement
   they are not getting.
-- Operators who want stdio must run the hub with real authentication. That is a
-  real adoption cost, and it is the point: the feature is only safe there.
+- Operators who want stdio must either run real authentication or keep the hub
+  off the network. That is a real adoption cost, and it is the point.
+- **A container is the recommended way to run stdio**, and is stronger than any of
+  the conditions above. Those control *who can trigger* an exec; a container bounds
+  *what the exec can reach* — the host filesystem, the operator's credentials, the
+  other services on the machine. It also keeps the toolchains stdio servers need
+  (node, uv) off the host. `docker-compose.stdio.yml` and
+  `config.stdio.example.yaml` are that setup. This does not make the allowlist
+  redundant: the container limits blast radius, the allowlist limits what runs.
 - The allowlist means "register any npm MCP server from the UI" is not a
   supported flow. Adding a server is a config change plus a restart. This is
   worse for demos and better for every other case; revisit only with a sandbox

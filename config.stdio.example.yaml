@@ -1,0 +1,73 @@
+# Config for the containerised stdio instance (docker-compose.stdio.yml).
+#
+# This is a SECOND hub, separate from a local one on 8080/3000: it exists to exercise
+# stdio MCP servers, which are programs the hub forks and execs rather than URLs it
+# connects to. Running that in a container is the point — the container bounds what a
+# spawned program can reach, which the command allowlist alone cannot do.
+#
+# Everything not set here keeps its built-in default.
+
+server:
+  # 0.0.0.0 inside the container, so a published port is reachable. The compose file
+  # publishes it as 127.0.0.1:3001, so nothing off-box can reach it — but the hub
+  # cannot see that, which is why stdio.trusted_network below is set explicitly.
+  http_host: 0.0.0.0
+  http_port: 8080
+
+storage:
+  # Persisted to a named volume, so registrations survive `docker compose restart`
+  # without touching the repo-root mcp_servers.json a local hub uses.
+  type: json
+  json:
+    path: /data/mcp_servers.json
+
+auth:
+  # No login. Acceptable ONLY because the port is published to host loopback; see the
+  # trusted_network note below. Do not copy this into anything reachable off-box.
+  type: none
+
+security:
+  # The hub reaches nothing over the network in this configuration — its servers are
+  # subprocesses — so leave the SSRF guard at its safe default.
+  allow_private_networks: false
+
+stdio:
+  enabled: true
+
+  # Required here: with auth.type: none and a 0.0.0.0 bind, the hub refuses to start
+  # unless one of jwt auth / a loopback bind / this flag holds. The container binds
+  # 0.0.0.0 internally and cannot know the port was published as 127.0.0.1:3001, so
+  # this is the operator stating what the hub cannot observe.
+  #
+  # If you change the compose file to publish this port on a routable address, this
+  # claim becomes false and you must switch to auth.type: jwt instead.
+  trusted_network: true
+
+  allowed_commands:
+    # The in-tree fixture from Story 9.1, mounted read-only by the compose file.
+    # A registration names "echo" — it cannot supply a command or any argument.
+    echo:
+      command: python3
+      args: ["/app/fixtures/echo_stdio_server.py"]
+
+    # Real-world servers look like this. Both need toolchains in the image, so they
+    # are commented out until the image ships them:
+    #
+    # everything:
+    #   command: npx
+    #   args: ["-y", "@modelcontextprotocol/server-everything"]
+    #
+    # git:
+    #   command: uvx
+    #   args: ["mcp-server-git", "--repository", "/repo"]
+    #   env: {GIT_TERMINAL_PROMPT: "0"}
+
+discovery:
+  # A subprocess is cheap to ask, unlike a remote HTTP server, so the default pace is
+  # fine here.
+  enabled: true
+  interval_seconds: 30
+
+healthcheck:
+  enabled: true
+  interval_seconds: 30
