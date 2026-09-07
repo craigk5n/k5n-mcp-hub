@@ -239,3 +239,37 @@ Note before adopting it: **ID-JAG is an active IETF draft**, and Keycloak cannot
 these assertions today (its support is receiver-side and experimental). See the Epic 8
 notes in [`TODO.md`](../TODO.md) and
 [ADR 0005](adr/0005-hub-is-the-mcp-client-in-ema.md).
+
+---
+
+## What on-behalf-of cannot cover: stdio servers
+
+If a backend is a **program** rather than a URL, per-user identity is not available
+for it, and it is worth knowing that before you plan around it.
+
+A subprocess has no per-request identity. On-behalf-of works because each proxied
+HTTP request carries the caller's token and the hub exchanges it per caller; a stdio
+server's credentials come from its environment when it starts and are fixed for the
+life of the process. One process therefore cannot act as two callers. The hub could
+run a process per user, but that trades a bounded number of subprocesses for an
+unbounded one and makes eviction a correctness problem, so it does not — see
+[ADR 0007](adr/0007-stdio-servers-are-opt-in-and-service-identity-only.md).
+
+What this means in practice:
+
+- `auth_type: obo` and `auth_type: ema` are **refused at registration** for a stdio
+  server, with a message saying why. That refusal is deliberate: silently accepting
+  would hand every caller whatever identity the process started with, which is the
+  privilege escalation on-behalf-of exists to prevent.
+- `required_scope` still applies. It controls who may *reach* the server, which is a
+  different question from what identity the server sees — and it is the tool to use
+  when a stdio server holds credentials not everyone should be able to spend.
+- The admin UI labels these servers **Service identity (shared)** so nobody reads a
+  tool list and assumes enforcement they are not getting.
+
+If you need per-user identity against a capability that only ships as a stdio server,
+the options are to run it behind something that speaks HTTP and validates tokens, or
+to give each user their own hub. Neither is free; both are honest.
+
+Enabling stdio at all is gated — see [stdio MCP servers](../README.md#stdio-mcp-servers)
+in the README.

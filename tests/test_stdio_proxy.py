@@ -120,3 +120,79 @@ class TestProxyToStdio:
         assert proxied, "a proxied stdio call must appear in the trace like any other"
         assert proxied[-1].outbound_url == "stdio:echo"
         assert proxied[-1].status == 200
+
+
+class TestRequiredScopeStillApplies:
+    """Service identity is about *what the server sees*; required_scope is about *who
+    may reach it*. Those are different questions, and a stdio server needs the second
+    one more than most: its credentials are shared, so reaching it means spending them.
+    """
+
+    def _jwt_settings(self) -> Settings:
+        return Settings(
+            server={"http_host": "127.0.0.1"},
+            auth={
+                "type": "jwt",
+                "jwt": {"issuer": "https://i", "audience": "a", "jwks_uri": "https://j"},
+            },
+            stdio={
+                "enabled": True,
+                "allowed_commands": {"echo": {"command": sys.executable, "args": [str(ECHO)]}},
+            },
+        )
+
+    def _app_as(self, scopes: set[str]) -> Any:
+        from unittest.mock import patch
+
+        from mcp_hub.auth.principal import Principal
+
+        class _Auth:
+            async def authenticate(self, request: Any) -> Principal:
+                return Principal(
+                    subject="u", issuer="https://i", scopes=frozenset(scopes), token="t"
+                )
+
+        with patch("mcp_hub.app.build_authenticator", return_value=_Auth()):
+            return create_app(self._jwt_settings())
+
+    def _register_with_scope(self, client: TestClient) -> None:
+        resp = client.post(
+            "/v1/register",
+            content=json.dumps(
+                {
+                    "id": "echo",
+                    "transport_kind": "stdio",
+                    "stdio_command_name": "echo",
+                    "registration_type": "manual",
+                    "required_scope": "echo:use",
+                }
+            ),
+        )
+        assert resp.status_code == 201, resp.text
+
+    def test_caller_without_the_scope_is_refused(self) -> None:
+        app = self._app_as({"mcp:admin"})  # admin, so it can register
+        with TestClient(app) as client:
+            self._register_with_scope(client)
+
+        app2 = self._app_as({"something:else"})
+        app2.state.registry = app.state.registry
+        with TestClient(app2) as client:
+            resp = _call(client, {"jsonrpc": "2.0", "id": 1, "method": "tools/list"})
+
+        assert resp.status_code == 403
+        assert "echo:use" in resp.text
+
+    def test_caller_with_the_scope_gets_through(self) -> None:
+        app = self._app_as({"mcp:admin"})
+        with TestClient(app) as client:
+            self._register_with_scope(client)
+
+        app2 = self._app_as({"echo:use"})
+        app2.state.registry = app.state.registry
+        app2.state.stdio_pool = app.state.stdio_pool
+        with TestClient(app2) as client:
+            resp = _call(client, {"jsonrpc": "2.0", "id": 2, "method": "tools/list"})
+
+        assert resp.status_code == 200, resp.text
+        assert resp.json()["result"]["tools"]

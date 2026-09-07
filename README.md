@@ -182,6 +182,73 @@ Register a server with the **Add Server** button on the home page (or `POST /v1/
 
 > **Register the exact endpoint URL, including its path.** The hub proxies the base `/mcp` route to the server URL verbatim — it does not add or strip a trailing slash. Register `https://api.x.com/mcp` (no trailing slash) for hosted servers that serve at exactly that path; register `.../mcp/` (with the slash) for SDK/Starlette-mounted servers that redirect `/mcp` to `/mcp/`, since the hub does not follow redirects. If a proxied call unexpectedly returns 404, check the trailing slash first.
 
+## stdio MCP servers
+
+Many published MCP servers ship as programs (`npx …`, `uvx …`) rather than URLs.
+The hub can run those too — but doing so changes what a registration *is*, so the
+feature is off by default and deliberately awkward to turn on.
+
+**Registering a stdio server means running a program.** Every other backend is a
+URL: the hub connects out, and a hostile registration is bounded by the SSRF-pinned
+transport. A command line is arbitrary code execution as the hub's user. Registration
+is only restricted to admins under `auth.type: jwt` (`none` and `basic` are
+single-user modes where everyone is an admin), so the hub **refuses to start** with
+`stdio.enabled: true` unless at least one of these holds:
+
+| Condition | Why it closes the hole |
+|---|---|
+| `auth.type: jwt` | registration genuinely requires the admin scope |
+| a loopback bind (`127.0.0.1`, `::1`) | nothing off-box can reach the endpoint |
+| `stdio.trusted_network: true` | you state explicitly that untrusted callers cannot reach this hub |
+
+**The command comes from your config, never from the request.** A registration names
+an *allowlist entry*; it cannot supply a binary or an argument, which puts argument
+injection out of reach by construction rather than by validation.
+
+```yaml
+stdio:
+  enabled: true
+  allowed_commands:
+    everything:
+      command: npx
+      args: ["-y", "@modelcontextprotocol/server-everything"]
+```
+
+```bash
+curl -X POST http://localhost:8080/v1/register \
+  -H 'Content-Type: application/json' \
+  -d '{"id":"everything","transport_kind":"stdio","stdio_command_name":"everything"}'
+```
+
+Once registered it behaves like any other server: tools are discovered, health is
+monitored, calls are proxied and traced, and `required_scope` controls who may reach
+it.
+
+> **stdio servers run under one shared service identity.** A subprocess has no
+> per-request identity — its credentials are fixed when it starts — so one process
+> cannot act as two callers. `auth_type: obo` and `ema` are refused for stdio
+> servers, and the admin UI labels them **Service identity (shared)**. This is the
+> one place the hub's headline per-user identity does not apply.
+
+### Running it in a container (recommended)
+
+The conditions above control *who can trigger* an exec. A container bounds *what the
+exec can reach* — the host filesystem, your credentials, the other services on the
+machine — and keeps the toolchains those servers need off your host. It is the
+stronger control, and `docker-compose.stdio.yml` is a working setup:
+
+```bash
+docker compose -f docker-compose.stdio.yml up --build
+# http://127.0.0.1:3001/ui/servers
+```
+
+It publishes to host loopback only, which is what makes its `trusted_network: true`
+a true statement — publishing on a routable address makes it false, and you should
+switch to `auth.type: jwt` before doing that.
+
+Design reasoning is in
+[ADR 0007](docs/adr/0007-stdio-servers-are-opt-in-and-service-identity-only.md).
+
 ## Fault Injection
 
 Fault injection lets you deliberately make a registered MCP server *misbehave* so you can test how your own MCP client or agent copes with slow, broken, and non-conforming servers — without having to build a broken server yourself. It's a small chaos-testing harness for the MCP layer: point your client at the hub, turn on a fault, and watch how the client handles a timeout, a corrupt response, or a stream that dies mid-flight. Real-world MCP servers do fail this way, and clients that assume the happy path can hang, crash, or silently misbehave; fault injection lets you find and fix that on demand.

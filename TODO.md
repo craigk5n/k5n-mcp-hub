@@ -905,7 +905,7 @@ API and UI as any other.
         on-disk shape as additive: existing records load unchanged.
   - [x] `auth_type: obo` and `auth_type: ema` are **rejected** for a stdio server,
         with a message explaining that one shared process cannot act as two users.
-  - [ ] `required_scope` still applies — it governs who may reach the server, which
+  - [x] `required_scope` still applies — it governs who may reach the server, which
         is orthogonal to what identity the server sees.
 
 **Story 9.4 — Process lifecycle**
@@ -951,9 +951,9 @@ HTTP server's.
 **Story 9.6 — Docs**
 
 - Acceptance criteria:
-  - [ ] README and the operator guide describe the opt-in, the allowlist, and the
+  - [x] README and the operator guide describe the opt-in, the allowlist, and the
         `auth.type: jwt` requirement, with the reasoning rather than just the steps.
-  - [ ] The service-identity limitation is stated where someone choosing between
+  - [x] The service-identity limitation is stated where someone choosing between
         OBO and stdio will actually read it.
 
 **Deliberately out of scope**
@@ -962,9 +962,11 @@ HTTP server's.
       could give stdio per-user identity, and it is rejected for now on cost. If
       wanted, it arrives as an explicit `stdio.isolation: per-caller` mode with a
       documented process ceiling — never as a silent default.
-- [ ] Sandboxing (container/seccomp) for spawned servers. Until that exists, the
-      allowlist is the security boundary, which is why "register any npm server
-      from the UI" is not a supported flow.
+- [ ] Finer sandboxing (seccomp, user namespaces, resource limits) beyond what a
+      container gives. `docker-compose.stdio.yml` covers the blast-radius case and is
+      the recommended way to run stdio; the allowlist remains the boundary on what
+      *runs*, which is why "register any npm server from the UI" is not a supported
+      flow.
 
 ## Product / usefulness follow-ups (from AUDIT_local.md §3)
 
