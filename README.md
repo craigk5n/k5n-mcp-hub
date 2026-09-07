@@ -182,6 +182,47 @@ Register a server with the **Add Server** button on the home page (or `POST /v1/
 
 > **Register the exact endpoint URL, including its path.** The hub proxies the base `/mcp` route to the server URL verbatim — it does not add or strip a trailing slash. Register `https://api.x.com/mcp` (no trailing slash) for hosted servers that serve at exactly that path; register `.../mcp/` (with the slash) for SDK/Starlette-mounted servers that redirect `/mcp` to `/mcp/`, since the hub does not follow redirects. If a proxied call unexpectedly returns 404, check the trailing slash first.
 
+## MCP registry
+
+Browse the public index at `registry.modelcontextprotocol.io` from the admin UI
+(**/ui/registry**), search it, and import a server with one action. Results show the
+description, every endpoint the record offers, and whether the server needs a
+credential — before you import, since that changes whether importing is the right
+move.
+
+An import *is* a registration: it goes through the same path a typed one does, so the
+imported URL gets the same SSRF validation, the same admin requirement, and the same
+"don't blank a credential I set afterwards" merge. Imported servers keep their
+provenance — which registry, which record, which version, when — shown on the server
+card, because a server described by someone else is a different thing from one you
+described yourself, and that description can change under you.
+
+Point `registry.base_url` at a private registry to use one instead.
+
+### The hub imports but never publishes
+
+There is no publish button, and that is a decision rather than a missing feature.
+
+Your hub's records describe *this deployment*: internal URLs, stored bearer tokens and
+passwords, and `required_scope` values that describe your access model. The public
+registry is a **public, append-only index**. A button that pushed hub entries into it
+would turn an operational click into an irreversible publication of internal topology.
+Publishing also requires proving you own the namespace (via DNS, GitHub or OIDC), so
+"export what I have" does not translate in the first place.
+
+Instead, export a server as the registry's own `server.json` and publish it yourself
+with the official CLI, once you have read it:
+
+```bash
+curl -s http://localhost:8080/v1/servers/<id>/server.json | jq
+```
+
+The response carries `server` (the document) and `warnings` (things to look at). No
+credential is ever written — a required one is *declared* without its value — and the
+export names any loopback, private-range or bare-hostname URL it emitted, since those
+are the entries most likely to be a mistake to publish. Reasoning in
+[ADR 0008](docs/adr/0008-registry-import-yes-publish-no.md).
+
 ## stdio MCP servers
 
 Many published MCP servers ship as programs (`npx …`, `uvx …`) rather than URLs.

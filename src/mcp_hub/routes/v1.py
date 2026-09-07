@@ -11,6 +11,8 @@ from mcp_hub.mcp.discovery import DiscoveryService
 from mcp_hub.mcp.oauth import discover_oauth_metadata, token_endpoint_from_metadata
 from mcp_hub.models import RegisteredServer
 from mcp_hub.auth.authorize import require_admin
+from mcp_hub.utils import sanitize_filename
+from mcp_hub.mcp.registry_export import export_warnings, to_server_json
 from mcp_hub.mcp.registry_import import stdio_suggestion, to_register_payload
 from mcp_hub.models.register_request import RegisterRequest
 from mcp_hub.registry.service import Registry
@@ -400,3 +402,44 @@ async def import_from_registry(
         return PlainTextResponse(str(e), status_code=400)
 
     return await register_from_data(request, registry, discovery_service, payload)
+
+
+@router.get("/servers/{server_id:path}/server.json", response_model=None)
+async def export_server_json(
+    request: Request,
+    server_id: str,
+    registry: Registry = Depends(get_registry),
+    _: None = Depends(auth_dependency),
+) -> JSONResponse | PlainTextResponse:
+    """A registry-shaped `server.json` for this server, to review and publish yourself.
+
+    The hub does not publish (ADR 0008): its records describe this deployment, the
+    public index is append-only, and publishing needs a namespace only the operator can
+    prove they own. So the deliverable is a file and a list of things to look at, with
+    the review step left where it belongs.
+
+    Admin-only. The document carries no credential, but it does describe what this hub
+    proxies, which is not something every authenticated caller should be able to
+    enumerate into a file.
+    """
+    require_admin(request)
+
+    srv = await registry.get(server_id)
+    if srv is None:
+        return PlainTextResponse("Server not found", status_code=404)
+
+    document = to_server_json(srv)
+    warnings = export_warnings(srv)
+
+    headers = {
+        "Content-Disposition": f'attachment; filename="{sanitize_filename(server_id)}.server.json"'
+    }
+    if warnings:
+        # Also returned in the body's sibling field below; the header is for anyone
+        # scripting this, who would otherwise have to parse the file to notice.
+        headers["X-Export-Warnings"] = str(len(warnings))
+
+    return JSONResponse(
+        content={"server": document, "warnings": warnings},
+        headers=headers,
+    )

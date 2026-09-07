@@ -1052,11 +1052,11 @@ own. "Export" means writing a reviewable `server.json`, not pushing one.
 **Story 10.5 — Export a reviewable `server.json`**
 
 - Acceptance criteria:
-  - [ ] Writes the registry's own schema for a selected server, to a file.
-  - [ ] **No secrets, ever** — the same redaction the API responses use.
-  - [ ] Names any loopback or private-range URL it wrote, since those are the entries
+  - [x] Writes the registry's own schema for a selected server, to a file.
+  - [x] **No secrets, ever** — the same redaction the API responses use.
+  - [x] Names any loopback or private-range URL it wrote, since those are the entries
         most likely to be a mistake to publish.
-  - [ ] Documented as "for you to review and publish with the official CLI", with the
+  - [x] Documented as "for you to review and publish with the official CLI", with the
         reason the hub does not publish directly.
 
 **Deliberately out of scope**
