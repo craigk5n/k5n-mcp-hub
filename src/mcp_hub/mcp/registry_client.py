@@ -153,6 +153,31 @@ class RegistryClient:
     def servers_url(self) -> str:
         return f"{self.base_url}{API_PREFIX}/servers"
 
+    async def _get_url(self, url: str) -> Any:
+        """GET an absolute URL, returning None on 404. Shares the transport rules of
+        `_get`; kept separate because the single-record endpoint takes no params."""
+        if self._http_client is not None:
+            response = await self._http_client.get(url)
+            if getattr(response, "status_code", 200) == 404:
+                return None
+            response.raise_for_status()
+            return response.json()
+
+        import httpx
+
+        from mcp_hub.utils import SafePinnedTransport
+
+        async with httpx.AsyncClient(
+            follow_redirects=False,
+            transport=SafePinnedTransport(allow_private_networks=self._allow_private_networks),
+            timeout=30.0,
+        ) as client:
+            response = await client.get(url)
+            if response.status_code == 404:
+                return None
+            response.raise_for_status()
+            return response.json()
+
     async def _get(self, params: dict[str, Any]) -> Any:
         if self._http_client is not None:
             response = await self._http_client.get(self.servers_url, params=params)
@@ -173,6 +198,17 @@ class RegistryClient:
             response = await client.get(self.servers_url, params=params)
             response.raise_for_status()
             return response.json()
+
+    async def get(self, name: str, version: str = "latest") -> RegistryRecord | None:
+        """One record by its registry name. `latest` is accepted as a version."""
+        from urllib.parse import quote
+
+        path = f"{self.base_url}{API_PREFIX}/servers/{quote(name, safe='')}/versions/{quote(version, safe='')}"
+        payload = await self._get_url(path)
+        if payload is None:
+            return None
+        # The single-record endpoint returns the record shape directly, not a page.
+        return _record_from(payload)
 
     async def search(
         self, query: str = "", *, limit: int = DEFAULT_PAGE_SIZE

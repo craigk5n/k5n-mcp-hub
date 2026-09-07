@@ -1,6 +1,7 @@
 import asyncio
 import json
 import logging
+from typing import Any
 
 from fastapi import APIRouter, Depends, Request
 from fastapi.responses import JSONResponse, PlainTextResponse
@@ -10,6 +11,7 @@ from mcp_hub.mcp.discovery import DiscoveryService
 from mcp_hub.mcp.oauth import discover_oauth_metadata, token_endpoint_from_metadata
 from mcp_hub.models import RegisteredServer
 from mcp_hub.auth.authorize import require_admin
+from mcp_hub.mcp.registry_import import stdio_suggestion, to_register_payload
 from mcp_hub.models.register_request import RegisterRequest
 from mcp_hub.registry.service import Registry
 from mcp_hub.utils import is_url_safe_for_discovery, utcnow
@@ -69,6 +71,23 @@ async def _register_server_impl(
     if not isinstance(data, dict):
         return PlainTextResponse("id and url required", status_code=400)
 
+    return await register_from_data(request, registry, discovery_service, data)
+
+
+async def register_from_data(
+    request: Request,
+    registry: Registry,
+    discovery_service: DiscoveryService,
+    data: dict[str, Any],
+) -> JSONResponse | PlainTextResponse:
+    """Register from an already-parsed body.
+
+    Split out so registry import shares this path rather than reimplementing it.
+    Everything that makes a registration safe lives below here -- SSRF validation of
+    the URL, the stdio allowlist check, credential merging on re-registration -- and a
+    second implementation would eventually drift from one of them. The caller is
+    responsible for `require_admin`, since it also decides what "the caller" means.
+    """
     try:
         validated = RegisterRequest.model_validate(data)
     except ValidationError as e:
@@ -313,3 +332,60 @@ async def list_servers(
 ) -> list[RegisteredServer]:
     servers = await registry.list()
     return [s.sanitize_for_api() for s in servers]
+
+
+@router.post("/registry/import", response_model=None)
+async def import_from_registry(
+    request: Request,
+    registry: Registry = Depends(get_registry),
+    discovery_service: DiscoveryService = Depends(get_discovery_service),
+    _: None = Depends(auth_dependency),
+) -> JSONResponse | PlainTextResponse:
+    """Register a server the operator picked out of the MCP registry.
+
+    Importing *is* registering, so this goes through `register_from_data` rather than
+    writing to storage: the imported URL gets the same `is_url_safe_for_discovery`
+    check a typed one does, and credentials already stored survive a re-import. A
+    registry record is attacker-influenceable input naming a URL the hub will then
+    probe on a timer, so a side door around those checks is exactly what this must not
+    be. The hub never publishes in the other direction -- see ADR 0008.
+    """
+    require_admin(request)
+
+    try:
+        body = json.loads(await request.body())
+    except json.JSONDecodeError:
+        return PlainTextResponse("invalid json", status_code=400)
+    if not isinstance(body, dict):
+        return PlainTextResponse("name required", status_code=400)
+
+    name = body.get("name")
+    if not isinstance(name, str) or not name.strip():
+        return PlainTextResponse("name required", status_code=400)
+
+    client = getattr(request.app.state, "registry_client", None)
+    if client is None:
+        return PlainTextResponse("registry client unavailable", status_code=503)
+
+    try:
+        record = await client.get(name.strip(), body.get("version") or "latest")
+    except Exception as e:
+        logger.warning("registry lookup failed for %s: %s", name, e)
+        return PlainTextResponse(f"registry lookup failed: {e}", status_code=502)
+
+    if record is None:
+        return PlainTextResponse(f"no registry record named {name!r}", status_code=404)
+
+    suggestion = stdio_suggestion(record)
+    if suggestion is not None:
+        # A package-based record names a program. ADR 0007 keeps commands in operator
+        # config, so the answer is instructions rather than a registration.
+        return PlainTextResponse(suggestion.instruction, status_code=400)
+
+    try:
+        remote_index = int(body.get("remote_index") or 0)
+        payload = to_register_payload(record, remote_index=remote_index)
+    except (ValueError, TypeError) as e:
+        return PlainTextResponse(str(e), status_code=400)
+
+    return await register_from_data(request, registry, discovery_service, payload)

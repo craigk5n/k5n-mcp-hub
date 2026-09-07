@@ -10,6 +10,7 @@ from pydantic import BaseModel, Field, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from mcp_hub.mcp.constants import MCP_DISCOVERY_INTERVAL_SECONDS
+from mcp_hub.mcp.registry_client import DEFAULT_REGISTRY_BASE_URL
 
 # Bind addresses that cannot be reached from another host.
 LOOPBACK_HOSTS = frozenset({"127.0.0.1", "::1", "localhost"})
@@ -269,6 +270,16 @@ class StdioConfig(BaseModel):
     trusted_network: bool = False
 
 
+class RegistryConfig(BaseModel):
+    """The MCP registry the import flow reads from.
+
+    Read-only: the hub never publishes (ADR 0008), so there is no credential here and
+    no auth to configure. Point `base_url` at a private registry to use one instead.
+    """
+
+    base_url: str = DEFAULT_REGISTRY_BASE_URL
+
+
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(
         env_prefix="MCPHUB_",
@@ -282,6 +293,7 @@ class Settings(BaseSettings):
     healthcheck: HealthCheckConfig = Field(default_factory=HealthCheckConfig)
     discovery: DiscoveryConfig = Field(default_factory=DiscoveryConfig)
     stdio: StdioConfig = Field(default_factory=StdioConfig)
+    registry: RegistryConfig = Field(default_factory=RegistryConfig)
     trace: TraceConfig = Field(default_factory=TraceConfig)
     security: SecurityConfig = Field(default_factory=SecurityConfig)
 
@@ -330,6 +342,7 @@ class Settings(BaseSettings):
             healthcheck=HealthCheckConfig(),
             discovery=DiscoveryConfig(),
             stdio=StdioConfig(),
+            registry=RegistryConfig(),
             trace=TraceConfig(),
             security=SecurityConfig(),
         )
@@ -427,6 +440,10 @@ def load_settings(path: str | None = None) -> Settings:
         _deep_merge(defaults.stdio.model_dump(), yaml_config.get("stdio", {})),
         nested_env_vars.get("stdio", {}),
     )
+    registry_dict = _deep_merge(
+        _deep_merge(defaults.registry.model_dump(), yaml_config.get("registry", {})),
+        nested_env_vars.get("registry", {}),
+    )
     trace_dict = _deep_merge(
         _deep_merge(defaults.trace.model_dump(), yaml_config.get("trace", {})),
         nested_env_vars.get("trace", {}),
@@ -443,6 +460,7 @@ def load_settings(path: str | None = None) -> Settings:
         healthcheck=HealthCheckConfig(**healthcheck_dict),
         discovery=DiscoveryConfig(**discovery_dict),
         stdio=StdioConfig(**stdio_dict),
+        registry=RegistryConfig(**registry_dict),
         trace=TraceConfig(**trace_dict),
         security=SecurityConfig(**security_dict),
     )

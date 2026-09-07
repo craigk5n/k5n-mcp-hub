@@ -1005,7 +1005,7 @@ own. "Export" means writing a reviewable `server.json`, not pushing one.
         2025-09-16, 2025-09-29 and 2025-12-11 today. Unknown fields are ignored, and a
         record that cannot be parsed is skipped with a warning rather than failing the
         whole page.
-  - [ ] The base URL is configurable (`registry.base_url`), so a private registry can
+  - [x] The base URL is configurable (`registry.base_url`), so a private registry can
         be used instead; off by default is not required — reading a public index is
         not a privileged act.
 
@@ -1028,12 +1028,12 @@ own. "Export" means writing a reviewable `server.json`, not pushing one.
 **Story 10.3 — Import through the existing registration path**
 
 - Acceptance criteria:
-  - [ ] Import calls the same registration logic as `POST /v1/register`, so
+  - [x] Import calls the same registration logic as `POST /v1/register`, so
         `is_url_safe_for_discovery` runs on the imported URL. A registry record is
         attacker-influenceable: a `remotes[]` URL pointing at `169.254.169.254` must
         be refused exactly as a typed one is.
-  - [ ] `require_admin` applies — importing is registering.
-  - [ ] Re-importing an existing id updates rather than duplicating, and never
+  - [x] `require_admin` applies — importing is registering.
+  - [x] Re-importing an existing id updates rather than duplicating, and never
         overwrites a stored credential with a blank.
 
 **Story 10.4 — Browse and import in the admin UI**

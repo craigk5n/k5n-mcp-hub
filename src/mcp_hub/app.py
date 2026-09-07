@@ -25,6 +25,7 @@ from mcp_hub.middleware import create_request_id_metrics_middleware
 from mcp_hub.trace.recorder import format_headers, sanitize_trace_headers
 from mcp_hub.health.checker import HealthChecker
 from mcp_hub.mcp.discovery import DiscoveryService
+from mcp_hub.mcp.registry_client import RegistryClient
 from mcp_hub.mcp.stdio_pool import StdioPool
 from mcp_hub.registry.service import Registry
 from mcp_hub.storage import InMemoryStorage, JSONFileStorage, StorageStrategy
@@ -332,6 +333,12 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     # unconditionally (it starts nothing until a stdio server is used) so routes
     # can read it off app.state the way they read every other subsystem.
     app.state.stdio_pool = stdio_pool
+    # Read-only client for the public MCP registry, for the import flow. The hub
+    # never publishes to it (ADR 0008), so there is no credential to hold here.
+    app.state.registry_client = RegistryClient(
+        base_url=settings.registry.base_url,
+        allow_private_networks=allow_private_networks,
+    )
     trace_recorder = TraceRecorder()
     app.state.trace_recorder = trace_recorder
     app.state.templates = _create_jinja2_environment()
