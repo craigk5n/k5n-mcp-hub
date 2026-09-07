@@ -71,10 +71,14 @@ async def parse_form_args(request: Request) -> tuple[str, dict[str, Any]]:
         if isinstance(v, str):
             form_dict.setdefault(k, []).append(v)
 
-    mode_list = form_dict.get("mode", ["direct"])
-    mode = mode_list[0] if mode_list else "direct"
+    # Empty when the form did not say. The capabilities page never sends a mode, so
+    # "absent" and "the caller asked for direct" have to stay distinguishable --
+    # otherwise a stdio server cannot refuse an explicit direct request without also
+    # refusing every ordinary download. `resolve_mode_for_server` picks the default.
+    mode_list = form_dict.get("mode", [])
+    mode = mode_list[0] if mode_list else ""
 
-    if mode not in VALID_MODES:
+    if mode and mode not in VALID_MODES:
         raise HTTPException(status_code=400, detail="Invalid mode. Must be 'direct' or 'hub'")
 
     try:
@@ -83,6 +87,31 @@ async def parse_form_args(request: Request) -> tuple[str, dict[str, Any]]:
         raise HTTPException(status_code=400, detail=str(e)) from e
 
     return mode, args
+
+
+def resolve_mode_for_server(srv: Any, mode: str) -> str:
+    """Force hub mode for a stdio server, and say so if direct was asked for.
+
+    Direct mode emits a script that talks straight to the backend, which needs a URL.
+    A stdio server has none -- its `url` is the synthetic `stdio:<name>` -- so a direct
+    script would be handed `BASE_URL = "stdio:echo"` and fail at the first request.
+    Since `mode` defaults to "direct" and the capabilities page never sends one, the
+    default has to be corrected here or every stdio download is broken.
+    """
+    if not getattr(srv, "is_stdio", False):
+        return mode or "direct"
+    if mode == "direct":
+        # An explicit ask gets an explanation rather than a silent substitution: the
+        # caller asked for something that cannot exist.
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "direct mode is not available for a stdio server: it is a program the "
+                "hub runs, not a URL a client can call. Use hub mode, which routes "
+                "through this hub."
+            ),
+        )
+    return "hub"
 
 
 def build_template_context(
@@ -197,6 +226,7 @@ async def download_tool_script(
     validate_ids(server_id, tool_name)
     srv = await get_server_or_404(request, server_id)
     mode, args = await parse_form_args(request)
+    mode = resolve_mode_for_server(srv, mode)
     context = build_template_context(srv, tool_name, args, mode, request, template_type="shell")
     rendered = await render_tool_script(request, "tool_script.sh.j2", context)
 
@@ -224,6 +254,7 @@ async def download_tool_script_python(
     validate_ids(server_id, tool_name)
     srv = await get_server_or_404(request, server_id)
     mode, args = await parse_form_args(request)
+    mode = resolve_mode_for_server(srv, mode)
     context = build_template_context(srv, tool_name, args, mode, request, template_type="python")
     rendered = await render_tool_script(request, "tool_script.py.j2", context)
 

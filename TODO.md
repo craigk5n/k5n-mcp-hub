@@ -942,10 +942,10 @@ HTTP server's.
   - [x] `proxy/handler.py` routes `X-MCP-Target-Server` to the stdio session.
         Tracing captures request and response bodies as it does for HTTP; the
         sanitizer applies.
-  - [ ] The admin UI shows the server with its transport, and states plainly that
+  - [x] The admin UI shows the server with its transport, and states plainly that
         it runs under a **service identity**, so nobody reads a tool list and
         assumes per-user enforcement they are not getting.
-  - [ ] `ui_downloads.py`: hub mode works; **direct mode is hidden**, since there
+  - [x] `ui_downloads.py`: hub mode works; **direct mode is hidden**, since there
         is no URL for a client to call.
 
 **Story 9.6 — Docs**

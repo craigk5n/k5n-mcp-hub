@@ -16,7 +16,10 @@
 {% else %}
 <span title="Uptime is measured from when the server last became healthy; it shows once the server is confirmed healthy." class="bg-slate-100 text-slate-700 border border-slate-200 px-2 py-1 rounded text-xs">Uptime: --</span>
 {% endif %}
-{% if server.mcp_transport == 'sse' %}
+{% if server.transport_kind == 'stdio' %}
+<span title="This server is a program the hub runs, not a URL it connects to. Requests are proxied over the process's stdin/stdout." class="bg-violet-100 text-violet-800 border border-violet-200 px-2 py-1 rounded text-xs">Transport: stdio</span>
+<span title="One process is shared by every caller and its credentials are fixed when it starts, so a stdio server cannot act as individual users. On-behalf-of is unavailable for it; required_scope still controls who may reach it. See ADR 0007." class="bg-amber-100 text-amber-900 border border-amber-200 px-2 py-1 rounded text-xs">Service identity (shared)</span>
+{% elif server.mcp_transport == 'sse' %}
 <span title="The server uses the MCP streamable-HTTP transport (responses may be Server-Sent Events)." class="bg-sky-100 text-sky-800 border border-sky-200 px-2 py-1 rounded text-xs">Transport: Streamable HTTP</span>
 {% elif server.mcp_transport == 'http' %}
 <span title="The server uses plain HTTP JSON responses (non-streaming)." class="bg-slate-100 text-slate-700 border border-slate-200 px-2 py-1 rounded text-xs">Transport: HTTP</span>
