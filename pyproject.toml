@@ -39,6 +39,26 @@ dependencies = [
     "aiohttp>=3.9.0",
 ]
 
+[project.optional-dependencies]
+# OpenTelemetry export (ADR 0009). Deliberately optional: the common case is one
+# developer with no collector running, and they should not pay for this dependency
+# tree. `otel.enabled` refuses to start without these installed rather than
+# degrading to a silent no-op.
+otel = [
+    "opentelemetry-sdk>=1.44,<2",
+    "opentelemetry-exporter-otlp-proto-http>=1.44,<2",
+]
+
+# Everything needed to run the whole suite, including packages for optional features.
+# CLAUDE.md has documented `pip install -e .[dev]` for a while; until now that extra
+# did not exist and pip merely warned, so the command silently installed less than it
+# claimed. The core test tooling stays in `dependencies` so CI's clean-install gate
+# still runs the suite from declared dependencies alone.
+dev = [
+    "opentelemetry-sdk>=1.44,<2",
+    "opentelemetry-exporter-otlp-proto-http>=1.44,<2",
+]
+
 [project.scripts]
 k5n-mcp-hub = "mcp_hub.__main__:main"
 

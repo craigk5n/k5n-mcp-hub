@@ -1067,10 +1067,90 @@ own. "Export" means writing a reviewable `server.json`, not pushing one.
       a hub that silently registers new servers is a hub that silently acquires new
       outbound dependencies.
 
+## OpenTelemetry
+
+### Epic 11 — OpenTelemetry traces and metrics
+
+`/metrics` exposes four unlabelled counters and `trace/recorder.py` shows bodies in
+the admin UI. Neither says *which* server is slow or where a proxied request spent its
+time, and neither leaves the process in a form anything else can consume.
+
+**See [ADR 0009](docs/adr/0009-opentelemetry-is-optional-and-redacted.md).** This
+feature sends data about every request to a third party, which no other feature does,
+so the decisions are mostly about what must *not* be exported.
+
+Note the naming: `trace.*` stays request/response capture. OpenTelemetry lives under
+`otel.*`, and the docs say "OpenTelemetry" wherever they might otherwise say "tracing".
+
+**Story 11.1 — Optional dependency and configuration**
+
+- TDD: `tests/test_otel_config.py` first.
+- Acceptance criteria:
+  - [x] `otel` install extra carrying `opentelemetry-sdk` and the OTLP HTTP exporter;
+        base install unchanged. The dev extra includes it so tests exercise the real
+        SDK rather than a stub.
+  - [x] `otel.enabled` (default false), `otel.endpoint`, `otel.service_name`,
+        `otel.headers`, `otel.include_subject` (default false), documented in
+        `config.yaml` and `config.production.example.yaml`.
+  - [x] Enabling it without the extra installed **fails at startup**, naming the
+        extra. A telemetry feature that silently does nothing is worse than one that
+        is off: the operator believes they have visibility they do not have.
+  - [x] With it disabled, nothing is imported and no exporter thread starts — the
+        default install must not pay for a feature it is not using.
+
+**Story 11.2 — A shim the rest of the code talks to**
+
+- Acceptance criteria:
+  - [ ] `observability/otel.py` exposes a tiny span API that is a no-op when disabled,
+        so call sites never branch on whether telemetry is on.
+  - [ ] The SDK is imported lazily and only when enabled, keeping the blast radius of
+        an SDK API change to this module.
+  - [ ] Attribute helpers refuse anything derived from a header, body or credential
+        field, and strip query strings from URLs — the rule `sanitize_trace_body`
+        already enforces for the UI, applied where it is harder to audit.
+
+**Story 11.3 — Spans on the paths that matter**
+
+- Acceptance criteria:
+  - [ ] Explicit spans on the proxy path, discovery, health checks and OBO/EMA token
+        exchange. Not blanket auto-instrumentation: those packages are pre-1.0
+        (`0.65b0` against a stable `1.44.0` SDK) and capture route and header detail
+        the hub has deliberate opinions about.
+  - [ ] Spans carry `mcp.server.id`, method, outcome and duration. The caller's
+        subject appears **only** when `otel.include_subject` is true, and then only
+        the `sub` claim.
+  - [ ] A failed span records the error type, never the error text — IdP error
+        descriptions echo the token that was rejected, which is why
+        `sanitize_trace_body` has a prose pattern for exactly that.
+  - [ ] stdio spans record the allowlist entry name, never the command line.
+
+**Story 11.4 — Metrics alongside `/metrics`**
+
+- Acceptance criteria:
+  - [ ] Request count, duration and error count exported as OTel metrics with a
+        `mcp.server.id` attribute — the labelling `/metrics` does not have.
+  - [ ] `/metrics` keeps emitting exactly what it emits today. It is a documented
+        contract, and an operator scraping it should not have to care this exists.
+
+**Story 11.5 — Correlation and docs**
+
+- Acceptance criteria:
+  - [ ] `X-Request-ID` is recorded on the span, so an entry in the admin UI's trace
+        view can be found in the collector and vice versa.
+  - [ ] README and operator docs cover the extra, the settings, and what
+        `include_subject` implies — that user identities leave for a system with its
+        own retention and access control, possibly one the operator does not run.
+
+**Deliberately out of scope**
+
+- [ ] Auto-instrumentation of FastAPI/httpx (see 11.3).
+- [ ] Shipping a collector or a dashboard. The hub emits OTLP; where it goes is the
+      operator's decision.
+
 ## Product / usefulness follow-ups (from AUDIT_local.md §3)
 
 - [ ] Interop with the official MCP registry API — scoped as **Epic 10** above (import only; see ADR 0008).
-- [ ] Emit OpenTelemetry traces/metrics alongside `/metrics`.
+- [ ] Emit OpenTelemetry traces/metrics alongside `/metrics` — scoped as **Epic 11** above.
 - [ ] Support stdio MCP servers (currently HTTP-only) — scoped as **Epic 9** above.
 - [x] Positioning decided (2026-09-05): **on-behalf-of is the headline
       differentiator**, and the README leads with it. Fault injection stays a

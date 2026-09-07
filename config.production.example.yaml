@@ -131,3 +131,34 @@ trace:
   # request arguments. Keep the limit modest on a shared deployment.
   body_limit: 4000
   capture_sse: false
+
+otel:
+  # OpenTelemetry export. OFF BY DEFAULT and an optional install.
+  #
+  # Distinct from `trace:` above, which captures request/response bodies for the admin
+  # UI and never leaves this process. This section sends data about every request to a
+  # collector -- a third party with its own retention and access control. See
+  # docs/adr/0009-opentelemetry-is-optional-and-redacted.md.
+  #
+  # Requires: pip install 'k5n-mcp-hub[otel]'. Enabling it without those packages is a
+  # startup error rather than a silent no-op, because telemetry that quietly exports
+  # nothing looks exactly like telemetry that works.
+  enabled: false
+
+  # endpoint: Base URL of an OTLP/HTTP collector, e.g. http://localhost:4318.
+  # Required when enabled.
+  endpoint: ""
+
+  # service_name: How this hub identifies itself in your collector.
+  service_name: "k5n-mcp-hub"
+
+  # headers: Sent to the collector, for one that needs a credential.
+  headers: {}
+
+  # include_subject: Whether the calling user's `sub` claim is attached to spans.
+  #
+  # OFF BY DEFAULT, and think before turning it on: it puts user identities into a
+  # second system, possibly one you do not operate. Spans always carry the server id
+  # and outcome; this only adds who made the call. Never exported either way: tokens,
+  # headers, bodies, and URL query strings.
+  include_subject: false

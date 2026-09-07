@@ -17,6 +17,7 @@ Format: `NNNN-short-title.md`, with `Status`, `Context`, `Decision`,
 | [0006](0006-ema-subject-assertion-source.md) | Where the EMA subject assertion comes from | Accepted |
 | [0007](0007-stdio-servers-are-opt-in-and-service-identity-only.md) | stdio servers are opt-in, allowlisted, and service-identity only | Accepted |
 | [0008](0008-registry-import-yes-publish-no.md) | The hub imports from the MCP registry but never publishes to it | Accepted |
+| [0009](0009-opentelemetry-is-optional-and-redacted.md) | OpenTelemetry is optional, off by default, and redacted | Proposed |
 
 ADRs 0001–0004 together specify on-behalf-of (OBO) token exchange, tracked as
 Epics 5–7 in [`TODO.md`](../../TODO.md). ADRs 0005–0006 cover Enterprise-Managed

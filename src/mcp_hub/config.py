@@ -280,6 +280,47 @@ class RegistryConfig(BaseModel):
     base_url: str = DEFAULT_REGISTRY_BASE_URL
 
 
+class OtelConfig(BaseModel):
+    """OpenTelemetry export. Off by default -- see ADR 0009.
+
+    Distinct from `trace.*`, which is request/response capture for the admin UI. This
+    one sends data about every request to a third party, which is why it is opt-in and
+    why `include_subject` is separate.
+    """
+
+    enabled: bool = False
+    endpoint: str = ""
+    service_name: str = "k5n-mcp-hub"
+    headers: dict[str, str] = Field(default_factory=dict)
+    # Whether the caller's `sub` claim is exported. Off by default: a user identity in
+    # a collector is a second system holding it, with its own retention and access
+    # control, possibly one this operator does not run.
+    include_subject: bool = False
+
+    @field_validator("endpoint")
+    @classmethod
+    def validate_endpoint(cls, v: str) -> str:
+        value = v.strip().rstrip("/")
+        if not value:
+            return ""
+        parsed = urlparse(value)
+        if parsed.scheme not in ("http", "https") or not parsed.netloc:
+            raise ValueError(
+                "otel.endpoint must be an absolute http(s) URL to an OTLP collector "
+                f"(e.g. http://localhost:4318), got {v!r}"
+            )
+        return value
+
+    @model_validator(mode="after")
+    def validate_endpoint_present_when_enabled(self) -> "OtelConfig":
+        if self.enabled and not self.endpoint:
+            raise ValueError(
+                "otel.enabled is true but otel.endpoint is not set. Exporting nowhere "
+                "looks like working telemetry and is not."
+            )
+        return self
+
+
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(
         env_prefix="MCPHUB_",
@@ -294,6 +335,7 @@ class Settings(BaseSettings):
     discovery: DiscoveryConfig = Field(default_factory=DiscoveryConfig)
     stdio: StdioConfig = Field(default_factory=StdioConfig)
     registry: RegistryConfig = Field(default_factory=RegistryConfig)
+    otel: OtelConfig = Field(default_factory=OtelConfig)
     trace: TraceConfig = Field(default_factory=TraceConfig)
     security: SecurityConfig = Field(default_factory=SecurityConfig)
 
@@ -343,6 +385,7 @@ class Settings(BaseSettings):
             discovery=DiscoveryConfig(),
             stdio=StdioConfig(),
             registry=RegistryConfig(),
+            otel=OtelConfig(),
             trace=TraceConfig(),
             security=SecurityConfig(),
         )
@@ -444,6 +487,10 @@ def load_settings(path: str | None = None) -> Settings:
         _deep_merge(defaults.registry.model_dump(), yaml_config.get("registry", {})),
         nested_env_vars.get("registry", {}),
     )
+    otel_dict = _deep_merge(
+        _deep_merge(defaults.otel.model_dump(), yaml_config.get("otel", {})),
+        nested_env_vars.get("otel", {}),
+    )
     trace_dict = _deep_merge(
         _deep_merge(defaults.trace.model_dump(), yaml_config.get("trace", {})),
         nested_env_vars.get("trace", {}),
@@ -461,6 +508,7 @@ def load_settings(path: str | None = None) -> Settings:
         discovery=DiscoveryConfig(**discovery_dict),
         stdio=StdioConfig(**stdio_dict),
         registry=RegistryConfig(**registry_dict),
+        otel=OtelConfig(**otel_dict),
         trace=TraceConfig(**trace_dict),
         security=SecurityConfig(**security_dict),
     )
