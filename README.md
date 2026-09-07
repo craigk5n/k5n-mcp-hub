@@ -242,6 +242,10 @@ docker compose -f docker-compose.stdio.yml up --build
 # http://127.0.0.1:3001/ui/servers
 ```
 
+Its config also sets `server.public_base_url: "http://127.0.0.1:3001"`, so the tool
+scripts it generates point at the published port rather than the container-internal
+`:8080` — set that on any hub behind a port mapping or a reverse proxy.
+
 It publishes to host loopback only, which is what makes its `trusted_network: true`
 a true statement — publishing on a routable address makes it false, and you should
 switch to `auth.type: jwt` before doing that.

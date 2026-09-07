@@ -15,6 +15,19 @@ server:
   http_host: "0.0.0.0"
   http_port: 8080
 
+  # public_base_url: Where clients actually reach this hub, if that differs from the
+  # address above. Leave empty for a plain local install.
+  #
+  # The hub cannot work this out for itself. In a container it binds 0.0.0.0:8080
+  # while the port may be published as `-p 127.0.0.1:3001:8080`; behind a reverse
+  # proxy it may be https://hub.example.com with no port at all. Anything the hub
+  # generates for someone else to run -- today, the downloadable tool scripts -- uses
+  # this when set, so those scripts point somewhere the user can actually reach.
+  #
+  #   public_base_url: "https://hub.example.com"
+  #   public_base_url: "http://127.0.0.1:3001"
+  public_base_url: ""
+
 storage:
   # The registry holds bearer tokens and client secrets. Put it on a volume that is
   # backed up and access-controlled like any other credential store.

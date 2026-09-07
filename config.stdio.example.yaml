@@ -14,6 +14,21 @@ server:
   http_host: 0.0.0.0
   http_port: 8080
 
+  # public_base_url: Where clients actually reach this hub, if that differs from the
+  # address above. Leave empty for a plain local install.
+  #
+  # The hub cannot work this out for itself. In a container it binds 0.0.0.0:8080
+  # while the port may be published as `-p 127.0.0.1:3001:8080`; behind a reverse
+  # proxy it may be https://hub.example.com with no port at all. Anything the hub
+  # generates for someone else to run -- today, the downloadable tool scripts -- uses
+  # this when set, so those scripts point somewhere the user can actually reach.
+  #
+  # Set here because this is exactly that case: docker-compose.stdio.yml publishes
+  # this container's 8080 as 127.0.0.1:3001 on the host, so a script built from the
+  # bind address would tell the user to POST to :8080, which only exists inside the
+  # container. Change it alongside the published port in the compose file.
+  public_base_url: "http://127.0.0.1:3001"
+
 storage:
   # Persisted to a named volume, so registrations survive `docker compose restart`
   # without touching the repo-root mcp_servers.json a local hub uses.

@@ -155,16 +155,23 @@ def build_template_context(
         base_url = srv.url
     else:
         settings = request.app.state.settings
-        http_port = settings.server.http_port
-        http_host = settings.server.http_host
-        scheme = "https" if getattr(settings.server, "https", False) else "http"
-
-        if http_host == "0.0.0.0":
-            canonical_host = f"localhost:{http_port}"
+        public_base_url = getattr(settings.server, "public_base_url", "")
+        if public_base_url:
+            # The operator told us where clients reach the hub. Prefer it over the bind
+            # address, which behind a published container port or a reverse proxy names
+            # an endpoint that only exists on the hub's own side.
+            base_url = f"{public_base_url}/mcp"
         else:
-            canonical_host = f"{http_host}:{http_port}"
+            http_port = settings.server.http_port
+            http_host = settings.server.http_host
+            scheme = "https" if getattr(settings.server, "https", False) else "http"
 
-        base_url = f"{scheme}://{canonical_host}/mcp"
+            if http_host == "0.0.0.0":
+                canonical_host = f"localhost:{http_port}"
+            else:
+                canonical_host = f"{http_host}:{http_port}"
+
+            base_url = f"{scheme}://{canonical_host}/mcp"
 
     is_hub = mode == "hub"
     target_server_id = srv.id

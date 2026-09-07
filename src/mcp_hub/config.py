@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 from pathlib import Path
+from urllib.parse import urlparse
 from typing import Any, Literal
 
 import yaml
@@ -36,6 +37,30 @@ class ServerConfig(BaseModel):
     http_host: str = "127.0.0.1"
     http_port: int = 8080
     admin_ui: bool = True
+    # Where clients actually reach this hub, when that differs from where it binds.
+    # The hub cannot work this out for itself: in a container it binds 0.0.0.0:8080
+    # while the port may be published as `-p 127.0.0.1:3001:8080`, and behind a
+    # reverse proxy it may be https://hub.example.com with no port at all. Anything
+    # the hub generates for someone else to call -- today, the tool download scripts
+    # -- has to use this when it is set. Empty means "derive it from the bind
+    # address", which is right for a plain local install.
+    public_base_url: str = ""
+
+    @field_validator("public_base_url")
+    @classmethod
+    def validate_public_base_url(cls, v: str) -> str:
+        """An absolute http(s) URL, or empty. Trailing slash trimmed so callers can
+        append a path without doubling it."""
+        value = v.strip().rstrip("/")
+        if not value:
+            return ""
+        parsed = urlparse(value)
+        if parsed.scheme not in ("http", "https") or not parsed.netloc:
+            raise ValueError(
+                "server.public_base_url must be an absolute http(s) URL "
+                f"(e.g. https://hub.example.com), got {v!r}"
+            )
+        return value
 
 
 class RedisConfig(BaseModel):
