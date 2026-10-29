@@ -1358,6 +1358,27 @@ wrap.
         once rather than after walking the budget.
   - [x] `openapi-spec-validator>=0.9,<0.10` is added to `dependencies` (and
         `jsonschema-path` is not imported directly), and `pip-audit` is clean.
+  - [x] **Security review follow-up.** All findings were reproduced before fixing:
+        - Untrusted loads now run in a spawned child (`openapi/isolation.py`) with
+          `openapi.validate_timeout_seconds` and `openapi.validate_memory_mb`. It
+          covers validator ReDoS through `default`/`pattern` (which holds the GIL),
+          slow validation of large specs, and the C YAML parser's segfault on deep
+          flow nesting.
+        - The in-process loader is renamed `load_spec_unsandboxed` so it isn't used
+          on untrusted input by mistake.
+        - YAML merge keys are flattened per node with memoization, so a merge bomb
+          is linear.
+        - Composition fan-out is capped (`MAX_COMPOSITION_EXPANSION`).
+        - Fetches ask for `identity` and refuse any `Content-Encoding`, so a
+          decompression bomb never decodes.
+        - Integers over 4300 digits are a `SpecError`.
+        - YAML numbers follow the 1.2 core decimal forms (`012` is 12, and `0x1F`
+          and `1:30` stay strings).
+        - Bounds tests go through the child with short timeouts, so a missing
+          protection fails an assertion instead of hanging the run.
+        - Not changed: fetch errors keep their transport detail. Admins can
+          already probe any URL by registering it as a backend, and the detail is
+          what makes a failed import diagnosable.
 
 **Story 13.2 — Swagger 2.0 normalizer**
 
@@ -1418,6 +1439,12 @@ wrap.
 
 - TDD: `tests/test_openapi_registration.py` first.
 - Acceptance criteria:
+  - [ ] Specs are loaded **only** through `openapi.isolation.load_spec` /
+        `load_spec_from_url`, never `load_spec_unsandboxed` (a test asserts the
+        import path goes through the child).
+  - [ ] Import runs as a **background job** with a pollable status, not inside one
+        HTTP request. Validation takes about 19 s per MB, so a spec near the size
+        cap takes minutes, longer than proxies and browsers wait.
   - [ ] `transport_kind: "openapi"` and `mcp_transport` get the new value, and the
         synthetic `url` is `openapi:<server id>` (ADR 0011 §1). Stored records
         without these fields load unchanged.
@@ -1452,6 +1479,13 @@ wrap.
 - Acceptance criteria:
   - [ ] Path parameters are percent-encoded per segment. Tests: `../admin`,
         `a/b`, `%2e%2e`, and an empty string for a required parameter.
+  - [ ] **Argument validation is safe from catastrophic regex backtracking.** A
+        spec's `pattern` is attacker-chosen and the arguments come from a model,
+        so `jsonschema` with Python's backtracking `re` can hang a live tool call
+        while holding the GIL (the Story 13.1 review hit exactly this in the
+        validator). Use a linear-time engine (e.g. `google-re2`, vetted first) or
+        skip `pattern` and leave it to the upstream API, and test with
+        `^(a+)+$`.
   - [ ] Query serialization covers `form` style with `explode` true and false, for
         primitives and arrays. Other styles mark the operation unsupported.
   - [ ] Bodies are JSON or form-urlencoded. `Content-Type` is set by the hub, never
@@ -1513,7 +1547,8 @@ wrap.
 **Story 13.8 — Admin UI**
 
 - Acceptance criteria:
-  - [ ] Import from a URL or by upload/paste. Validation errors are shown with their
+  - [ ] Import from a URL or by upload/paste. It shows progress while the
+        background job from 13.4 runs, and validation errors are shown with their
         JSON pointer.
   - [ ] The base URL form is pre-filled from `servers[]` (with server variables)
         and has to be confirmed.

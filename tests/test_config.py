@@ -201,6 +201,8 @@ class TestOpenAPIConfig:
         config = Settings.from_defaults().openapi
         assert config.max_spec_bytes == 5 * 1024 * 1024
         assert config.fetch_timeout_seconds == 30
+        assert config.validate_timeout_seconds == 120
+        assert config.validate_memory_mb == 1024
 
     def test_env_override(self, monkeypatch: pytest.MonkeyPatch, tmp_path: pathlib.Path):
         monkeypatch.chdir(tmp_path)
@@ -220,9 +222,16 @@ class TestOpenAPIConfig:
 
     @pytest.mark.parametrize("bad", [0, -1, "0", "abc", None])
     def test_non_positive_and_garbage_fall_back_to_defaults(self, bad):
-        config = OpenAPIConfig(max_spec_bytes=bad, fetch_timeout_seconds=bad)
+        config = OpenAPIConfig(
+            max_spec_bytes=bad,
+            fetch_timeout_seconds=bad,
+            validate_timeout_seconds=bad,
+            validate_memory_mb=bad,
+        )
         assert config.max_spec_bytes == 5 * 1024 * 1024
         assert config.fetch_timeout_seconds == 30
+        assert config.validate_timeout_seconds == 120
+        assert config.validate_memory_mb == 1024
 
 
 class TestShippedDefaultConfig:
@@ -261,6 +270,8 @@ class TestShippedDefaultConfig:
         assert result.trace.capture_sse == defaults.trace.capture_sse
         assert result.openapi.max_spec_bytes == defaults.openapi.max_spec_bytes
         assert result.openapi.fetch_timeout_seconds == defaults.openapi.fetch_timeout_seconds
+        assert result.openapi.validate_timeout_seconds == defaults.openapi.validate_timeout_seconds
+        assert result.openapi.validate_memory_mb == defaults.openapi.validate_memory_mb
 
 
 class TestExposedWithoutAuthIsWarned:

@@ -4,9 +4,10 @@ The order matters: parse with bounds, identify the dialect, prove every ref is l
 (`refs.check_refs`), and only then hand the document to `openapi-spec-validator`,
 which would otherwise follow external refs itself.
 
-`load_spec` is synchronous and CPU-bound -- a large spec takes a noticeable time to
-validate -- so async callers use `load_spec_from_url`, or `asyncio.to_thread` for an
-upload, rather than calling it on the event loop.
+**Do not call `load_spec_unsandboxed` on untrusted input.** It runs in the calling
+process, and a hostile spec can hang the validator (holding the GIL) or crash the C
+YAML parser. Callers use `isolation.load_spec` / `isolation.load_spec_from_url`,
+which run it in a killable child; it is public for that child and for tests.
 """
 
 from __future__ import annotations
@@ -56,7 +57,7 @@ class LoadedSpec:
     sha256: str
 
 
-def load_spec(data: bytes, *, max_bytes: int) -> LoadedSpec:
+def load_spec_unsandboxed(data: bytes, *, max_bytes: int) -> LoadedSpec:
     """Parse, check and validate a spec, or raise `SpecError` saying why not."""
     if len(data) > max_bytes:
         raise _too_large(max_bytes)
@@ -146,6 +147,10 @@ async def fetch_spec_bytes(
     except (TimeoutError, httpx.TimeoutException) as exc:
         raise SpecError(f"Fetching the spec timed out after {timeout_seconds}s") from exc
     except httpx.HTTPError as exc:
+        # Transport detail is kept deliberately (review finding 9 weighed it as a
+        # host/port oracle). Only admins import specs, and they can already register
+        # any URL as a backend and read its health; the detail is what makes a failed
+        # import diagnosable.
         raise SpecError(f"Could not fetch the spec: {exc}") from exc
     finally:
         if http_client is None:
@@ -155,7 +160,8 @@ async def fetch_spec_bytes(
 async def _read_capped(
     client: httpx.AsyncClient, url: str, *, max_bytes: int, timeout: float
 ) -> bytes:
-    async with client.stream("GET", url, headers={"Accept": _ACCEPT}, timeout=timeout) as response:
+    headers = {"Accept": _ACCEPT, "Accept-Encoding": "identity"}
+    async with client.stream("GET", url, headers=headers, timeout=timeout) as response:
         if 300 <= response.status_code < 400:
             location = response.headers.get("location", "")
             raise SpecError(
@@ -164,30 +170,22 @@ async def _read_capped(
             )
         if not response.is_success:
             raise SpecError(f"Fetching the spec returned HTTP {response.status_code}")
+        # Decoding happens before any size check could see the result, so 5 KB of
+        # stacked gzip can become hundreds of megabytes in one chunk. Compression was
+        # not asked for, so it is refused rather than decoded (review finding 6).
+        encoding = response.headers.get("content-encoding", "").strip().lower()
+        if encoding not in ("", "identity"):
+            raise SpecError(
+                f"The spec server sent a compressed response (Content-Encoding: {encoding}) "
+                "although none was requested. Compressed specs are refused so the size "
+                "limit holds"
+            )
         declared = response.headers.get("content-length", "")
         if declared.isdigit() and int(declared) > max_bytes:
             raise _too_large(max_bytes)
         body = bytearray()
-        async for chunk in response.aiter_bytes():
+        async for chunk in response.aiter_raw():
             body.extend(chunk)
             if len(body) > max_bytes:
                 raise _too_large(max_bytes)
         return bytes(body)
-
-
-async def load_spec_from_url(
-    url: str,
-    *,
-    max_bytes: int,
-    timeout_seconds: float,
-    allow_private_networks: bool,
-    http_client: httpx.AsyncClient | None = None,
-) -> LoadedSpec:
-    data = await fetch_spec_bytes(
-        url,
-        max_bytes=max_bytes,
-        timeout_seconds=timeout_seconds,
-        allow_private_networks=allow_private_networks,
-        http_client=http_client,
-    )
-    return await asyncio.to_thread(load_spec, data, max_bytes=max_bytes)

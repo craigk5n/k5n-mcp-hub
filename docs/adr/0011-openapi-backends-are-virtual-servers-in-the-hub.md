@@ -190,6 +190,19 @@ stories must name this path explicitly so the check covers both kinds of backend
 - The pre-check also refuses dangling refs and ref cycles that consume no structure
   (`$ref`, `allOf`, `anyOf`, `oneOf`, `not`). The validator crashes on those with a
   `RecursionError`.
+- **Every untrusted load runs in a killable child process** (`openapi.isolation`).
+  It has a wall-clock timeout (`openapi.validate_timeout_seconds`, default 120)
+  and a memory limit (`openapi.validate_memory_mb`, default 1024). A security
+  review of Story 13.1 found three ways to break an in-process load:
+  - The validator checks `default` against `pattern` with Python's backtracking
+    `re`, which can be made to run indefinitely while holding the GIL, so a thread
+    would stall the hub as well.
+  - The validator is slow on legal specs: about 19 s per MB, linear.
+  - The C YAML parser segfaults on very deep flow nesting.
+
+  A crash, timeout or out-of-memory in the child becomes a `SpecError`. Specific
+  limits remain in front of it so the common attacks get a clear message rather
+  than a timeout: composition fan-out, expanded size, merge-key expansion, depth.
 - A focused in-repo normalizer converts Swagger 2.0 to the 3.x model. It covers only
   what mapping needs: `body` and `formData` parameters, `consumes`/`produces`,
   `definitions`, `host`/`basePath`/`schemes`.

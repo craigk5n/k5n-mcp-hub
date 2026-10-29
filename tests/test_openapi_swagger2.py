@@ -16,7 +16,7 @@ from typing import Any
 
 import pytest
 
-from mcp_hub.openapi.loader import load_spec
+from mcp_hub.openapi.loader import load_spec_unsandboxed
 from mcp_hub.openapi.swagger2 import UNSUPPORTED, swagger2_to_openapi3
 
 FIXTURES = pathlib.Path(__file__).parent / "fixtures" / "openapi"
@@ -50,7 +50,7 @@ def _param(**fields: Any) -> dict[str, Any]:
 
 def _reload(converted: dict[str, Any]) -> Any:
     """The converted document through the real loader: valid 3.0, refs intact."""
-    return load_spec(json.dumps(converted).encode(), max_bytes=MAX)
+    return load_spec_unsandboxed(json.dumps(converted).encode(), max_bytes=MAX)
 
 
 # --------------------------------------------------------------------------- whole documents
@@ -65,7 +65,7 @@ class TestKitchenSink:
     @pytest.mark.parametrize("name", ["swagger2-kitchen-sink.json", "petstore-swagger2.json"])
     def test_source_loads_and_output_is_valid_openapi_30(self, name):
         raw = (FIXTURES / name).read_bytes()
-        loaded = load_spec(raw, max_bytes=MAX)
+        loaded = load_spec_unsandboxed(raw, max_bytes=MAX)
         assert loaded.dialect == "2.0"
         reloaded = _reload(swagger2_to_openapi3(loaded.document))
         assert reloaded.dialect == "3.0"

@@ -24,7 +24,7 @@ from typing import Any
 
 import yaml
 from yaml.constructor import ConstructorError
-from yaml.nodes import MappingNode, ScalarNode
+from yaml.nodes import MappingNode, ScalarNode, SequenceNode
 
 from mcp_hub.openapi.errors import SpecError
 from mcp_hub.openapi.refs import encode_pointer
@@ -40,42 +40,110 @@ MAX_DEPTH = 128
 
 _UTF8_BOM = b"\xef\xbb\xbf"
 _BOOL_TAG = "tag:yaml.org,2002:bool"
+_INT_TAG = "tag:yaml.org,2002:int"
+_FLOAT_TAG = "tag:yaml.org,2002:float"
 _TIMESTAMP_TAG = "tag:yaml.org,2002:timestamp"
 _MERGE_TAG = "tag:yaml.org,2002:merge"
+# Implicit resolvers replaced with YAML 1.2 core forms below. YAML 1.1's extra forms
+# silently change values: `012` is octal 10, `1:30` is 90 (base 60), `1_000` is 1000.
+_REPLACED_TAGS = (_BOOL_TAG, _INT_TAG, _FLOAT_TAG, _TIMESTAMP_TAG)
 
 _BaseLoader: Any = getattr(yaml, "CSafeLoader", yaml.SafeLoader)
 
 
 class _SpecLoader(_BaseLoader):  # type: ignore[misc]
-    """`yaml.safe_load` with the spec-specific rules in the module docstring."""
+    """`yaml.safe_load` with the spec-specific rules in the module docstring.
+
+    Merge keys (`<<`) are flattened here, per node and memoized, rather than by
+    PyYAML's `flatten_mapping`. That one re-expands every merged mapping each time it
+    is used, so a few hundred bytes of mappings merging five aliases of the level
+    below took minutes. Here each mapping node is flattened once, and the keys it
+    ends up with are counted against `MAX_NODES` (security review finding 2).
+    """
 
     yaml_implicit_resolvers = {
-        first: [(tag, rx) for tag, rx in resolvers if tag not in (_BOOL_TAG, _TIMESTAMP_TAG)]
+        first: [(tag, rx) for tag, rx in resolvers if tag not in _REPLACED_TAGS]
         for first, resolvers in _BaseLoader.yaml_implicit_resolvers.items()
     }
+
+    def __init__(self, stream: Any) -> None:
+        super().__init__(stream)
+        self._flattened: dict[int, dict[str, tuple[Any, Any]]] = {}
+        self._flattening: set[int] = set()
+        self._flattened_keys = 0
 
     def construct_mapping(self, node: Any, deep: bool = False) -> dict[str, Any]:
         if not isinstance(node, MappingNode):
             raise ConstructorError(None, None, "expected a mapping", node.start_mark)
-        seen: set[str] = set()
-        for key_node, _ in node.value:
-            if key_node.tag == _MERGE_TAG:
-                continue  # `<<: *base` keys are overridden by design, not duplicated
-            key = _scalar_key(key_node)
-            if key in seen:
-                raise ConstructorError(None, None, f"duplicate key {key!r}", key_node.start_mark)
-            seen.add(key)
-        self.flatten_mapping(node)
-        # Merged pairs come first, so the mapping's own keys win, as YAML specifies.
         return {
-            _scalar_key(key_node): self.construct_object(value_node, deep=deep)
-            for key_node, value_node in node.value
+            key: self.construct_object(value_node, deep=deep)
+            for key, (_, value_node) in self._flat_pairs(node).items()
         }
+
+    def _flat_pairs(self, node: Any) -> dict[str, tuple[Any, Any]]:
+        """key -> (key node, value node), with `<<` sources merged in."""
+        cached = self._flattened.get(id(node))
+        if cached is not None:
+            return cached
+        if id(node) in self._flattening:
+            raise ConstructorError(
+                None, None, "a merge key (<<) merges a mapping into itself", node.start_mark
+            )
+        self._flattening.add(id(node))
+        merged: dict[str, tuple[Any, Any]] = {}
+        own: dict[str, tuple[Any, Any]] = {}
+        for key_node, value_node in node.value:
+            if key_node.tag == _MERGE_TAG:
+                # Earlier sources win over later ones, so apply them last to first.
+                for source in reversed(self._merge_sources(value_node)):
+                    merged.update(self._flat_pairs(source))
+                continue
+            key = _scalar_key(key_node)
+            if key in own:
+                raise ConstructorError(None, None, f"duplicate key {key!r}", key_node.start_mark)
+            own[key] = (key_node, value_node)
+        merged.update(own)  # the mapping's own keys win over anything merged in
+        self._flattening.discard(id(node))
+        self._flattened_keys += len(merged)
+        if self._flattened_keys > MAX_NODES:
+            raise ConstructorError(
+                None, None, f"merge keys (<<) expand to more than {MAX_NODES} keys", node.start_mark
+            )
+        self._flattened[id(node)] = merged
+        return merged
+
+    @staticmethod
+    def _merge_sources(value_node: Any) -> list[Any]:
+        sources = value_node.value if isinstance(value_node, SequenceNode) else [value_node]
+        for source in sources:
+            if not isinstance(source, MappingNode):
+                raise ConstructorError(
+                    None,
+                    None,
+                    "a merge key (<<) must name a mapping or a list of mappings",
+                    source.start_mark,
+                )
+        return list(sources)
 
 
 _SpecLoader.add_implicit_resolver(
     _BOOL_TAG, re.compile(r"^(?:true|True|TRUE|false|False|FALSE)$"), list("tTfF")
 )
+# Decimal integers only. Hex, octal and binary forms stay strings: JSON has no such
+# numbers, and an unquoted `0x1F` in an API description is far likelier a code than
+# the number 31. Added before the float resolver, so an integer is never a float.
+_SpecLoader.add_implicit_resolver(_INT_TAG, re.compile(r"^[-+]?[0-9]+$"), list("-+0123456789"))
+_SpecLoader.add_implicit_resolver(
+    _FLOAT_TAG,
+    re.compile(
+        r"^(?:[-+]?(?:\.[0-9]+|[0-9]+(?:\.[0-9]*)?)(?:[eE][-+]?[0-9]+)?"
+        r"|[-+]?\.(?:inf|Inf|INF)|\.(?:nan|NaN|NAN))$"
+    ),
+    list("-+.0123456789"),
+)
+# PyYAML's int constructor reads a leading 0 as octal. Under the resolver above every
+# implicit int is decimal; an explicit `!!int 0x1F` fails here, which is a SpecError.
+_SpecLoader.add_constructor(_INT_TAG, lambda loader, node: int(loader.construct_scalar(node), 10))
 
 
 def _scalar_key(key_node: Any) -> str:
@@ -129,6 +197,8 @@ def _parse_json(text: str) -> Any:
         raise SpecError(
             f"Spec is not valid JSON: {exc.msg} at line {exc.lineno}, column {exc.colno}"
         ) from exc
+    except ValueError as exc:  # after JSONDecodeError, which is a subclass
+        raise SpecError(f"Spec contains a number that cannot be read: {exc}") from exc
     except RecursionError as exc:
         raise SpecError(f"Spec is nested too deeply (more than {MAX_DEPTH} levels)") from exc
 
@@ -143,6 +213,9 @@ def _parse_yaml(text: str) -> Any:
         raise SpecError(f"Spec is not valid YAML: {problem}{where}") from exc
     except yaml.YAMLError as exc:
         raise SpecError(f"Spec is not valid YAML: {exc}") from exc
+    except ValueError as exc:
+        # Python refuses integers over 4300 digits, and `!!int 0x1F` is not decimal.
+        raise SpecError(f"Spec contains a number that cannot be read: {exc}") from exc
     except RecursionError as exc:
         raise SpecError(f"Spec is nested too deeply (more than {MAX_DEPTH} levels)") from exc
 

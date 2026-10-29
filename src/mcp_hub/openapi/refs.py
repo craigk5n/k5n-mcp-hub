@@ -29,6 +29,12 @@ _REBASING_KEYWORDS = ("$id", "$dynamicRef", "$recursiveRef")
 _SAME_INSTANCE_LISTS = ("allOf", "anyOf", "oneOf")
 _SAME_INSTANCE_SCHEMAS = ("not", "if", "then", "else")
 
+# How many schemas one ref may expand to through allOf/anyOf/oneOf/not chains. The
+# graph is acyclic by then, but branching makes it exponential: 40 levels of two refs
+# each is 2**40, which the validator walks in full and never finishes (security
+# review finding 3). Real specs compose a handful of schemas, so this is generous.
+MAX_COMPOSITION_EXPANSION = 10_000
+
 Pointer = tuple[str, ...]
 
 
@@ -130,6 +136,9 @@ def _same_instance_refs(schema: dict[str, Any]) -> list[Pointer]:
 
 def _check_cycles(targets: dict[Pointer, dict[str, Any]]) -> None:
     edges = {pointer: _same_instance_refs(schema) for pointer, schema in targets.items()}
+    # Schemas each target expands to, itself included. Filled as the DFS finishes a
+    # node, when every successor is already finished, so it costs one pass.
+    expansion: dict[Pointer, int] = {}
     done: set[Pointer] = set()
     for start in edges:
         if start in done:
@@ -143,8 +152,10 @@ def _check_cycles(targets: dict[Pointer, dict[str, Any]]) -> None:
             successor = next(pending[-1], None)
             if successor is None:
                 pending.pop()
-                done.add(trail[-1])
-                on_trail.discard(trail.pop())
+                finished = trail.pop()
+                _record_expansion(finished, edges, expansion)
+                done.add(finished)
+                on_trail.discard(finished)
                 continue
             if successor in on_trail:
                 cycle = trail[trail.index(successor) :] + [successor]
@@ -157,3 +168,16 @@ def _check_cycles(targets: dict[Pointer, dict[str, Any]]) -> None:
             trail.append(successor)
             on_trail.add(successor)
             pending.append(iter(edges[successor]))
+
+
+def _record_expansion(
+    pointer: Pointer, edges: dict[Pointer, list[Pointer]], expansion: dict[Pointer, int]
+) -> None:
+    total = 1 + sum(expansion.get(successor, 1) for successor in edges[pointer])
+    if total > MAX_COMPOSITION_EXPANSION:
+        raise SpecError(
+            f"$ref {'#' + encode_pointer(pointer)!r} expands to more than "
+            f"{MAX_COMPOSITION_EXPANSION} schemas through allOf/anyOf/oneOf/not, "
+            "which is too many to validate"
+        )
+    expansion[pointer] = total

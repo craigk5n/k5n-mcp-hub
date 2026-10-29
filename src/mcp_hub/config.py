@@ -16,6 +16,11 @@ from mcp_hub.mcp.registry_client import DEFAULT_REGISTRY_BASE_URL
 # change, with the cost described on OpenAPIConfig.
 DEFAULT_OPENAPI_MAX_SPEC_BYTES = 5 * 1024 * 1024
 DEFAULT_OPENAPI_FETCH_TIMEOUT_SECONDS = 30
+# The validator runs at roughly 19 s per MB of spec (measured 2026-10-29), so this
+# admits a spec at the size cap with room to spare.
+DEFAULT_OPENAPI_VALIDATE_TIMEOUT_SECONDS = 120
+# The validating child needs about 70 MB before it reads a byte of spec.
+DEFAULT_OPENAPI_VALIDATE_MEMORY_MB = 1024
 
 # Bind addresses that cannot be reached from another host.
 LOOPBACK_HOSTS = frozenset({"127.0.0.1", "::1", "localhost"})
@@ -292,10 +297,17 @@ class OpenAPIConfig(BaseModel):
     `mcp_servers.json`: the snapshot is stored inline on the server record (ADR 0011
     §2), and a pending revision can double it. `fetch_timeout_seconds` bounds the
     whole fetch, not each read.
+
+    A spec is parsed and validated in a child process that is killed after
+    `validate_timeout_seconds` and limited to `validate_memory_mb`. The validator can
+    be made to run indefinitely and the C YAML parser can crash on deep nesting, and
+    neither may take the hub with it.
     """
 
     max_spec_bytes: int = DEFAULT_OPENAPI_MAX_SPEC_BYTES
     fetch_timeout_seconds: int = DEFAULT_OPENAPI_FETCH_TIMEOUT_SECONDS
+    validate_timeout_seconds: int = DEFAULT_OPENAPI_VALIDATE_TIMEOUT_SECONDS
+    validate_memory_mb: int = DEFAULT_OPENAPI_VALIDATE_MEMORY_MB
 
     @field_validator("max_spec_bytes", mode="before")
     @classmethod
@@ -306,6 +318,16 @@ class OpenAPIConfig(BaseModel):
     @classmethod
     def validate_fetch_timeout(cls, v: object) -> int:
         return _coerce_positive_int(v, DEFAULT_OPENAPI_FETCH_TIMEOUT_SECONDS)
+
+    @field_validator("validate_timeout_seconds", mode="before")
+    @classmethod
+    def validate_validate_timeout(cls, v: object) -> int:
+        return _coerce_positive_int(v, DEFAULT_OPENAPI_VALIDATE_TIMEOUT_SECONDS)
+
+    @field_validator("validate_memory_mb", mode="before")
+    @classmethod
+    def validate_validate_memory(cls, v: object) -> int:
+        return _coerce_positive_int(v, DEFAULT_OPENAPI_VALIDATE_MEMORY_MB)
 
 
 class OtelConfig(BaseModel):

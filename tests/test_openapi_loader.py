@@ -23,8 +23,7 @@ from mcp_hub.openapi.errors import SpecError
 from mcp_hub.openapi.loader import (
     LoadedSpec,
     fetch_spec_bytes,
-    load_spec,
-    load_spec_from_url,
+    load_spec_unsandboxed,
 )
 from mcp_hub.openapi.refs import decode_pointer, encode_pointer
 
@@ -66,13 +65,13 @@ def _with_schema(schema: dict[str, Any], **extra: Any) -> dict[str, Any]:
 
 
 def _load(doc: dict[str, Any]) -> LoadedSpec:
-    return load_spec(json.dumps(doc).encode(), max_bytes=MAX)
+    return load_spec_unsandboxed(json.dumps(doc).encode(), max_bytes=MAX)
 
 
 def _error(doc_or_bytes: dict[str, Any] | bytes, *, max_bytes: int = MAX) -> SpecError:
     data = doc_or_bytes if isinstance(doc_or_bytes, bytes) else json.dumps(doc_or_bytes).encode()
     with pytest.raises(SpecError) as excinfo:
-        load_spec(data, max_bytes=max_bytes)
+        load_spec_unsandboxed(data, max_bytes=max_bytes)
     return excinfo.value
 
 
@@ -81,23 +80,23 @@ def _error(doc_or_bytes: dict[str, Any] | bytes, *, max_bytes: int = MAX) -> Spe
 
 class TestDialects:
     def test_openapi_31_json(self):
-        spec = load_spec(_fixture("petstore-3.1.json"), max_bytes=MAX)
+        spec = load_spec_unsandboxed(_fixture("petstore-3.1.json"), max_bytes=MAX)
         assert spec.dialect == "3.1"
         assert spec.document["info"]["title"] == "Petstore"
         assert set(spec.document["paths"]) == {"/pets", "/pets/{petId}"}
 
     def test_openapi_30_yaml(self):
-        spec = load_spec(_fixture("petstore-3.0.yaml"), max_bytes=MAX)
+        spec = load_spec_unsandboxed(_fixture("petstore-3.0.yaml"), max_bytes=MAX)
         assert spec.dialect == "3.0"
 
     def test_swagger_20(self):
-        spec = load_spec(_fixture("petstore-swagger2.json"), max_bytes=MAX)
+        spec = load_spec_unsandboxed(_fixture("petstore-swagger2.json"), max_bytes=MAX)
         assert spec.dialect == "2.0"
 
     def test_unquoted_swagger_version_in_yaml_is_accepted(self):
         # `swagger: 2.0` unquoted is a float in YAML and is everywhere in old specs.
         data = b"swagger: 2.0\ninfo: {title: t, version: '1'}\npaths: {}\n"
-        spec = load_spec(data, max_bytes=MAX)
+        spec = load_spec_unsandboxed(data, max_bytes=MAX)
         assert spec.dialect == "2.0"
         assert spec.document["swagger"] == "2.0"
 
@@ -130,7 +129,7 @@ class TestDialects:
 
 class TestParsing:
     def test_yaml_keys_keep_their_source_spelling(self):
-        spec = load_spec(_fixture("petstore-3.0.yaml"), max_bytes=MAX)
+        spec = load_spec_unsandboxed(_fixture("petstore-3.0.yaml"), max_bytes=MAX)
         responses = spec.document["paths"]["/pets/{petId}"]["get"]["responses"]
         # An unquoted `200:` is an int in YAML; JSON storage and every lookup want "200".
         assert list(responses) == ["200"]
@@ -139,18 +138,20 @@ class TestParsing:
         assert "on" in pet
 
     def test_yaml_dates_and_yes_no_stay_strings(self):
-        spec = load_spec(_fixture("petstore-3.0.yaml"), max_bytes=MAX)
+        spec = load_spec_unsandboxed(_fixture("petstore-3.0.yaml"), max_bytes=MAX)
         assert spec.document["info"]["version"] == "2024-01-01"
         enum = spec.document["components"]["schemas"]["Pet"]["properties"]["vaccinated"]["enum"]
         assert enum == ["yes", "no", "on", "off"]
 
     def test_yaml_true_false_are_still_booleans(self):
-        spec = load_spec(_fixture("petstore-3.0.yaml"), max_bytes=MAX)
+        spec = load_spec_unsandboxed(_fixture("petstore-3.0.yaml"), max_bytes=MAX)
         param = spec.document["paths"]["/pets/{petId}"]["get"]["parameters"][0]
         assert param["required"] is True
 
     def test_utf8_bom_is_accepted(self):
-        spec = load_spec(b"\xef\xbb\xbf" + json.dumps(_spec_31()).encode(), max_bytes=MAX)
+        spec = load_spec_unsandboxed(
+            b"\xef\xbb\xbf" + json.dumps(_spec_31()).encode(), max_bytes=MAX
+        )
         assert spec.dialect == "3.1"
 
     def test_invalid_utf8_is_refused(self):
@@ -189,7 +190,7 @@ class TestParsing:
             b"x-base: &base {a: 1, b: 2}\n"
             b"x-derived:\n  <<: *base\n  b: 3\n"
         )
-        spec = load_spec(data, max_bytes=MAX)
+        spec = load_spec_unsandboxed(data, max_bytes=MAX)
         assert spec.document["x-derived"] == {"a": 1, "b": 3}
 
     @pytest.mark.parametrize(
@@ -213,6 +214,117 @@ class TestParsing:
     def test_json_syntax_error_reports_a_position(self):
         err = _error(b'{"openapi": "3.1.0",, }')
         assert "line" in err.message.lower()
+
+
+class TestReviewFindingsParsing:
+    """Security review of Story 13.1 (findings 2, 7, 8, 10)."""
+
+    @pytest.mark.parametrize(
+        "data",
+        [
+            b'{"openapi": "3.1.0", "info": {"title": "t", "version": "1"}, "paths": {}, "x-n": '
+            + b"9" * 5000
+            + b"}",
+            b"openapi: 3.1.0\ninfo: {title: t, version: '1'}\npaths: {}\nx-n: " + b"9" * 5000,
+        ],
+        ids=["json", "yaml"],
+    )
+    def test_huge_integers_are_a_spec_error_not_a_crash(self, data):
+        # Python refuses to parse an int over 4300 digits with a bare ValueError.
+        assert "number" in _error(data).message.lower()
+
+    def test_yaml_numbers_follow_yaml_12_not_11(self):
+        data = (
+            b"openapi: 3.1.0\ninfo: {title: t, version: '1'}\npaths: {}\n"
+            b"x-v: [0x1F, 1_000, 1:30, 012, 0b11, 0o17, +12, -3, 1.5, 1e3, 2.]\n"
+        )
+        values = load_spec_unsandboxed(data, max_bytes=MAX).document["x-v"]
+        # YAML 1.1 read these as 31, 1000, 90 (base 60), 10 (octal) and 3. An enum or
+        # default silently changing value is worse than a string staying a string.
+        assert values == ["0x1F", "1_000", "1:30", 12, "0b11", "0o17", 12, -3, 1.5, 1000.0, 2.0]
+
+    def test_explicitly_tagged_non_decimal_int_is_refused(self):
+        _error(b"openapi: 3.1.0\ninfo: {title: t, version: '1'}\npaths: {}\nx: !!int 0x1F\n")
+
+    @pytest.mark.parametrize(
+        "tagged, type_name",
+        [
+            (b"x: !!binary aGVsbG8=\n", "bytes"),
+            (b"x: !!set {a, b}\n", "set"),
+            (b"x: !!timestamp 2024-01-01\n", "date"),
+            (b"x: !!timestamp 2024-01-01T00:00:00Z\n", "datetime"),
+            (b"x: !!omap [{a: 1}]\n", "tuple"),
+        ],
+    )
+    def test_non_json_values_are_refused_by_the_scalar_check(self, tagged, type_name):
+        # Pins the message, so the refusal is known to come from the plain-JSON check
+        # and not from something downstream tripping over the value.
+        data = b"openapi: 3.1.0\ninfo: {title: t, version: '1'}\npaths: {}\n" + tagged
+        err = _error(data)
+        assert f"a {type_name} value" in err.message
+        assert err.pointer.startswith("/x")
+
+    def test_merge_bomb_is_linear(self):
+        # Each level merges five aliases of the level below. PyYAML's node-level
+        # flattening re-expands every one, so twelve levels took minutes.
+        lines = [
+            "openapi: 3.1.0",
+            "info: {title: t, version: '1'}",
+            "paths: {}",
+            "x-m0: &m0 {k: 1}",
+        ]
+        for i in range(1, 30):
+            sources = ", ".join([f"*m{i - 1}"] * 5)
+            lines.append(f"x-m{i}: &m{i} {{<<: [{sources}]}}")
+        start = time.monotonic()
+        spec = load_spec_unsandboxed("\n".join(lines).encode(), max_bytes=MAX)
+        assert time.monotonic() - start < 2
+        assert spec.document["x-m29"] == {"k": 1}
+
+    def test_merge_precedence(self):
+        data = (
+            b"openapi: 3.1.0\ninfo: {title: t, version: '1'}\npaths: {}\n"
+            b"x-a: &a {k: 1, own: a}\n"
+            b"x-b: &b {k: 2, j: 3, own: b}\n"
+            b"x-m: {<<: [*a, *b], own: m}\n"
+        )
+        # Earlier sources win over later ones, and the mapping's own keys win over all.
+        doc = load_spec_unsandboxed(data, max_bytes=MAX).document
+        assert doc["x-m"] == {"k": 1, "j": 3, "own": "m"}
+
+    def test_nested_merges(self):
+        data = (
+            b"openapi: 3.1.0\ninfo: {title: t, version: '1'}\npaths: {}\n"
+            b"x-a: &a {a: 1}\n"
+            b"x-b: &b {<<: *a, b: 2}\n"
+            b"x-c: {<<: *b, c: 3}\n"
+        )
+        assert load_spec_unsandboxed(data, max_bytes=MAX).document["x-c"] == {
+            "a": 1,
+            "b": 2,
+            "c": 3,
+        }
+
+    def test_merge_into_a_later_anchor_sees_its_keys(self):
+        # The anchor sits deeper in an earlier sibling, so a construct-then-merge
+        # approach would see it still empty. Node-level merging does not.
+        data = (
+            b"openapi: 3.1.0\ninfo: {title: t, version: '1'}\npaths: {}\n"
+            b"x-a: {deep: &x {k: 1}}\n"
+            b"x-c: {<<: *x, j: 2}\n"
+        )
+        assert load_spec_unsandboxed(data, max_bytes=MAX).document["x-c"] == {"k": 1, "j": 2}
+
+    def test_self_merge_is_refused(self):
+        data = b"openapi: 3.1.0\ninfo: {title: t, version: '1'}\npaths: {}\nx: &a {<<: *a, k: 1}\n"
+        assert "merge" in _error(data).message.lower()
+
+    @pytest.mark.parametrize("source", [b"1", b"[1, 2]", b"text"])
+    def test_merge_source_must_be_a_mapping(self, source):
+        data = (
+            b"openapi: 3.1.0\ninfo: {title: t, version: '1'}\npaths: {}\nx: {<<: " + source + b"}\n"
+        )
+        assert "merge" in _error(data).message.lower()
 
 
 # --------------------------------------------------------------------------- bounds
@@ -322,13 +434,13 @@ def no_network(monkeypatch: pytest.MonkeyPatch) -> list[Any]:
 
 class TestRefs:
     def test_local_refs_resolve(self, no_network):
-        spec = load_spec(_fixture("petstore-3.1.json"), max_bytes=MAX)
+        spec = load_spec_unsandboxed(_fixture("petstore-3.1.json"), max_bytes=MAX)
         assert spec.dialect == "3.1"
         assert no_network == []
 
     def test_refs_are_left_in_place_not_inlined(self):
         # ADR 0011 §2: inlining lets one reused or recursive schema multiply the size.
-        spec = load_spec(_fixture("petstore-3.1.json"), max_bytes=MAX)
+        spec = load_spec_unsandboxed(_fixture("petstore-3.1.json"), max_bytes=MAX)
         schema = spec.document["paths"]["/pets/{petId}"]["get"]["responses"]["200"]
         assert schema["content"]["application/json"]["schema"] == {
             "$ref": "#/components/schemas/Pet"
@@ -458,6 +570,28 @@ class TestRefs:
         assert "cycle" in _error(doc).message.lower()
 
 
+class TestRefFanOut:
+    """Security review finding 3: an acyclic but branching composition chain."""
+
+    def _fan_out(self, levels: int) -> dict[str, Any]:
+        schemas: dict[str, Any] = {
+            f"A{i}": {"allOf": [{"$ref": f"#/components/schemas/A{i + 1}"}] * 2}
+            for i in range(levels)
+        }
+        schemas[f"A{levels}"] = {"type": "string"}
+        return _with_schema({"$ref": "#/components/schemas/A0"}, components={"schemas": schemas})
+
+    def test_exponential_composition_is_refused_before_validation(self):
+        # 2**40 expansions: the validator would never finish this.
+        start = time.monotonic()
+        err = _error(self._fan_out(40))
+        assert time.monotonic() - start < 2
+        assert "expands" in err.message
+
+    def test_modest_reuse_is_fine(self):
+        assert _load(self._fan_out(6)).dialect == "3.1"
+
+
 class TestPointers:
     @pytest.mark.parametrize(
         "parts, pointer",
@@ -479,7 +613,7 @@ class TestPointers:
 
 class TestSha256:
     def test_is_hex_sha256(self):
-        spec = load_spec(_fixture("petstore-3.1.json"), max_bytes=MAX)
+        spec = load_spec_unsandboxed(_fixture("petstore-3.1.json"), max_bytes=MAX)
         assert len(spec.sha256) == 64
         int(spec.sha256, 16)
 
@@ -487,11 +621,15 @@ class TestSha256:
         # ADR 0011 §2: a revision exists only when the SHA-256 differs, so re-indenting
         # or re-serializing a spec must not look like a change.
         doc = json.loads(_fixture("petstore-3.1.json"))
-        compact = load_spec(json.dumps(doc, separators=(",", ":")).encode(), max_bytes=MAX)
-        pretty = load_spec(json.dumps(doc, indent=4, sort_keys=True).encode(), max_bytes=MAX)
+        compact = load_spec_unsandboxed(
+            json.dumps(doc, separators=(",", ":")).encode(), max_bytes=MAX
+        )
+        pretty = load_spec_unsandboxed(
+            json.dumps(doc, indent=4, sort_keys=True).encode(), max_bytes=MAX
+        )
         import yaml
 
-        as_yaml = load_spec(yaml.safe_dump(doc).encode(), max_bytes=MAX)
+        as_yaml = load_spec_unsandboxed(yaml.safe_dump(doc).encode(), max_bytes=MAX)
         assert compact.sha256 == pretty.sha256 == as_yaml.sha256
 
     def test_content_changes_it(self):
@@ -508,6 +646,16 @@ def _client(handler) -> httpx.AsyncClient:
     return httpx.AsyncClient(transport=httpx.MockTransport(handler))
 
 
+def _streamed(body: bytes):
+    """A streamed body, as a real server sends one. `httpx.Response(content=bytes)`
+    is read (and decoded) eagerly, so it cannot exercise raw streaming."""
+
+    async def chunks():
+        yield body
+
+    return chunks()
+
+
 class TestFetch:
     async def test_fetches_the_body(self):
         body = _fixture("petstore-3.1.json")
@@ -515,7 +663,7 @@ class TestFetch:
 
         def handler(request: httpx.Request) -> httpx.Response:
             seen.append(request)
-            return httpx.Response(200, content=body)
+            return httpx.Response(200, content=_streamed(body))
 
         async with _client(handler) as client:
             data = await fetch_spec_bytes(
@@ -527,18 +675,6 @@ class TestFetch:
             )
         assert data == body
         assert seen[0].method == "GET"
-
-    async def test_load_from_url_end_to_end(self):
-        body = _fixture("petstore-3.0.yaml")
-        async with _client(lambda r: httpx.Response(200, content=body)) as client:
-            spec = await load_spec_from_url(
-                "https://api.example.com/openapi.yaml",
-                max_bytes=MAX,
-                timeout_seconds=5,
-                allow_private_networks=False,
-                http_client=client,
-            )
-        assert spec.dialect == "3.0"
 
     async def test_declared_oversize_is_refused(self):
         def handler(request: httpx.Request) -> httpx.Response:
@@ -575,6 +711,62 @@ class TestFetch:
                     http_client=client,
                 )
         assert len(chunks_sent) < 1000
+
+    async def test_asks_for_an_uncompressed_body(self):
+        seen: list[httpx.Request] = []
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            seen.append(request)
+            return httpx.Response(200, content=_streamed(b"{}"))
+
+        async with _client(handler) as client:
+            await fetch_spec_bytes(
+                "https://api.example.com/s.json",
+                max_bytes=MAX,
+                timeout_seconds=5,
+                allow_private_networks=False,
+                http_client=client,
+            )
+        assert seen[0].headers["accept-encoding"] == "identity"
+
+    @pytest.mark.parametrize("encoding", ["gzip", "gzip, gzip", "br", "deflate"])
+    async def test_a_compressed_body_is_refused(self, encoding):
+        # Security review finding 6: decoding happens before any size check could
+        # see it, so 5 KB of stacked gzip became 400 MB in one chunk.
+        import gzip
+
+        body = gzip.compress(gzip.compress(b" " * 1_000_000))
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            return httpx.Response(
+                200, content=_streamed(body), headers={"Content-Encoding": encoding}
+            )
+
+        async with _client(handler) as client:
+            with pytest.raises(SpecError, match="(?i)compressed"):
+                await fetch_spec_bytes(
+                    "https://api.example.com/s.json",
+                    max_bytes=MAX,
+                    timeout_seconds=5,
+                    allow_private_networks=False,
+                    http_client=client,
+                )
+
+    async def test_identity_encoding_is_accepted(self):
+        def handler(request: httpx.Request) -> httpx.Response:
+            return httpx.Response(
+                200, content=_streamed(b"{}"), headers={"Content-Encoding": "identity"}
+            )
+
+        async with _client(handler) as client:
+            data = await fetch_spec_bytes(
+                "https://api.example.com/s.json",
+                max_bytes=MAX,
+                timeout_seconds=5,
+                allow_private_networks=False,
+                http_client=client,
+            )
+        assert data == b"{}"
 
     async def test_redirect_is_not_followed(self):
         hits: list[str] = []
