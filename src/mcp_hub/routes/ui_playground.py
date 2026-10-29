@@ -7,6 +7,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import HTMLResponse
 
 from mcp_hub.auth.caller import caller_from_request
+from mcp_hub.openapi.local_call import call_virtual
 from mcp_hub.mcp.auth import apply_server_auth
 from mcp_hub.mcp.constants import STATELESS_PROTOCOL_VERSION
 from mcp_hub.mcp.oauth import format_auth_challenge, parse_www_authenticate
@@ -117,9 +118,15 @@ async def post_playground(
 
     # Track oauth_token_status before auth so we only persist when a new token is acquired.
     prev_oauth_token_status = server.oauth_token_status
-    await apply_server_auth(
-        headers, server, caller=caller_from_request(request), allow_private_networks=allow_private
-    )
+    # An OpenAPI server is answered by the hub itself (ADR 0011): its credentials go on
+    # the REST calls the executor makes, never on this request.
+    if not server.is_openapi:
+        await apply_server_auth(
+            headers,
+            server,
+            caller=caller_from_request(request),
+            allow_private_networks=allow_private,
+        )
     # Only persist the server if a new OAuth token was successfully acquired.
     if server.oauth_token_status == "ok" and prev_oauth_token_status != "ok":
         await registry.register(server)
@@ -128,11 +135,25 @@ async def post_playground(
         async with httpx.AsyncClient(
             transport=SafePinnedTransport(allow_private_networks=allow_private), timeout=30.0
         ) as client:
-            resp = await client.post(
-                server.url,
-                content=request_body.encode(),
-                headers=headers,
-            )
+            if server.is_openapi:
+                reply = await call_virtual(
+                    request,
+                    server,
+                    request_body.encode(),
+                    operation="playground",
+                    protocol_header=protocol_version,
+                )
+                resp = httpx.Response(
+                    reply.status_code,
+                    content=reply.body,
+                    headers={"Content-Type": "application/json"} if reply.body else {},
+                )
+            else:
+                resp = await client.post(
+                    server.url,
+                    content=request_body.encode(),
+                    headers=headers,
+                )
 
             response_status = str(resp.status_code)
             response_headers = "\n".join(f"{k}: {v}" for k, v in resp.headers.items())

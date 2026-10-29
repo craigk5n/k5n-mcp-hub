@@ -67,7 +67,8 @@ async def _probe_all_servers_task(
 ) -> None:
     servers = await registry.list()
     for server in servers:
-        if server.mcp_transport == "":
+        # An OpenAPI server's url is the synthetic `openapi:<id>`: nothing to probe.
+        if server.mcp_transport == "" and not server.is_openapi:
             await _probe_server_mcp_info(
                 server.id, server.url, registry, allow_private_networks=allow_private_networks
             )

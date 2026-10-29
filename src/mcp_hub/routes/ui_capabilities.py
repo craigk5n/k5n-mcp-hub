@@ -1,3 +1,4 @@
+import asyncio
 import copy
 import json
 import logging
@@ -11,6 +12,8 @@ from mcp_hub.mcp.discovery import DiscoveryService
 from mcp_hub.mcp.schema_refs import resolve_tool_schema_refs
 from mcp_hub.auth.caller import CallerIdentity, caller_from_request
 from mcp_hub.mcp.sdk_client import MCPClient
+from mcp_hub.openapi.model import MappingError
+from mcp_hub.openapi.server_tools import openapi_tools
 from mcp_hub.mcp.validation import validate_tool_schemas
 from mcp_hub.models.server import RegisteredServer
 from mcp_hub.registry.service import Registry
@@ -71,6 +74,7 @@ async def get_server_tools(
             server,
             caller=caller_from_request(request),
             allow_private_networks=request.app.state.settings.security.allow_private_networks,
+            description_limit=request.app.state.settings.openapi.max_description_chars,
         )
         cached = False
         last_sync = None
@@ -181,6 +185,7 @@ async def get_server_capabilities(
             server,
             caller=caller_from_request(request),
             allow_private_networks=request.app.state.settings.security.allow_private_networks,
+            description_limit=request.app.state.settings.openapi.max_description_chars,
         )
         cached = False
         last_sync = None
@@ -222,12 +227,24 @@ async def _fetch_live_capabilities(
     *,
     caller: CallerIdentity,
     allow_private_networks: bool = False,
+    description_limit: int = 1024,
 ) -> tuple[list[Any], list[Any], list[Any], str]:
     tools: list[Any] = []
     prompts: list[Any] = []
     resources: list[Any] = []
     error_message = ""
     errors: list[str] = []
+
+    if server.is_openapi:
+        # The hub is this server's MCP server (ADR 0011): its tools are the mapping of
+        # the selection, and its `url` is the synthetic `openapi:<id>`.
+        try:
+            mapped = await asyncio.to_thread(
+                openapi_tools, server, description_limit=description_limit
+            )
+        except MappingError as exc:
+            return [], [], [], f"The selected operations cannot be served: {exc}"
+        return [tool.definition.to_mcp() for tool in mapped], [], [], ""
 
     try:
         async with MCPClient(

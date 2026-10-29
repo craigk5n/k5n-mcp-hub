@@ -9,6 +9,9 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import HTMLResponse
 
 from mcp_hub.auth.caller import caller_from_request
+from mcp_hub.openapi.local_call import call_virtual, rpc_body
+from mcp_hub.openapi.model import MappingError
+from mcp_hub.openapi.server_tools import cached_openapi_tools
 from mcp_hub.mcp.auth import apply_server_auth
 from mcp_hub.mcp.constants import STATELESS_PROTOCOL_VERSION
 from mcp_hub.mcp.jsonrpc import (
@@ -178,13 +181,16 @@ async def invoke_tool(
         getattr(getattr(request.app.state, "settings", None), "security", None)
         and request.app.state.settings.security.allow_private_networks
     )
-    url_validation_result = await is_url_safe_for_discovery(
-        srv.url, require_reachability=False, allow_private=_allow_private
-    )
-    is_safe = url_validation_result[0]
-    url_error = url_validation_result[1]
-    if not is_safe:
-        return HTMLResponse(content=_build_error_fragment(f"Invalid server URL: {url_error}"))
+    # An OpenAPI server's url is the synthetic `openapi:<id>`: there is no MCP URL to
+    # validate or call, because the hub answers for it (ADR 0011).
+    if not srv.is_openapi:
+        url_validation_result = await is_url_safe_for_discovery(
+            srv.url, require_reachability=False, allow_private=_allow_private
+        )
+        is_safe = url_validation_result[0]
+        url_error = url_validation_result[1]
+        if not is_safe:
+            return HTMLResponse(content=_build_error_fragment(f"Invalid server URL: {url_error}"))
 
     form_data = await request.form()
     form_dict: dict[str, list[str]] = {}
@@ -196,6 +202,12 @@ async def invoke_tool(
         tool_args = build_tool_args(form_dict)
     except ValueError as e:
         return HTMLResponse(content=_build_error_fragment(str(e)))
+
+    if srv.is_openapi:
+        tool_args = keep_declared_strings(
+            tool_args, form_dict, _input_schema(request, srv, tool_name)
+        )
+        return await _invoke_openapi(request, srv, tool_name, tool_args)
 
     headers: dict[str, str] = {
         "Content-Type": "application/json",
@@ -407,3 +419,76 @@ async def invoke_tool(
         return HTMLResponse(content=_build_error_fragment(error_msg))
     else:
         return HTMLResponse(content=_build_success_fragment(output_message))
+
+
+def keep_declared_strings(
+    args: dict[str, Any], form: dict[str, list[str]], schema: dict[str, Any]
+) -> dict[str, Any]:
+    """`args` with the form's raw text restored where the schema declares a string.
+
+    `build_tool_args` guesses types from the text alone, so a string parameter typed
+    as "1" arrives as the integer 1. The hub validates an OpenAPI tool's arguments
+    against its schema, and would refuse that.
+    """
+    properties = schema.get("properties")
+    if not isinstance(properties, dict):
+        return args
+    restored = dict(args)
+    for name, value in args.items():
+        declared = properties.get(name)
+        if isinstance(value, str) or not isinstance(declared, dict):
+            continue
+        types = declared.get("type")
+        types = [types] if isinstance(types, str) else types
+        # Only where a string is the sole reading: `["string", "integer"]` keeps the guess.
+        if (
+            isinstance(types, list)
+            and "string" in types
+            and not {"integer", "number", "boolean"} & set(types)
+        ):
+            raw = form.get(name)
+            if raw:
+                restored[name] = raw[0]
+    return restored
+
+
+def _input_schema(request: Request, srv: Any, tool_name: str) -> dict[str, Any]:
+    """The tool's schema from the mapping itself: `srv.tools` is only as fresh as the
+    last discovery."""
+    limit = request.app.state.settings.openapi.max_description_chars
+    try:
+        tools = cached_openapi_tools(srv, description_limit=limit)
+    except MappingError:
+        return {}  # the call itself reports why
+    for tool in tools:
+        if tool.definition.name == tool_name:
+            return tool.definition.input_schema
+    return {}
+
+
+async def _invoke_openapi(
+    request: Request, srv: Any, tool_name: str, tool_args: dict[str, Any]
+) -> HTMLResponse:
+    """Invoke for an OpenAPI server: the hub's own virtual server answers, through the
+    same tools/call path the proxy uses, and traces the call."""
+    body = rpc_body(build_call_tool_request(tool_name, tool_args, request_id=1))
+    reply = await call_virtual(request, srv, body, operation="tools/call")
+    try:
+        message = json.loads(reply.body)
+    except ValueError:
+        message = None
+    if not isinstance(message, dict):
+        return HTMLResponse(content=_build_error_fragment(f"HTTP {reply.status_code}"))
+    if isinstance(message.get("error"), dict):
+        return HTMLResponse(
+            content=_build_error_fragment(str(message["error"].get("message", "error")))
+        )
+    result = message.get("result")
+    if not isinstance(result, dict):
+        result = {}
+    content = result.get("content", [])
+    texts = [c["text"] for c in content if isinstance(c, dict) and isinstance(c.get("text"), str)]
+    output = "\n".join(texts) if texts else json.dumps(content, indent=2)
+    if result.get("isError"):
+        return HTMLResponse(content=_build_error_fragment(output or "the tool returned an error"))
+    return HTMLResponse(content=_build_success_fragment(output or "No output"))

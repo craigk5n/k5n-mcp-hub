@@ -8,6 +8,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import HTMLResponse
 
 from mcp_hub.auth.caller import caller_from_request
+from mcp_hub.openapi.local_call import call_virtual
 from mcp_hub.mcp.auth import apply_server_auth
 from mcp_hub.mcp.constants import METHOD_SERVER_DISCOVER, STATELESS_PROTOCOL_VERSION
 from mcp_hub.mcp.jsonrpc import build_initialize_request, build_request
@@ -134,6 +135,21 @@ def _parse_response_body(response: httpx.Response) -> tuple[dict[str, Any], str]
         return {}, content_type
 
 
+async def _answer_locally(
+    request: Request, srv: RegisteredServer, body: bytes, headers: dict[str, str]
+) -> httpx.Response:
+    """The hub's virtual server's answer, shaped like the HTTP reply a backend sends."""
+    reply = await call_virtual(
+        request,
+        srv,
+        body,
+        operation="initialize",
+        protocol_header=headers.get("MCP-Protocol-Version", ""),
+    )
+    reply_headers = {"Content-Type": "application/json"} if reply.body else {}
+    return httpx.Response(reply.status_code, content=reply.body, headers=reply_headers)
+
+
 @router.get("/server/{server_id}/initialize", response_class=HTMLResponse)
 async def get_initialize(
     request: Request, server_id: str, _: None = Depends(auth_dependency)
@@ -173,9 +189,12 @@ async def get_initialize(
 
     original_oauth_status = srv.oauth_token_status
 
-    await apply_server_auth(
-        headers, srv, caller=caller_from_request(request), allow_private_networks=allow_private
-    )
+    # An OpenAPI server is answered by the hub itself (ADR 0011): its credentials go on
+    # the REST calls the executor makes, never on this request.
+    if not srv.is_openapi:
+        await apply_server_auth(
+            headers, srv, caller=caller_from_request(request), allow_private_networks=allow_private
+        )
 
     if srv.oauth_token_status != original_oauth_status:
         await registry.register(srv)
@@ -192,12 +211,15 @@ async def get_initialize(
     http_error = False
 
     try:
-        response = await client.post(
-            srv.url,
-            content=init_body,
-            headers=headers,
-            timeout=20,
-        )
+        if srv.is_openapi:
+            response = await _answer_locally(request, srv, init_body, headers)
+        else:
+            response = await client.post(
+                srv.url,
+                content=init_body,
+                headers=headers,
+                timeout=20,
+            )
     except httpx.TimeoutException as e:
         error_msg = f"Request timeout: {e}"
         http_error = True
@@ -279,7 +301,8 @@ async def get_initialize(
         trace_entry.request_body = trim_trace_body(init_body.decode("utf-8"), body_limit=500)
         trace_entry.response_body = trim_trace_body(response_body_str, body_limit=500)
 
-    trace_recorder.add(trace_entry)
+    if not srv.is_openapi:  # call_virtual has traced it
+        trace_recorder.add(trace_entry)
 
     template = templates.get_template("initialize.html")
     html = await template.render_async(
