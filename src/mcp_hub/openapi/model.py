@@ -58,10 +58,15 @@ class BodyPlan:
 
 @dataclass(frozen=True)
 class RequestPlan:
+    """`output` says how a 2xx JSON body becomes structured content: ``object`` as is,
+    ``wrapped`` under ``result`` (the schema was not an object), ``none`` when the
+    tool declares no output schema."""
+
     method: str
     path: str
     parameters: tuple[ParameterPlan, ...]
     body: BodyPlan | None
+    output: Literal["object", "wrapped", "none"] = "none"
 
 
 @dataclass(frozen=True)
@@ -114,6 +119,8 @@ class MappedOperation:
     selected: bool
     name_problem: str | None = None
     conflicts: tuple[OperationKey, ...] = field(default=())
+    # Informational: e.g. a `pattern` the hub cannot check and leaves to the API.
+    notes: tuple[str, ...] = ()
 
     @property
     def problems(self) -> tuple[str, ...]:

@@ -42,6 +42,11 @@ dependencies = [
     # minors. It resolves external $refs itself -- network and file:// alike -- so
     # mcp_hub.openapi.refs must reject them before anything reaches it (ADR 0011 §11).
     "openapi-spec-validator>=0.9,<0.10",
+    # Linear-time regex for checking tool arguments against a spec's `pattern`
+    # (Story 13.5). The pattern is attacker-chosen and the argument model-chosen, and
+    # Python's backtracking `re` can be made to hang while holding the GIL. Google's
+    # RE2 binding, BSD-3; wheels for CPython 3.11/3.12.
+    "google-re2>=1.1,<2",
 ]
 
 [project.optional-dependencies]

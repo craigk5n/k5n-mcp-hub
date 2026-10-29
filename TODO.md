@@ -1553,36 +1553,55 @@ wrap.
 
 - TDD: `tests/test_openapi_executor.py` first. Use an httpx mock transport, and put
   the adversarial cases below in named tests.
+- Modules: `openapi/validation.py`, `openapi/request_builder.py` and
+  `openapi/executor.py`. The entry point is `call_tool(tool, arguments, server=,
+  caller=, limits=) -> CallResult`, plus `CallResult.to_mcp()`.
 - Acceptance criteria:
-  - [ ] Path parameters are percent-encoded per segment. Tests: `../admin`,
-        `a/b`, `%2e%2e`, and an empty string for a required parameter.
-  - [ ] **Argument validation is safe from catastrophic regex backtracking.** A
-        spec's `pattern` is attacker-chosen and the arguments come from a model,
-        so `jsonschema` with Python's backtracking `re` can hang a live tool call
-        while holding the GIL (the Story 13.1 review hit exactly this in the
-        validator). Use a linear-time engine (e.g. `google-re2`, vetted first) or
-        skip `pattern` and leave it to the upstream API, and test with
-        `^(a+)+$`.
-  - [ ] Query serialization covers `form` style with `explode` true and false, for
-        primitives and arrays. Other styles mark the operation unsupported.
-  - [ ] Bodies are JSON or form-urlencoded. `Content-Type` is set by the hub, never
-        by arguments.
-  - [ ] Arguments are validated against `inputSchema` before any network request.
-        A failure returns `isError` with the validation message.
-  - [ ] No inbound request header reaches the upstream (asserted). Credentials come
-        only from `apply_server_auth`. OBO and EMA use the calling `Principal`, as
-        on the HTTP path (ADR 0004 still holds for background paths).
-  - [ ] Requests use the SSRF-pinned client with a timeout.
-  - [ ] Redirects are followed **only within the same origin** (scheme, host and
-        port), up to a configured hop cap, and the SSRF check is repeated on every
-        hop. A cross-origin redirect returns `isError` naming the target, and the
-        credential is never sent there. Tests: a same-origin chain, a cross-origin
-        hop, a chain over the cap, and a same-name host re-resolving to a forbidden
-        IP mid-chain.
-  - [ ] Responses are mapped as in ADR 0011 §7, with a response size cap. Exceeding
-        it is an error, not a silent truncation.
-  - [ ] OBO and EMA fail closed (ADR 0003): an exchange failure returns `isError`,
-        and the REST API is not called.
+  - [x] Path values are percent-encoded as one segment each, and `.`/`..` become
+        `%2E`. Named tests cover `../admin`, `a/b`, `%2e%2e`, and an empty value
+        (refused). Mapping also marks a path *template* with a dot segment
+        unsupported.
+  - [x] Regex safety (decided 2026-10-29): **`google-re2`** backs `pattern` and
+        `patternProperties` in a Draft 2020-12 validator, compiled quietly and
+        cached. `^(a+)+$` is checked in well under a second, and a test fails on
+        an assertion, not a hang, if `re` replaces RE2. A pattern RE2 cannot
+        compile (backreferences, lookaround) is left to the upstream API, and the
+        preview's `notes` say so.
+  - [x] Query: `form` style with `explode` true and false, for primitives and
+        arrays. Mapping marks other styles unsupported.
+  - [x] Bodies: JSON (including `+json` types, sent with the declared media type)
+        or form-urlencoded. A merged body carries only the fields sent and maps
+        `body_<name>` back to its own name. An optional body with nothing in it is
+        omitted. `Content-Type` comes only from the plan.
+  - [x] Arguments are validated against `inputSchema` before any I/O. A failure
+        returns `isError` with the message and location.
+  - [x] The executor is never handed the inbound request; a test asserts the only
+        headers sent are the hub's own. Credentials are applied **last**, so a
+        same-named query or header argument cannot override them. OBO and EMA
+        exchange the calling `Principal`'s token.
+  - [x] Requests use the SSRF-pinned client, with the whole call (redirects
+        included) under `openapi.call_timeout_seconds` (30).
+  - [x] Redirects stay within the base URL's origin, up to `openapi.max_redirects`
+        (5; 0 follows none). Every hop is explicitly re-resolved and SSRF-checked
+        before it is sent, on top of the pinned transport's check. 303, and
+        POST on 301/302, become a body-less GET, while 307/308 keep both method
+        and body. Named tests cover a same-origin chain, cross-origin by host,
+        scheme and port (never requested), over the cap, and a host re-resolving
+        to a forbidden address mid-chain.
+  - [x] Responses follow ADR 0011 §7, capped at `openapi.max_response_bytes`
+        (1 MiB, checked while streaming).
+        - The `RequestPlan.output` kind decides whether the body is passed as is
+          or wrapped in `result`.
+        - JSON that fails the declared output schema goes back as text only,
+          because MCP requires structured content to match.
+        - Text responses become text, binary ones an embedded blob resource, and
+          non-2xx an `isError` with the status and the start of the body.
+        - Errors never include the request URL (a query API key), and a
+          cross-origin target is shown with the key redacted.
+  - [x] OBO and EMA fail closed: `OBOAuthError` returns `isError`, the API is not
+        called, and `needs_authentication` is carried for 13.6 to answer 401 as
+        the proxy does. The identity provider's text stays in the server's
+        `obo_error`, not in the result.
 
 **Story 13.6 — The virtual MCP server**
 

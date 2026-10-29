@@ -24,6 +24,12 @@ DEFAULT_OPENAPI_VALIDATE_MEMORY_MB = 1024
 # Tool descriptions are spec text a model reads, and a spec is untrusted, so they are
 # capped (ADR 0011 §5). Room for a real summary plus a paragraph.
 DEFAULT_OPENAPI_MAX_DESCRIPTION_CHARS = 1024
+# A tools/call against the REST API: the whole call, redirects included.
+DEFAULT_OPENAPI_CALL_TIMEOUT_SECONDS = 30
+# Larger than any useful tool result; the cap is what stops an API that streams
+# without end from filling the hub's memory.
+DEFAULT_OPENAPI_MAX_RESPONSE_BYTES = 1024 * 1024
+DEFAULT_OPENAPI_MAX_REDIRECTS = 5
 
 # Bind addresses that cannot be reached from another host.
 LOOPBACK_HOSTS = frozenset({"127.0.0.1", "::1", "localhost"})
@@ -312,6 +318,9 @@ class OpenAPIConfig(BaseModel):
     validate_timeout_seconds: int = DEFAULT_OPENAPI_VALIDATE_TIMEOUT_SECONDS
     validate_memory_mb: int = DEFAULT_OPENAPI_VALIDATE_MEMORY_MB
     max_description_chars: int = DEFAULT_OPENAPI_MAX_DESCRIPTION_CHARS
+    call_timeout_seconds: int = DEFAULT_OPENAPI_CALL_TIMEOUT_SECONDS
+    max_response_bytes: int = DEFAULT_OPENAPI_MAX_RESPONSE_BYTES
+    max_redirects: int = DEFAULT_OPENAPI_MAX_REDIRECTS
 
     @field_validator("max_spec_bytes", mode="before")
     @classmethod
@@ -337,6 +346,26 @@ class OpenAPIConfig(BaseModel):
     @classmethod
     def validate_max_description_chars(cls, v: object) -> int:
         return _coerce_positive_int(v, DEFAULT_OPENAPI_MAX_DESCRIPTION_CHARS)
+
+    @field_validator("call_timeout_seconds", mode="before")
+    @classmethod
+    def validate_call_timeout(cls, v: object) -> int:
+        return _coerce_positive_int(v, DEFAULT_OPENAPI_CALL_TIMEOUT_SECONDS)
+
+    @field_validator("max_response_bytes", mode="before")
+    @classmethod
+    def validate_max_response_bytes(cls, v: object) -> int:
+        return _coerce_positive_int(v, DEFAULT_OPENAPI_MAX_RESPONSE_BYTES)
+
+    @field_validator("max_redirects", mode="before")
+    @classmethod
+    def validate_max_redirects(cls, v: object) -> int:
+        # Zero is a meaningful choice (follow none), unlike the other settings here.
+        try:
+            n = int(v)  # type: ignore[call-overload]
+        except (TypeError, ValueError):
+            return DEFAULT_OPENAPI_MAX_REDIRECTS
+        return n if n >= 0 else DEFAULT_OPENAPI_MAX_REDIRECTS
 
 
 class OtelConfig(BaseModel):

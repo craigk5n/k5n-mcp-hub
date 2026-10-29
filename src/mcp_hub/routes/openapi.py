@@ -175,6 +175,7 @@ def _operation_json(mapped: MappedOperation) -> dict[str, Any]:
         "unsupported": list(mapped.unsupported),
         "dropped": list(mapped.dropped),
         "problems": list(mapped.problems),
+        "notes": list(mapped.notes),
     }
 
 

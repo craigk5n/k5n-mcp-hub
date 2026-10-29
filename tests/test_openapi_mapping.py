@@ -986,3 +986,33 @@ class TestEdgeCases:
         refs = [r["$ref"] for r in schema["properties"]["body"]["items"]["anyOf"]]
         assert len(set(refs)) == 2
         assert {schema["$defs"][r.split("/")[-1]]["type"] for r in refs} == {"string", "integer"}
+
+
+class TestStory135Additions:
+    """What Story 13.5's executor needs from mapping."""
+
+    @pytest.mark.parametrize(
+        "responses, kind",
+        [
+            (_responses("200", OBJECT_BODY), "object"),
+            (_responses("200", {"type": "array"}), "wrapped"),
+            ({"200": {"description": "ok"}}, "none"),
+        ],
+    )
+    def test_plan_records_the_output_kind(self, responses, kind):
+        assert _one(_op(responses=responses), method="get").plan.output == kind
+
+    @pytest.mark.parametrize("path", ["/a/../admin", "/a/./b", "/.."])
+    def test_dot_segments_in_the_path_template_are_unsupported(self, path):
+        mapped = _one(_op(), path=path, method="get")
+        assert any("'..'" in r or "'.'" in r for r in mapped.unsupported)
+
+    def test_patterns_the_hub_cannot_check_are_noted(self):
+        op = _op(parameters=[_param("q", schema={"type": "string", "pattern": r"^(a)\1$"})])
+        mapped = _one(op)
+        assert mapped.tool is not None
+        assert any(r"(a)\1" in note for note in mapped.notes)
+
+    def test_checkable_patterns_are_not_noted(self):
+        op = _op(parameters=[_param("q", schema={"type": "string", "pattern": "^[a-z]+$"})])
+        assert _one(op).notes == ()

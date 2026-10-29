@@ -214,6 +214,15 @@ openapi:
   # is capped, and the admin preview shows it exactly as the model will see it.
   max_description_chars: 1024
 
+  # call_timeout_seconds / max_response_bytes / max_redirects: Limits on one tool
+  # call to the REST API. The timeout covers the whole call, redirects included.
+  # Redirects are followed only to the same origin (scheme, host and port) as the
+  # base URL, re-checked against the SSRF guard on every hop; a redirect elsewhere is
+  # refused so the credential never goes there. 0 follows none.
+  call_timeout_seconds: 30
+  max_response_bytes: 1048576
+  max_redirects: 5
+
 trace:
   # body_limit: Maximum number of body bytes to capture per request/response.
   body_limit: 10000

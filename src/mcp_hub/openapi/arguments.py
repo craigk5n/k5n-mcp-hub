@@ -80,6 +80,9 @@ def operation_arguments(
     args = Arguments()
     for param in _merged_parameters(document, path_item, operation):
         _add_parameter(document, bundler, args, param)
+    if any(segment in (".", "..") for segment in path.split("/")):
+        # Appended to the base URL, a dot segment would climb out of its path.
+        args.unsupported.append(f"path {path!r} contains a '.' or '..' segment")
     declared = {p.name for p in args.parameters if p.location == "path"}
     for variable in _PATH_VARIABLE.findall(path):
         if variable not in declared:

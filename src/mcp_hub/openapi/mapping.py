@@ -16,7 +16,7 @@ from __future__ import annotations
 import copy
 import re
 from collections.abc import Iterator, Mapping
-from typing import Any
+from typing import Any, Literal
 
 from mcp_hub.openapi.arguments import operation_arguments, resolve_media_schema
 from mcp_hub.openapi.model import (
@@ -31,6 +31,7 @@ from mcp_hub.openapi.model import (
 from mcp_hub.openapi.refs import resolve_local
 from mcp_hub.openapi.schema_convert import SchemaBundler, deref
 from mcp_hub.openapi.swagger2 import UNSUPPORTED, swagger2_to_openapi3
+from mcp_hub.openapi.validation import unchecked_patterns
 
 _METHODS = ("get", "put", "post", "delete", "options", "head", "patch", "trace")
 # The MCP spec's tool-name guidance: 1-128 characters, case-sensitive, from this set.
@@ -142,6 +143,7 @@ def _map_operation(
             key, None, None, tuple(unsupported), tuple(args.dropped), key in selection
         )
     name, name_problem = _tool_name(key, operation, override)
+    output_schema, output_kind = _output_schema(document, dialect, operation)
     root: dict[str, Any] = {"type": "object", "properties": args.properties}
     if args.required:
         root["required"] = args.required
@@ -150,12 +152,23 @@ def _map_operation(
         name=name,
         description=_description(key, operation, override, description_limit),
         input_schema=copy.deepcopy(input_bundle.finish(root)),
-        output_schema=_output_schema(document, dialect, operation),
+        output_schema=output_schema,
         annotations=dict(_ANNOTATIONS.get(key.method, {})),
     )
-    plan = RequestPlan(key.method, key.path, tuple(args.parameters), args.body)
+    plan = RequestPlan(key.method, key.path, tuple(args.parameters), args.body, output_kind)
     return MappedOperation(
-        key, tool, plan, (), tuple(args.dropped), key in selection, name_problem=name_problem
+        key,
+        tool,
+        plan,
+        (),
+        tuple(args.dropped),
+        key in selection,
+        name_problem=name_problem,
+        notes=tuple(
+            f"pattern '{p}' cannot be checked by the hub (backreferences and lookaround "
+            "are not supported); the API itself will enforce it"
+            for p in unchecked_patterns(tool.input_schema)
+        ),
     )
 
 
@@ -170,7 +183,15 @@ def _with_conflicts(mapped: list[MappedOperation]) -> Iterator[MappedOperation]:
             continue
         others = tuple(k for k in by_name[m.tool.name] if k != m.key)
         yield MappedOperation(
-            m.key, m.tool, m.plan, m.unsupported, m.dropped, m.selected, m.name_problem, others
+            m.key,
+            m.tool,
+            m.plan,
+            m.unsupported,
+            m.dropped,
+            m.selected,
+            m.name_problem,
+            others,
+            m.notes,
         )
 
 
@@ -216,29 +237,32 @@ def _description(
 
 def _output_schema(
     document: dict[str, Any], dialect: str, operation: dict[str, Any]
-) -> dict[str, Any] | None:
+) -> tuple[dict[str, Any] | None, Literal["object", "wrapped", "none"]]:
     """From the lowest 2xx response, when it has a JSON body; wrapped as `result`
     when that is not an object, since MCP's structured output must be one."""
     responses = operation.get("responses", {})
     explicit = sorted(c for c in responses if len(c) == 3 and c.isdigit() and c.startswith("2"))
     codes = explicit + [c for c in ("2XX", "2xx") if c in responses]
     if not codes:
-        return None
+        return None, "none"
     schema = resolve_media_schema(document, responses[codes[0]])
     if schema is None:
-        return None
+        return None, "none"
     bundle = SchemaBundler(document, dialect)
     resolved = deref(document, schema)
+    kind: Literal["object", "wrapped"]
     if _is_object_root(document, resolved):
         root = bundle.convert(resolved)
         root = {"type": "object", **root} if "type" not in root else root
+        kind = "object"
     else:
         root = {
             "type": "object",
             "properties": {"result": bundle.convert(schema)},
             "required": ["result"],
         }
-    return copy.deepcopy(bundle.finish(root))
+        kind = "wrapped"
+    return copy.deepcopy(bundle.finish(root)), kind
 
 
 def _is_object_root(document: dict[str, Any], schema: Any) -> bool:
