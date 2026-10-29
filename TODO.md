@@ -1198,8 +1198,8 @@ tests.
   below as named tests.
 - Acceptance criteria:
   - [ ] For a server with a non-empty policy, the request body is parsed strictly
-        before fault injection and before any backend contact, on both the HTTP and
-        stdio paths. Strictly means valid JSON, **duplicate keys rejected**, and a
+        before fault injection and before any backend contact, on the HTTP, stdio
+        and OpenAPI (Epic 13, ADR 0011 §10) paths. Strictly means valid JSON, **duplicate keys rejected**, and a
         string `params.name` on `tools/call`. Anything else is refused (ADR 0010 §3).
   - [ ] A denied `tools/call` gets a JSON-RPC error (`-32602`, `Unknown tool: <name>`)
         echoing the request id, and the backend is never contacted. The response is
@@ -1305,6 +1305,231 @@ tests.
       endpoint. That is a separate epic: the hub becomes the MCP server, which is a
       bigger change than this.
 - [ ] Distributed rate limiting (see 12.6).
+
+## REST APIs as MCP servers (OpenAPI)
+
+### Epic 13 — Serve OpenAPI operations as MCP tools *(scheduled before Epic 12)*
+
+The hub can only reach a REST API today if someone writes and runs an MCP wrapper
+for it, and the wrapper holds one shared credential. With this epic, an admin imports
+an OpenAPI document (Swagger 2.0, OpenAPI 3.0 or 3.1), picks the operations to
+expose, and **the hub serves them as a virtual MCP server**. It answers `tools/list`
+and `tools/call` itself and makes the REST calls. Bearer, basic, OBO and EMA all
+apply, so a REST API can see the real user. Shared-key translators can't offer that,
+and it's the reason this isn't a stdio sidecar (ADR 0007 limits stdio servers to the
+service identity).
+
+**See [ADR 0011](docs/adr/0011-openapi-backends-are-virtual-servers-in-the-hub.md).**
+The main rules:
+- The stored, admin-accepted **snapshot** is the source of truth, and a changed spec
+  waits for approval.
+- **Nothing is exposed until selected.**
+- The admin sets the **base URL**; `servers[]` is never trusted.
+
+This epic serves one REST API per virtual server, which is a different thing from
+the cross-backend virtual catalog that Epic 12 lists as out of scope. Epic 12 lands
+after this one, so 13.6 leaves a single `tools/call` seam for its policy check to
+wrap.
+
+**Story 13.1 — Spec loading and validation**
+
+- TDD: `tests/test_openapi_loader.py` first, with fixture specs for each dialect
+  under `tests/fixtures/openapi/`.
+- Acceptance criteria:
+  - [ ] `mcp_hub/openapi/loader.py` loads JSON or YAML (`yaml.safe_load` only) from
+        bytes and validates it with `openapi-spec-validator`. The validation error
+        names the failing JSON pointer and is shown to the admin.
+  - [ ] Fetching from a URL uses the SSRF-pinned client, with a size cap and a
+        timeout taken from config. Upload and paste go through the same size cap.
+  - [ ] Local `$ref`s are resolved. **Any external `$ref` is rejected** with an error
+        naming it, and a test proves no network request is made while trying.
+  - [ ] Ref cycles and very large documents are bounded. Tests cover a recursive
+        schema and a "billion laughs"-style YAML alias bomb.
+  - [ ] `openapi-spec-validator` (and `jsonschema-path` if it is imported directly)
+        is added to `dependencies` with an upper bound, and `pip-audit` stays clean.
+
+**Story 13.2 — Swagger 2.0 normalizer**
+
+- TDD: `tests/test_openapi_swagger2.py` first. Each 2.0 fixture is checked against
+  a hand-written 3.0 expectation.
+- Acceptance criteria:
+  - [ ] `mcp_hub/openapi/swagger2.py` converts a validated 2.0 document to the 3.x
+        shape that mapping consumes: `in: body` becomes `requestBody`, `formData`
+        becomes a form-urlencoded `requestBody`, `consumes`/`produces` become media
+        types, `definitions` becomes `components/schemas` with refs rewritten, and
+        `host`/`basePath`/`schemes` become a `servers[]` suggestion.
+  - [ ] It covers only what mapping needs. Anything it does not convert (e.g.
+        `type: file`) marks the affected operation "unsupported", visible in the
+        preview, rather than failing the whole import.
+
+**Story 13.3 — Operation-to-tool mapping (pure)**
+
+- TDD: `tests/test_openapi_mapping.py` first. These are pure functions, so they get
+  table-driven tests with no I/O.
+- Acceptance criteria:
+  - [ ] One function maps `(snapshot, selection, overrides) -> list[ToolDef]`, plus
+        an internal record per tool of how to build its request. The UI, tools/list
+        and tools/call all use it.
+  - [ ] Naming: `operationId`, falling back to `<method>_<path>`, normalized to
+        MCP's tool-name character set. A collision after normalization is an import
+        error that names both operations. Overrides win.
+  - [ ] Descriptions are `summary` + `description`, capped at a configured length.
+  - [ ] `inputSchema`: path, query and header parameters, with an object body's
+        properties **merged** into the top level and the required flags merged too
+        (ADR 0011 §6). Parameters keep their names and a colliding body property
+        becomes `body_<name>`; if that also collides, the operation is an import
+        error. Arrays, primitives, `oneOf`/`anyOf` bodies and bodies that allow
+        `additionalProperties` go under a single `body` property instead. There is
+        a table-driven test for each case, including a double collision.
+  - [ ] OpenAPI 3.0 schemas are converted to 2020-12 (`nullable`, the boolean form of
+        `exclusiveMinimum`/`exclusiveMaximum`, `example` → `examples`), and the
+        existing `schema_refs.py` behavior is reused where it fits.
+  - [ ] `outputSchema` comes from the 2xx JSON response schema, wrapped as
+        `{"result": ...}` when it is not an object (ADR 0011 §7).
+  - [ ] Annotations: `readOnlyHint` for GET/HEAD, `destructiveHint` for DELETE,
+        `idempotentHint` for PUT.
+  - [ ] Header parameters on the ADR 0011 §6 deny list (`Authorization`, `Cookie`,
+        `Host`, …) are dropped from the tool and reported in the preview.
+  - [ ] An operation whose only body type is something other than JSON or
+        form-urlencoded is marked unsupported.
+
+**Story 13.4 — Model, storage and registration**
+
+- TDD: `tests/test_openapi_registration.py` first.
+- Acceptance criteria:
+  - [ ] `transport_kind: "openapi"` and `mcp_transport` get the new value, and the
+        synthetic `url` is `openapi:<server id>` (ADR 0011 §1). Stored records
+        without these fields load unchanged.
+  - [ ] Fields are added for: the admin-set base URL, the snapshot (normalized,
+        local `$ref`s kept) and its SHA-256, the pending revision, the selection
+        (keyed by `(METHOD, path template)`), per-tool overrides, and the optional
+        health-probe operation. They are all **inline on `RegisteredServer`**, so
+        they persist to `mcp_servers.json` under `json` storage (ADR 0011 §2). A
+        round-trip test reloads the JSON store and gets an identical tool list.
+  - [ ] The base URL goes through the same URL validation as any backend.
+        `servers[]` only pre-fills it.
+  - [ ] Registration, selection changes, overrides and accepting a revision all
+        require `auth.jwt.admin_scope` under `jwt`.
+  - [ ] Re-registration keeps the selection and overrides when they are omitted (the
+        same rule as ADR 0010 §8), so a script cannot quietly re-enable or reset
+        tools.
+  - [ ] `registry_export` and discovery skip `openapi` servers, and a test asserts
+        they make no MCP probe of the synthetic URL.
+  - [ ] The health checker skips them **by default**. An admin may name a GET
+        operation with no required parameters as the probe. The checker then calls
+        it with the service identity (ADR 0004), counts any 2xx as healthy, and
+        applies the usual threshold and auto-unregister settings. Naming an
+        operation that has required parameters, or that isn't a GET, is rejected.
+  - [ ] A static API key credential (name, location `header`|`query`, value) is
+        added to `apply_server_auth`. The key is redacted everywhere `bearer_token`
+        is (trace, export, UI, logs).
+
+**Story 13.5 — Request builder and executor**
+
+- TDD: `tests/test_openapi_executor.py` first. Use an httpx mock transport, and put
+  the adversarial cases below in named tests.
+- Acceptance criteria:
+  - [ ] Path parameters are percent-encoded per segment. Tests: `../admin`,
+        `a/b`, `%2e%2e`, and an empty string for a required parameter.
+  - [ ] Query serialization covers `form` style with `explode` true and false, for
+        primitives and arrays. Other styles mark the operation unsupported.
+  - [ ] Bodies are JSON or form-urlencoded. `Content-Type` is set by the hub, never
+        by arguments.
+  - [ ] Arguments are validated against `inputSchema` before any network request.
+        A failure returns `isError` with the validation message.
+  - [ ] No inbound request header reaches the upstream (asserted). Credentials come
+        only from `apply_server_auth`. OBO and EMA use the calling `Principal`, as
+        on the HTTP path (ADR 0004 still holds for background paths).
+  - [ ] Requests use the SSRF-pinned client with a timeout.
+  - [ ] Redirects are followed **only within the same origin** (scheme, host and
+        port), up to a configured hop cap, and the SSRF check is repeated on every
+        hop. A cross-origin redirect returns `isError` naming the target, and the
+        credential is never sent there. Tests: a same-origin chain, a cross-origin
+        hop, a chain over the cap, and a same-name host re-resolving to a forbidden
+        IP mid-chain.
+  - [ ] Responses are mapped as in ADR 0011 §7, with a response size cap. Exceeding
+        it is an error, not a silent truncation.
+  - [ ] OBO and EMA fail closed (ADR 0003): an exchange failure returns `isError`,
+        and the REST API is not called.
+
+**Story 13.6 — The virtual MCP server**
+
+- TDD: `tests/test_openapi_virtual_server.py` first. Use the real `mcp` SDK client
+  for the handshake revisions and `mcp/stateless.py` for 2026-07-28.
+- Acceptance criteria:
+  - [ ] `proxy/handler.py` branches on `transport_kind == "openapi"` next to the
+        stdio branch. The same proxy route, server access check (`required_scope`)
+        and request id apply.
+  - [ ] It answers `initialize` (the handshake revisions in `mcp/constants.py`),
+        `server/discover` (stateless), `tools/list`, `tools/call`, `resources/list`
+        and `resources/read`, and returns method-not-found for anything else.
+  - [ ] The one resource is the spec, trimmed to the enabled operations. A test
+        asserts that a disabled operation's path appears nowhere in it.
+  - [ ] All `tools/call` traffic goes through **one** function, documented as the
+        point where Epic 12's `tool_permitted` check will wrap.
+  - [ ] Fault injection, the trace recorder (MCP exchange plus the upstream REST
+        request, sanitized) and `/metrics` work as they do for proxied servers.
+  - [ ] OTel spans and metric labels use the path template, never the expanded path
+        (ADR 0009, ADR 0011 §13).
+
+**Story 13.7 — Refresh, diff and approval**
+
+- TDD: `tests/test_openapi_revisions.py` first.
+- Acceptance criteria:
+  - [ ] Re-fetching or re-uploading creates a pending revision only when the
+        SHA-256 differs. Live tools keep serving from the accepted snapshot.
+  - [ ] The diff lists operations added and removed, input or output schema changes,
+        description changes, `servers[]` changes, and orphaned selections and
+        overrides.
+  - [ ] When a revision is accepted: selections carry over by `(METHOD, path
+        template)`, new operations start disabled, and orphaned selections are
+        dropped and reported.
+  - [ ] Rejecting a revision discards it.
+  - [ ] Detection is **manual only**: an admin "check for updates" action (re-fetch
+        from the stored URL) or a new upload. No background task re-fetches specs,
+        and a test asserts that.
+
+**Story 13.8 — Admin UI**
+
+- Acceptance criteria:
+  - [ ] Import from a URL or by upload/paste. Validation errors are shown with their
+        JSON pointer.
+  - [ ] The base URL form is pre-filled from `servers[]` (with server variables)
+        and has to be confirmed.
+  - [ ] Auth form, with any `securitySchemes` shown as a suggestion only.
+  - [ ] An operation picker, grouped by tag, with method, path, unsupported and
+        dropped-header markers. For each operation it shows the description **as the
+        model will see it**, and offers name/description overrides.
+  - [ ] A "check for updates" button and a revision review page: diff view with
+        accept and reject.
+  - [ ] Health probe picker that lists only eligible GET operations, with "none" as
+        the default.
+  - [ ] Templates use the existing async Jinja2 environment and filters, and all
+        spec text is autoescaped. A test feeds a spec with HTML/script in
+        `description`.
+
+**Story 13.9 — End-to-end and docs**
+
+- Acceptance criteria:
+  - [ ] `e2e/` gains a small REST service with an OpenAPI document that checks the
+        audience and subject of the token it receives. The demo shows the
+        Keycloak-issued user reaching it through OBO.
+  - [ ] README: import, select, base URL, the auth modes, and why nothing is enabled
+        by default. `tests/test_readme.py` is kept passing.
+  - [ ] The ADR 0011 row in `docs/adr/README.md` is moved to Accepted once the epic
+        ships.
+
+**Deliberately out of scope**
+
+- [ ] Importing OpenAPI backends from the MCP registry. `server.json` cannot
+      reference a spec (ADR 0011 §12). Raise it upstream alongside the existing
+      proxying-gateway item.
+- [ ] External `$ref`s and multi-file specs.
+- [ ] `multipart/form-data`, raw text and XML request bodies.
+- [ ] Exposing GET operations as MCP resources or resource templates, and prompts.
+- [ ] Per-operation `security` requirements. v1 uses one credential per server.
+- [ ] `x-mcp-*` vendor extensions in specs.
+- [ ] Aggregating several APIs behind one virtual server.
 
 ## Product / usefulness follow-ups (from AUDIT_local.md §3)
 

@@ -19,6 +19,7 @@ Format: `NNNN-short-title.md`, with `Status`, `Context`, `Decision`,
 | [0008](0008-registry-import-yes-publish-no.md) | The hub imports from the MCP registry but never publishes to it | Accepted |
 | [0009](0009-opentelemetry-is-optional-and-redacted.md) | OpenTelemetry is optional, off by default, and redacted | Accepted |
 | [0010](0010-tool-policy-is-enforced-on-the-call.md) | Tool policy is enforced on the call, and hiding is only a courtesy | Proposed |
+| [0011](0011-openapi-backends-are-virtual-servers-in-the-hub.md) | OpenAPI backends are virtual MCP servers the hub serves itself | Proposed |
 
 ADRs 0001–0004 together specify on-behalf-of (OBO) token exchange, tracked as
 Epics 5–7 in [`TODO.md`](../../TODO.md). ADRs 0005–0006 cover Enterprise-Managed
@@ -27,5 +28,6 @@ tracked as Epic 9, ADR 0008 registry interop, tracked as Epic 10, and ADR 0009
 OpenTelemetry, tracked as Epic 11. All three epics are built, so these describe what
 the code does rather than designs under review.
 
-ADR 0010 covers tool governance, tracked as Epic 12. It is Proposed: the epic is not
-built yet, so it is still a design under review.
+ADR 0010 covers tool governance, tracked as Epic 12. ADR 0011 covers serving
+OpenAPI operations as MCP tools, tracked as Epic 13. Both are Proposed: neither epic
+is built yet, so they are still designs under review.
