@@ -395,6 +395,21 @@ curl -s -X PUT http://localhost:8080/v1/openapi/servers/pets/tools -H 'Content-T
 
 Clients then reach it like any server: `POST /mcp` with `X-MCP-Target-Server: pets`.
 
+**Trying it from the servers page.** The Invoke, Initialize and Playground panels and
+the capabilities view work for these servers too. There is no backend MCP URL to
+call (the record's `url` is a placeholder, `openapi:<id>`), so the hub answers them
+itself through the same path as `/mcp`, and the trace view shows the REST call by its
+path template. The Invoke form is tuned for typing a REST API's arguments, including
+on a phone or tablet:
+
+- A parameter with a fixed set of values (`enum`) is a dropdown, with any default
+  preselected; an optional one can be left "(not set)". This applies to every server.
+- A string parameter keeps exactly what you typed, so `1` stays `"1"` rather than
+  becoming a number the schema refuses.
+- An array parameter accepts `tag1`, `tag1, tag2`, `[tag1, tag2]` or `(tag1, tag2)` as
+  well as JSON, and smart quotes (`[“tag1”]`, as iPad keyboards type them) are read
+  as straight ones. Items become numbers or booleans only when the schema says so.
+
 **Nothing is enabled by default.** A spec is someone else's document: its operation
 descriptions become text a model reads, and a delete endpoint looks just like a list
 one. The preview shows each tool's description exactly as the model will see it, and

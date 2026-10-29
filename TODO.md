@@ -1815,6 +1815,30 @@ wrap.
   - [x] ADR 0011 §11 and the README list 3.2 as supported, along with what is
         marked unsupported.
 
+**Follow-ups from local testing** *(2026-10-29, against the public Petstore)*
+
+- [x] The servers page's panels served OpenAPI servers. Invoke failed with "Invalid
+      server URL: only http and https", because it called the synthetic
+      `openapi:<id>`. Initialize, Playground and the live capabilities view had the
+      same flaw. They now go through `openapi/local_call.py`, which calls
+      `virtual_server.handle_request` in-process (so tools/call still passes
+      through `dispatch_tool_call`) and traces like the proxy route. The background
+      MCP probe skips OpenAPI servers. Tests: `tests/test_openapi_ui_panels.py`.
+- [x] Invoke form arguments for OpenAPI tools. The form guesses types from the text,
+      which the hub's strict validation refused. Now a property declared `string`
+      keeps its raw text. An array property accepts `a`, `a, b`, `[a, b]` or
+      `(a, b)`, with items converted only to a declared numeric or boolean type.
+      Smart quotes in array and object fields are straightened, so JSON typed on an
+      iPad parses.
+- [x] An `enum` parameter is a dropdown in the Invoke form, for every server kind.
+      An optional one offers "(not set)", and a default is preselected. Tests:
+      `tests/test_capabilities_template.py`.
+- [ ] A multi-select for array parameters whose `items` have an `enum`. These are
+      still a text box.
+- [ ] Consider the same string and array handling for ordinary MCP servers. It is
+      limited to OpenAPI servers for now, because those are the ones the hub itself
+      validates strictly.
+
 **Deliberately out of scope**
 
 - [ ] Importing OpenAPI backends from the MCP registry. `server.json` cannot
