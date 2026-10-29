@@ -3,6 +3,32 @@ from typing import Any, Literal
 from pydantic import BaseModel, field_validator, model_validator
 
 
+# Fields a re-registration keeps from the stored record when it sends them empty, so
+# a script re-registering a server does not have to resend every secret. Shared by
+# /v1/register and the OpenAPI importer, which must not drift apart on this.
+KEPT_ON_REREGISTRATION: tuple[str, ...] = (
+    "auth_type",
+    "obo_audience",
+    "obo_resource",
+    "obo_scope",
+    "obo_actor_token_source",
+    "ema_resource_as_issuer",
+    "ema_resource_as_token_url",
+    "ema_resource_id",
+    "ema_subject_token_type",
+    "required_scope",
+    "bearer_token",
+    "basic_username",
+    "basic_password",
+    "oauth_discovery_url",
+    "oauth_token_url",
+    "oauth_client_id",
+    "oauth_client_secret",
+    "oauth_scope",
+    "oauth_resource",
+)
+
+
 class RegisterRequest(BaseModel):
     id: str
     # Optional for a stdio server, which has no URL -- one is synthesized as

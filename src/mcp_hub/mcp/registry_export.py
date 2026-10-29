@@ -108,6 +108,13 @@ def to_server_json(server: RegisteredServer) -> dict[str, Any]:
     trace or fault-injection state, or provenance — a re-export is not evidence about
     where the original came from.
     """
+    if server.is_openapi:
+        # The hub *is* the MCP server for these (ADR 0011 §12): there is no remote to
+        # point at and no package to run, so a server.json would describe nothing.
+        raise ValueError(
+            f"{server.id!r} is an OpenAPI server: the hub serves it itself, so there is "
+            "no MCP endpoint or package to export"
+        )
     document: dict[str, Any] = {
         "$schema": SERVER_JSON_SCHEMA_URL,
         "name": _registry_name(server),

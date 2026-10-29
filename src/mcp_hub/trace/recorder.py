@@ -5,7 +5,8 @@ from collections import deque
 from dataclasses import dataclass, field
 from datetime import datetime
 from threading import Lock
-from typing import Any, Mapping, TypeVar
+from typing import Any, Iterable, Mapping, TypeVar
+from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 
 # Header names whose values may carry credentials or session material and must never be
@@ -133,18 +134,39 @@ def redact_auth_header(value: str) -> str:
     return "****"
 
 
-def sanitize_trace_headers(headers: Mapping[str, str]) -> dict[str, str]:
+def sanitize_trace_headers(
+    headers: Mapping[str, str], *, extra_sensitive: Iterable[str] = ()
+) -> dict[str, str]:
+    """`extra_sensitive` adds header names, case-insensitively, for credentials whose
+    header the operator chose (an OpenAPI backend's API key)."""
+    sensitive = SENSITIVE_HEADERS | {name.lower() for name in extra_sensitive}
     result: dict[str, str] = {}
     for key, value in headers.items():
         lower_key = key.lower()
         if lower_key == "authorization":
             # Preserve the scheme (Bearer/Basic) for debuggability; hide the credential.
             result[key] = redact_auth_header(value)
-        elif lower_key in SENSITIVE_HEADERS:
+        elif lower_key in sensitive:
             result[key] = "****"
         else:
             result[key] = value
     return result
+
+
+def redact_query_params(url: str, names: Iterable[str]) -> str:
+    """`url` with the values of the named query parameters replaced. For an API key
+    sent ``in: query``, which would otherwise sit in every recorded URL."""
+    redacted = set(names)
+    if not redacted:
+        return url
+    parts = urlsplit(url)
+    if not parts.query:
+        return url
+    pairs = parse_qsl(parts.query, keep_blank_values=True)
+    if not any(name in redacted for name, _ in pairs):
+        return url
+    query = urlencode([(n, "****" if n in redacted else v) for n, v in pairs], safe="*")
+    return urlunsplit(parts._replace(query=query))
 
 
 def format_headers(headers: Mapping[str, str]) -> str:

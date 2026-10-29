@@ -14,7 +14,10 @@ class Registry:
         if existing is not None and server.created_at is None:
             server.created_at = existing.created_at
         server.updated_at = utcnow()
-        if existing is not None:
+        # Keep discovered capabilities across a re-registration that carries none. Not
+        # for an OpenAPI server: its tools are derived from the admin's selection, so
+        # an empty list is the selection being cleared, not "unknown".
+        if existing is not None and not server.is_openapi:
             if (server.tools is None or len(server.tools) == 0) and existing.tools:
                 server.tools = existing.tools
             if (server.prompts is None or len(server.prompts) == 0) and existing.prompts:

@@ -157,8 +157,13 @@ async def apply_server_auth(
     client: httpx.AsyncClient | None = None,
     allow_private_networks: bool = False,
     otel: Any = None,
+    params: dict[str, str] | None = None,
 ) -> None:
     """Apply server authentication to the given headers.
+
+    ``params`` receives query parameters, which only an API key sent ``in: query``
+    uses (OpenAPI backends, Story 13.4). Such a server without a ``params`` target
+    is a programming error and raises rather than silently sending no credential.
 
     ``caller`` is required, never defaulted (ADR 0004): pass the request's
     ``Principal``, or ``SERVICE_IDENTITY`` for a background call with no user in
@@ -215,6 +220,13 @@ async def apply_server_auth(
         )
         return
 
+    if server.auth_type == "api_key":
+        # Only the key, even when it is empty: falling through would send whatever
+        # stale bearer token or password the record still holds.
+        if server.api_key_value.strip():
+            _apply_api_key(headers, params, server)
+        return
+
     token = server.bearer_token
     if token and token.strip():
         tok = token.strip()
@@ -222,8 +234,10 @@ async def apply_server_auth(
         # Also send X-MCP-Token: many MCP servers run behind Apache/PHP, which strips the
         # Authorization header unless specially configured. This fallback header (a common
         # MCP-server convention) reaches those servers; a server that only reads
-        # Authorization simply ignores the extra header.
-        headers["X-MCP-Token"] = tok
+        # Authorization simply ignores the extra header. Not for a REST API behind an
+        # OpenAPI backend: there it is only a second copy of the credential.
+        if not server.is_openapi:
+            headers["X-MCP-Token"] = tok
         server.oauth_token_status = ""
         server.oauth_token_error = ""
         return
@@ -257,6 +271,25 @@ async def apply_server_auth(
         except Exception as exc:  # noqa: BLE001
             server.oauth_token_status = "error"
             server.oauth_token_error = str(exc)
+
+
+def _apply_api_key(
+    headers: httpx.Headers | dict[str, str],
+    params: dict[str, str] | None,
+    server: RegisteredServer,
+) -> None:
+    value = server.api_key_value.strip()
+    if server.api_key_in == "query":
+        if params is None:
+            raise ValueError(
+                f"server {server.id!r} sends its API key as a query parameter, but this "
+                "call site passed no params to receive it"
+            )
+        params[server.api_key_name] = value
+    else:
+        headers[server.api_key_name] = value
+    server.oauth_token_status = ""
+    server.oauth_token_error = ""
 
 
 async def _apply_obo_auth(

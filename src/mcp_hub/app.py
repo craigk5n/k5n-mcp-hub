@@ -326,9 +326,19 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         allow_private_networks=allow_private_networks,
         stdio_pool=stdio_pool,
         otel=otel_provider,
+        openapi_description_limit=settings.openapi.max_description_chars,
     )
 
     app.state.settings = settings
+    # OpenAPI import jobs (Story 13.4). Their tasks are tracked like any background
+    # task, so shutdown cancels an import in flight rather than leaving it orphaned.
+    from mcp_hub.openapi.importer import ServerLocks
+    from mcp_hub.openapi.jobs import ImportJobStore
+
+    app.state.openapi_locks = ServerLocks()
+    app.state.openapi_jobs = ImportJobStore(
+        on_task=lambda task: register_background_task(app, task)
+    )
     app.state.metrics = metrics
     app.state.storage = storage
     app.state.registry = registry
@@ -367,6 +377,7 @@ def _mount_routers(app: FastAPI) -> None:
     from mcp_hub.routes import api
     from mcp_hub.routes import mcp
     from mcp_hub.routes import v1
+    from mcp_hub.routes import openapi as openapi_routes
     from mcp_hub.routes import registry_api
     from mcp_hub.routes import proxy
     from mcp_hub.routes import ui_servers
@@ -386,6 +397,7 @@ def _mount_routers(app: FastAPI) -> None:
     app.include_router(proxy.router)
     app.include_router(mcp.router)
     app.include_router(v1.router)
+    app.include_router(openapi_routes.router)
     app.include_router(registry_api.router)
     app.include_router(ui_servers.router)
     app.include_router(ui_servers.api_router)

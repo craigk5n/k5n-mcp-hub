@@ -14,7 +14,7 @@ from mcp_hub.auth.authorize import require_admin
 from mcp_hub.utils import sanitize_filename
 from mcp_hub.mcp.registry_export import export_warnings, to_server_json
 from mcp_hub.mcp.registry_import import stdio_suggestion, to_register_payload
-from mcp_hub.models.register_request import RegisterRequest
+from mcp_hub.models.register_request import KEPT_ON_REREGISTRATION, RegisterRequest
 from mcp_hub.registry.service import Registry
 from mcp_hub.utils import is_url_safe_for_discovery, utcnow
 
@@ -144,6 +144,16 @@ async def register_from_data(
     )
 
     existing = await registry.get(server_id)
+    if existing is not None and existing.is_openapi:
+        # Re-registering it here would replace it with an HTTP server and discard the
+        # accepted spec, the selection and the overrides.
+        return JSONResponse(
+            status_code=409,
+            content={
+                "error": f"{server_id!r} is an OpenAPI server; manage it through "
+                "/v1/openapi/imports and /v1/openapi/servers/{id}/tools"
+            },
+        )
     incoming_registration_type = validated.registration_type
     effective_registration_type = incoming_registration_type
     if existing is not None and not incoming_registration_type and existing.registration_type:
@@ -234,30 +244,8 @@ async def register_from_data(
         elif srv.oauth_discovery_url or srv.oauth_token_url:
             srv.auth_type = "oauth"
 
-    merge_fields = [
-        "auth_type",
-        "obo_audience",
-        "obo_resource",
-        "obo_scope",
-        "obo_actor_token_source",
-        "ema_resource_as_issuer",
-        "ema_resource_as_token_url",
-        "ema_resource_id",
-        "ema_subject_token_type",
-        "required_scope",
-        "bearer_token",
-        "basic_username",
-        "basic_password",
-        "oauth_discovery_url",
-        "oauth_token_url",
-        "oauth_client_id",
-        "oauth_client_secret",
-        "oauth_scope",
-        "oauth_resource",
-    ]
-
     if existing is not None:
-        for field in merge_fields:
+        for field in KEPT_ON_REREGISTRATION:
             incoming_val = getattr(srv, field)
             if not incoming_val:
                 existing_val = getattr(existing, field)
@@ -428,6 +416,14 @@ async def export_server_json(
     if srv is None:
         return PlainTextResponse("Server not found", status_code=404)
 
+    if srv.is_openapi:
+        return JSONResponse(
+            status_code=400,
+            content={
+                "error": "OpenAPI servers are served by this hub itself and have no MCP "
+                "endpoint to export (ADR 0011)"
+            },
+        )
     document = to_server_json(srv)
     warnings = export_warnings(srv)
 

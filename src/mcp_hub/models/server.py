@@ -10,6 +10,8 @@ from pydantic import (
     model_validator,
 )
 
+from mcp_hub.models.openapi import OpenAPIOperationRef, OpenAPIOverride, OpenAPISnapshot
+
 
 DATETIME_FIELDS = (
     "created_at",
@@ -42,6 +44,13 @@ def _utc_datetime_serializer(dt: datetime | None) -> str | None:
     return dt.isoformat().replace("+00:00", "Z")
 
 
+def _summary(snapshot: OpenAPISnapshot | None) -> OpenAPISnapshot | None:
+    """A snapshot without its document, for responses. A spec can be megabytes and
+    routinely carries example tokens and internal hostnames; listings need to know
+    which spec is live, not to repeat it."""
+    return snapshot.model_copy(update={"document": {}}) if snapshot is not None else None
+
+
 class FaultInjection(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
 
@@ -62,8 +71,21 @@ class RegisteredServer(BaseModel):
     # A stdio server's `url` is the synthetic `stdio:<allowlist name>` -- around 43
     # call sites key off `server.url`, and a synthetic value keeps them working while
     # leaving the on-disk shape additive rather than migrated (see ADR 0007).
-    transport_kind: Literal["http", "stdio"] = "http"
+    transport_kind: Literal["http", "stdio", "openapi"] = "http"
     stdio_command_name: str = ""
+    # OpenAPI backends (ADR 0011): the hub is the MCP server, so `url` is the
+    # synthetic `openapi:<id>` like stdio's, and the REST API's own address lives in
+    # `openapi_base_url`. The admin sets it; a spec's `servers[]` only pre-fills it.
+    openapi_base_url: str = ""
+    # The accepted spec, and a changed one waiting for an admin (ADR 0011 §2). Only
+    # the import job writes these, from the isolated loader.
+    openapi_snapshot: OpenAPISnapshot | None = None
+    openapi_pending: OpenAPISnapshot | None = None
+    # What the admin exposed (nothing until selected, ADR 0011 §3), their renames, and
+    # an optional GET used as the health probe.
+    openapi_selection: list[OpenAPIOperationRef] = []
+    openapi_overrides: list[OpenAPIOverride] = []
+    openapi_health_probe: OpenAPIOperationRef | None = None
     # Where this server came from, when it came from a registry rather than an
     # operator typing it in. Those are different things: a registry record was written
     # by someone else and can change under you, so an operator reading a card months
@@ -84,10 +106,15 @@ class RegisteredServer(BaseModel):
     # "sse" is this codebase's marker for streamable HTTP (see _health_badge.html
     # and ui_downloads.is_streamable); "stdio" was added for Epic 9. Additive: no
     # existing value changes meaning, so stored records keep loading.
-    mcp_transport: Literal["http", "sse", "stdio", ""] = ""
+    mcp_transport: Literal["http", "sse", "stdio", "openapi", ""] = ""
     mcp_conformant: bool | None = None
-    auth_type: Literal["bearer", "basic", "oauth", "obo", "ema", ""] = ""
+    auth_type: Literal["bearer", "basic", "oauth", "obo", "ema", "api_key", ""] = ""
     bearer_token: str = ""
+    # A static API key (Story 13.4): sent as the named header or query parameter.
+    # The value is a secret, redacted wherever bearer_token is; the name is not.
+    api_key_name: str = ""
+    api_key_in: Literal["header", "query", ""] = ""
+    api_key_value: str = ""
     basic_username: str = ""
     basic_password: str = ""
     oauth_discovery_url: str = ""
@@ -202,7 +229,7 @@ class RegisteredServer(BaseModel):
         authenticate with, and they degrade rather than fail (ADR 0004)."""
         from mcp_hub.mcp.oauth import token_endpoint_from_metadata
 
-        if self.bearer_token.strip():
+        if self.bearer_token.strip() or self.api_key_value.strip():
             return True
         if self.basic_username.strip() or self.basic_password.strip():
             return True
@@ -215,10 +242,18 @@ class RegisteredServer(BaseModel):
     def is_stdio(self) -> bool:
         return self.transport_kind == "stdio"
 
+    @property
+    def is_openapi(self) -> bool:
+        return self.transport_kind == "openapi"
+
     @model_validator(mode="after")
     def synthesize_stdio_url(self) -> "RegisteredServer":
         if self.is_stdio and self.stdio_command_name and not self.url.startswith("stdio:"):
             object.__setattr__(self, "url", f"stdio:{self.stdio_command_name}")
+        # Always replaced, never taken from input: `url` is treated as an MCP endpoint
+        # by dozens of call sites, and an OpenAPI server has none.
+        if self.is_openapi and self.url != f"openapi:{self.id}":
+            object.__setattr__(self, "url", f"openapi:{self.id}")
         return self
 
     @property
@@ -243,6 +278,9 @@ class RegisteredServer(BaseModel):
         return self.model_copy(
             update={
                 "bearer_token": "",
+                "api_key_value": "",
+                "openapi_snapshot": _summary(self.openapi_snapshot),
+                "openapi_pending": _summary(self.openapi_pending),
                 "basic_password": "",
                 "oauth_client_secret": "",
                 "oauth_token_error": sanitize_trace_body(self.oauth_token_error),
@@ -255,6 +293,9 @@ class RegisteredServer(BaseModel):
         return self.model_copy(
             update={
                 "bearer_token": "",
+                "api_key_value": "",
+                "openapi_snapshot": _summary(self.openapi_snapshot),
+                "openapi_pending": _summary(self.openapi_pending),
                 "basic_password": "",
                 "oauth_client_secret": "",
                 "oauth_token_error": "",

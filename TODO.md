@@ -1463,40 +1463,91 @@ wrap.
 
 **Story 13.4 — Model, storage and registration**
 
-- TDD: `tests/test_openapi_registration.py` first.
+- TDD: `tests/test_openapi_registration.py` first (also `test_openapi_server_model.py`,
+  `test_openapi_background.py`, `test_openapi_jobs.py`).
+- The API is admin-only (decided 2026-10-29):
+  - `POST /v1/openapi/imports` takes `{id, spec | spec_url, base_url, auth fields as
+    in /v1/register, selection?, overrides?, health_probe?}` and returns 202, a job
+    and `Location`.
+  - `GET /v1/openapi/imports/{job}` returns the job's status, outcome, error, pointer
+    and problems.
+  - `GET /v1/openapi/servers/{id}/operations` is the preview, including any pending
+    revision.
+  - `PUT /v1/openapi/servers/{id}/tools` takes `{selection?, overrides?,
+    health_probe?}`, validates it as one change, and returns 400 with `problems`
+    otherwise.
+  - `/v1/register` refuses `transport_kind: openapi`, and returns 409 for an
+    existing OpenAPI id.
 - Acceptance criteria:
-  - [ ] Specs are loaded **only** through `openapi.isolation.load_spec` /
-        `load_spec_from_url`, never `load_spec_unsandboxed` (a test asserts the
-        import path goes through the child).
-  - [ ] Import runs as a **background job** with a pollable status, not inside one
-        HTTP request. Validation takes about 19 s per MB, so a spec near the size
-        cap takes minutes, longer than proxies and browsers wait.
-  - [ ] `transport_kind: "openapi"` and `mcp_transport` get the new value, and the
-        synthetic `url` is `openapi:<server id>` (ADR 0011 §1). Stored records
-        without these fields load unchanged.
-  - [ ] Fields are added for: the admin-set base URL, the snapshot (normalized,
-        local `$ref`s kept) and its SHA-256, the pending revision, the selection
-        (keyed by `(METHOD, path template)`), per-tool overrides, and the optional
-        health-probe operation. They are all **inline on `RegisteredServer`**, so
-        they persist to `mcp_servers.json` under `json` storage (ADR 0011 §2). A
-        round-trip test reloads the JSON store and gets an identical tool list.
-  - [ ] The base URL goes through the same URL validation as any backend.
-        `servers[]` only pre-fills it.
-  - [ ] Registration, selection changes, overrides and accepting a revision all
-        require `auth.jwt.admin_scope` under `jwt`.
-  - [ ] Re-registration keeps the selection and overrides when they are omitted (the
-        same rule as ADR 0010 §8), so a script cannot quietly re-enable or reset
-        tools.
-  - [ ] `registry_export` and discovery skip `openapi` servers, and a test asserts
-        they make no MCP probe of the synthetic URL.
-  - [ ] The health checker skips them **by default**. An admin may name a GET
-        operation with no required parameters as the probe. The checker then calls
-        it with the service identity (ADR 0004), counts any 2xx as healthy, and
-        applies the usual threshold and auto-unregister settings. Naming an
-        operation that has required parameters, or that isn't a GET, is rejected.
-  - [ ] A static API key credential (name, location `header`|`query`, value) is
-        added to `apply_server_auth`. The key is redacted everywhere `bearer_token`
-        is (trace, export, UI, logs).
+  - [x] Specs are loaded only through `openapi.isolation`. A test spies on the
+        child, and another asserts `importer.py` never names
+        `load_spec_unsandboxed`. Only the import job writes a snapshot; no route
+        accepts one.
+  - [x] Import is a background job (`openapi/jobs.py`). It is in memory by design,
+        with at most 2 running, 10 waiting (429 beyond that) and finished jobs kept
+        for an hour. Tasks are tracked so shutdown cancels them. Everything
+        checkable up front fails before the job: shape, size (413), the base URL
+        and spec URL against the SSRF guard, and a non-OpenAPI id (409). The job
+        re-checks what can change meanwhile.
+  - [x] `transport_kind`/`mcp_transport` gain `"openapi"`. The `url` is always
+        replaced with `openapi:<id>`, never taken from input, and older records
+        load unchanged.
+  - [x] Inline fields on `RegisteredServer` (`models/openapi.py`): base URL,
+        `openapi_snapshot`/`openapi_pending` (document as loaded, in its own
+        dialect, plus SHA-256, source URL and load time), selection, overrides and
+        health probe. The JSON-store round trip yields an identical tool list.
+  - [x] The base URL gets the same `is_url_safe_for_discovery` check and
+        "URL validation failed" reply as `/v1/register`. `servers[]` only
+        pre-fills it (the UI is 13.8).
+  - [x] Imports and tool changes require the admin scope under `jwt` (401
+        anonymous, 403 non-admin). Accepting a revision gets the same check when
+        its route lands in 13.7.
+  - [x] Re-import keeps omitted fields: credentials follow `/v1/register`'s rule,
+        which now lives in the shared `KEPT_ON_REREGISTRATION`. Selection,
+        overrides and probe are kept when omitted and cleared by an explicit
+        empty value. A changed spec is stored as **pending** (outcome
+        `revision_pending`) and the live tools keep serving the accepted snapshot.
+  - [x] `registry_export` refuses OpenAPI servers (the route returns 400), and
+        downloads force hub mode.
+  - [x] Discovery computes their tools locally from the mapping, with no network
+        call; a test blocks sockets and the MCP client. They are not skipped as
+        OBO-only, and `Registry.register` no longer resurrects old tools for them.
+  - [x] The health checker skips them unless a probe is set. The probe must be a
+        GET that exists, is supported and has no required inputs; it need not be
+        selected. It is called with the service identity. 2xx is healthy, 429
+        reads as up but rate-limited (the HTTP path's reading), and the usual
+        threshold and auto-unregister apply.
+  - [x] Static API key: `auth_type: api_key` with name, location (`header` |
+        `query`) and value. `apply_server_auth` takes a `params` target and raises
+        if a query key has none. Header names must be valid tokens and not
+        transport headers. The value is blanked in `sanitize_for_ui`/`_for_api`.
+        `sanitize_trace_headers(extra_sensitive=...)` and `redact_query_params`
+        are ready for 13.6's traces. Bearer to an OpenAPI server no longer adds
+        `X-MCP-Token`.
+  - [x] **Security review follow-up.** It found no CRITICAL or HIGH issues; the
+        listing exposure was confirmed by reproducing it.
+        - `sanitize_for_api`/`_for_ui` replace the spec snapshot and pending
+          revision with a summary (empty document), so listings no longer repeat up
+          to 5 MB of spec each.
+        - `base_url` refuses credentials, a query or a fragment.
+        - The health probe path must be plain: no `..`, `.`, `?` or `#`.
+        - A per-server lock (`ServerLocks`) covers each read-modify-write in the
+          import job and `PUT /tools`. A delay-injected test fails without it.
+        - OpenAPI discovery re-reads the stored record, so a poll can't write back
+          a stale copy.
+        - Discovery no longer re-saves a server that was deleted meanwhile. This
+          fixes a pre-existing resurrection bug for every server kind.
+        - Request bodies are capped while streaming, not after buffering, and
+          `PUT /tools` is capped at 1 MiB.
+        - Mapping runs off the event loop (`asyncio.to_thread`).
+        - An `api_key` server sends only its key, never a stale bearer token.
+        - `api_key_value` refuses control characters.
+        - Still open for later stories: wiring the trace redaction helpers (13.6),
+          and an `api_key_value` can't be cleared on re-import (empty means keep,
+          the same rule `/v1/register` applies to `bearer_token`).
+  - [ ] Deferred: OAuth for OpenAPI servers needs an explicit `oauth_token_url`
+        (client credentials). There is no metadata discovery, since there is no
+        MCP endpoint to discover from.
 
 **Story 13.5 — Request builder and executor**
 

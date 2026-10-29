@@ -192,6 +192,61 @@ class HealthChecker:
                 error = str(e)
                 logger.warning("stdio health check failed for %s: %s", srv.id, e)
 
+        await self._record_probe(srv, healthy=healthy, error=error, kind="stdio")
+
+    async def _check_openapi_server(self, srv: RegisteredServer, client: httpx.AsyncClient) -> None:
+        """Skipped unless the admin named a probe (ADR 0011, Story 13.4).
+
+        There is no MCP endpoint, and guessing at a REST API's liveness URL would be
+        wrong more often than right. The named probe is a GET with no required
+        parameters, validated when it was set, called with the service identity
+        (ADR 0004): no user is in scope on a timer.
+        """
+        probe = srv.openapi_health_probe
+        if probe is None:
+            return
+        headers: dict[str, str] = {"Accept": "application/json"}
+        params: dict[str, str] = {}
+        healthy, rate_limited, error = False, False, ""
+        try:
+            await apply_server_auth(
+                headers,
+                srv,
+                caller=SERVICE_IDENTITY,
+                params=params,
+                client=client,
+                allow_private_networks=self._allow_private_networks,
+            )
+            response = await client.get(
+                srv.openapi_base_url.rstrip("/") + probe.path,
+                headers=headers,
+                params=params,
+                timeout=self._settings.timeout_seconds,
+            )
+            # 429 reads as up-but-throttling, as on the HTTP path.
+            rate_limited = response.status_code == 429
+            healthy = response.is_success or rate_limited
+            if not healthy:
+                error = (
+                    f"health probe {probe.method} {probe.path} returned HTTP {response.status_code}"
+                )
+        except Exception as e:
+            error = str(e)
+            logger.warning("OpenAPI health probe failed for %s: %s", srv.id, e)
+        await self._record_probe(
+            srv, healthy=healthy, error=error, kind="OpenAPI", rate_limited=rate_limited
+        )
+
+    async def _record_probe(
+        self,
+        srv: RegisteredServer,
+        *,
+        healthy: bool,
+        error: str,
+        kind: str,
+        rate_limited: bool = False,
+    ) -> None:
+        """The result of a probe for a server with no /health endpoint, ever."""
         # Field-scoped updates, not `register(srv)`. Registering writes the whole
         # object, so it would stamp every other field from a snapshot read before the
         # probe -- reverting anything discovery wrote in between. The HTTP path has
@@ -202,19 +257,20 @@ class HealthChecker:
             healthy=healthy,
             consecutive_fails=consecutive_fails,
             uptime=0.0,
+            rate_limited=rate_limited,
         )
-        # A stdio server has no /health endpoint to discover, ever.
         if srv.supports_health_endpoint is not False:
             await self._registry.set_supports_health_endpoint(srv.id, False)
 
         # Keep the caller's object in step with what was just persisted.
         srv.healthy = healthy
+        srv.rate_limited = rate_limited
         srv.consecutive_fails = consecutive_fails
         srv.supports_health_endpoint = False
 
         if not healthy and self._settings.auto_unregister:
             if srv.consecutive_fails >= self._settings.failure_threshold:
-                logger.warning("auto-unregistering unhealthy stdio server %s: %s", srv.id, error)
+                logger.warning("auto-unregistering unhealthy %s server %s: %s", kind, srv.id, error)
                 await self._registry.unregister(srv.id)
 
     async def _check_single_server(self, srv: RegisteredServer, client: httpx.AsyncClient) -> None:
@@ -233,6 +289,9 @@ class HealthChecker:
 
         if srv.is_stdio:
             await self._check_stdio_server(srv)
+            return
+        if srv.is_openapi:
+            await self._check_openapi_server(srv, client)
             return
 
         if srv.supports_health_endpoint is not False:

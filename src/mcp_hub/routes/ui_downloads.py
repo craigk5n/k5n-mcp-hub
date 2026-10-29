@@ -98,7 +98,8 @@ def resolve_mode_for_server(srv: Any, mode: str) -> str:
     Since `mode` defaults to "direct" and the capabilities page never sends one, the
     default has to be corrected here or every stdio download is broken.
     """
-    if not getattr(srv, "is_stdio", False):
+    # An OpenAPI server has no MCP URL either: the hub is its MCP server (ADR 0011).
+    if not (getattr(srv, "is_stdio", False) or getattr(srv, "is_openapi", False)):
         return mode or "direct"
     if mode == "direct":
         # An explicit ask gets an explanation rather than a silent substitution: the
@@ -106,9 +107,9 @@ def resolve_mode_for_server(srv: Any, mode: str) -> str:
         raise HTTPException(
             status_code=400,
             detail=(
-                "direct mode is not available for a stdio server: it is a program the "
-                "hub runs, not a URL a client can call. Use hub mode, which routes "
-                "through this hub."
+                "direct mode is not available for a stdio or OpenAPI server: it has no "
+                "MCP URL a client can call, because this hub is what serves it. Use hub "
+                "mode, which routes through this hub."
             ),
         )
     return "hub"

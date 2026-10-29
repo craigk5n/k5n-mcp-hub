@@ -11,6 +11,7 @@ from mcp_hub.mcp.constants import (
     STATELESS_PROTOCOL_VERSION,
 )
 from mcp_hub.auth.caller import SERVICE_IDENTITY
+from mcp_hub.config import DEFAULT_OPENAPI_MAX_DESCRIPTION_CHARS
 from mcp_hub.mcp.auth import needs_user_identity
 from mcp_hub.mcp.sdk_client import MCPClient, MCPClientError
 from mcp_hub.observability.otel import disabled_provider as _disabled_provider
@@ -100,10 +101,12 @@ class DiscoveryService:
         allow_private_networks: bool = False,
         stdio_pool: Any = None,
         otel: Any = None,
+        openapi_description_limit: int = DEFAULT_OPENAPI_MAX_DESCRIPTION_CHARS,
     ) -> None:
         self._registry = registry
         self._allow_private_networks = allow_private_networks
         self._stdio_pool = stdio_pool
+        self._openapi_description_limit = openapi_description_limit
         self._otel = otel or _disabled_provider()
         # Per-server earliest next poll (monotonic seconds), from ttlMs freshness
         # hints on stateless list results. Only poll_once honors this — an explicit
@@ -132,6 +135,9 @@ class DiscoveryService:
         # cache so legacy servers aren't re-probed on every poll.
         if server.is_stdio:
             await self._discover_stdio(server, timeout=timeout)
+            return
+        if server.is_openapi:
+            await self._discover_openapi(server)
             return
 
         recorded = (server.mcp_protocol_version or "").strip()
@@ -258,6 +264,43 @@ class DiscoveryService:
             client_issues=list(getattr(client, "schema_issues", []) or []),
         )
 
+    async def _discover_openapi(self, server: RegisteredServer) -> None:
+        """An OpenAPI server's tools are the mapping of its selection (ADR 0011): the
+        hub is the MCP server, so there is nothing to probe -- its `url` is the
+        synthetic `openapi:<id>`. Computed here so the servers page and tools/list
+        read `server.tools` exactly as they do for any other backend."""
+        from mcp_hub.openapi.model import MappingError
+        from mcp_hub.openapi.server_tools import openapi_tools
+
+        self._poll_not_before.pop(server.id, None)
+        # Work from the stored record, not the caller's copy: a poll can hold a copy
+        # from before an admin changed the selection, and writing that back would
+        # undo the change. A server deleted meanwhile stays deleted.
+        current = await self._registry.get(server.id)
+        if current is None:
+            return
+        server = current
+        try:
+            # Mapping a large spec takes most of a second: off the event loop.
+            tools = await asyncio.to_thread(
+                openapi_tools, server, description_limit=self._openapi_description_limit
+            )
+        except MappingError as exc:
+            # A stored selection that no longer maps is an admin's to fix, and must
+            # not take the poll down with it.
+            logger.warning(
+                "OpenAPI server %s has a selection that cannot be served: %s", server.id, exc
+            )
+            tools = ()
+        server.tools = [tool.definition.to_mcp() for tool in tools]
+        server.prompts = []
+        server.resources = []
+        server.schema_conformant = True
+        server.schema_issues = []
+        server.last_capability_sync = utcnow()
+        server.mcp_transport = "openapi"
+        await self._registry.register(server)
+
     async def _discover_handshake(self, server: RegisteredServer, *, timeout: float) -> None:
         # Handshake revisions carry no ttl hints; drop any stale pacing entry.
         self._poll_not_before.pop(server.id, None)
@@ -343,6 +386,16 @@ class DiscoveryService:
         server.resources = resources
         server.last_capability_sync = utcnow()
 
+        await self._save_preserving_health(server)
+
+        if (
+            (tools is None or tools == [])
+            and (prompts is None or prompts == [])
+            and (resources is None or resources == [])
+        ):
+            raise RuntimeError("discovery completed but no capabilities were found")
+
+    async def _save_preserving_health(self, server: RegisteredServer) -> None:
         # Re-read the health fields before writing. `Registry.register` replaces the
         # whole record, and the object we hold was read before we went and talked to
         # the server -- so without this, a health result produced in the meantime is
@@ -353,6 +406,10 @@ class DiscoveryService:
         get = getattr(self._registry, "get", None)
         if get is not None:
             current = await get(server.id)
+            if current is None:
+                # Deleted while we were talking to it: saving would bring it back.
+                logger.info("not saving discovery for %s: it was unregistered meanwhile", server.id)
+                return
             if current is not None:
                 for name in (
                     "healthy",
@@ -367,13 +424,6 @@ class DiscoveryService:
 
         await self._registry.register(server)
 
-        if (
-            (tools is None or tools == [])
-            and (prompts is None or prompts == [])
-            and (resources is None or resources == [])
-        ):
-            raise RuntimeError("discovery completed but no capabilities were found")
-
     async def poll_once(self) -> None:
         servers = await self._registry.list()
 
@@ -386,7 +436,7 @@ class DiscoveryService:
         due = [s for s in servers if now >= self._poll_not_before.get(s.id, 0.0)]
 
         async def discover_server(server: RegisteredServer) -> None:
-            if needs_user_identity(server):
+            if needs_user_identity(server) and not server.is_openapi:
                 # Capabilities are cached on the shared server record, so discovering
                 # them under some arbitrary user would show one person's tool list to
                 # everyone. With no service identity available, skip (ADR 0004).
