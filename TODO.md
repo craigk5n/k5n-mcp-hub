@@ -1530,6 +1530,43 @@ wrap.
   - [ ] The ADR 0011 row in `docs/adr/README.md` is moved to Accepted once the epic
         ships.
 
+**Story 13.10 — OpenAPI 3.2** *(after 13.3 and 13.5)*
+
+OpenAPI 3.2 (September 2025) is a minor release on 3.1's JSON Schema dialect, so most
+3.2 specs map exactly like 3.1. What it adds either does not fit the 13.3/13.5
+mapping (QUERY, custom methods, a whole-query-string parameter) or does not fit a
+single MCP tool result (streaming). This story accepts 3.2 and marks those features
+**unsupported per operation**, using the same marker as multipart bodies. Nothing is
+mapped silently wrong, and full support can follow if real APIs need it.
+
+- TDD: extend `tests/test_openapi_loader.py` and `tests/test_openapi_mapping.py`
+  with a `tests/fixtures/openapi/petstore-3.2.json` covering each feature below.
+- Acceptance criteria:
+  - [ ] The loader accepts `openapi: 3.2.x` as dialect `"3.2"` and validates it with
+        `OpenAPIV32SpecValidator` (already in `openapi-spec-validator` 0.9.0). 3.3
+        and later are still refused by name.
+  - [ ] `$self` does not move ref resolution off the document. This was probed
+        2026-10-29: with `$self` set to a remote URL or a `file://` path and only
+        `#/...` refs, the validator made no DNS lookup and read no file. The probe
+        becomes a test using the existing `no_network` fixture, and the existing ref
+        check still rejects every non-`#/` ref.
+  - [ ] Mapping treats 3.2 as 3.1. Schema conversion is the same, since there is no
+        3.0-style `nullable` to convert.
+  - [ ] These are marked unsupported, so they appear in the preview but cannot be
+        enabled, each with its reason:
+        - the `query` operation (HTTP QUERY: a safe method with a request body);
+        - any `additionalOperations` entry (custom method names; the executor's method
+          allowlist does not grow);
+        - any parameter `in: querystring`;
+        - any response whose media type uses `itemSchema` (streaming: SSE, JSON Lines
+          and similar).
+  - [ ] Fields 3.2 adds that the hub does not use are ignored without error: tag
+        `parent`/`kind`, `servers[].name`, the device-flow and `oauth2MetadataUrl`
+        security additions (still only hints, per ADR 0011 §8), examples'
+        `dataValue`/`serializedValue`, and response `summary`.
+  - [ ] ADR 0011 §11 and the README list 3.2 as supported, along with what is
+        marked unsupported.
+
 **Deliberately out of scope**
 
 - [ ] Importing OpenAPI backends from the MCP registry. `server.json` cannot

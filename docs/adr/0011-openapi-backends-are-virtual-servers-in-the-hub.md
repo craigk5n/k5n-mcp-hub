@@ -175,6 +175,10 @@ stories must name this path explicitly so the check covers both kinds of backend
 **11. Parsing uses a library; mapping is ours.**
 - `openapi-spec-validator` validates Swagger 2.0, OpenAPI 3.0 and 3.1. Its
   `jsonschema`/`referencing` stack is already installed through `mcp`.
+- OpenAPI 3.2 is planned (Epic 13, Story 13.10) once mapping exists, and is refused
+  by name until then. It maps as 3.1. Its additions that don't fit one tool call
+  (the `query` method, `additionalOperations`, `in: querystring`, streaming
+  `itemSchema` responses) are marked unsupported per operation rather than mapped.
 - **The validator does not protect against external refs; the hub has to.** Probed
   against 0.9.0, it resolves refs itself. For an `http://` ref it performs the fetch
   outside the SSRF-pinned transport. For a `file://` ref it reads the local file and
