@@ -1364,14 +1364,24 @@ wrap.
 - TDD: `tests/test_openapi_swagger2.py` first. Each 2.0 fixture is checked against
   a hand-written 3.0 expectation.
 - Acceptance criteria:
-  - [ ] `mcp_hub/openapi/swagger2.py` converts a validated 2.0 document to the 3.x
-        shape that mapping consumes: `in: body` becomes `requestBody`, `formData`
-        becomes a form-urlencoded `requestBody`, `consumes`/`produces` become media
-        types, `definitions` becomes `components/schemas` with refs rewritten, and
-        `host`/`basePath`/`schemes` become a `servers[]` suggestion.
-  - [ ] It covers only what mapping needs. Anything it does not convert (e.g.
-        `type: file`) marks the affected operation "unsupported", visible in the
-        preview, rather than failing the whole import.
+  - [x] `mcp_hub/openapi/swagger2.py` (`swagger2_to_openapi3`) converts a validated
+        2.0 document to OpenAPI 3.0.3. `in: body` becomes `requestBody`. `formData`
+        becomes a form-urlencoded `requestBody`, or multipart only when that is the
+        sole form type offered, with array encodings kept. `consumes`/`produces` become
+        media types, the operation's own list winning. `definitions` and global
+        `responses` move under `components` with refs rewritten. Path-level
+        parameters and `#/parameters/...` refs are inlined into each operation, so
+        mapping reads one parameter list. `host`/`basePath`/`schemes` become the
+        `servers[]` suggestion, protocol-relative when `schemes` is absent. Security
+        definitions convert too, as hints only (ADR 0011 §8). The output passes the
+        3.0 validator and the ref checks, and the input is never modified.
+  - [x] It covers only what mapping needs. What it cannot represent adds a reason
+        to the operation's `x-mcp-hub-unsupported` list
+        (`swagger2.UNSUPPORTED`) instead of failing the import: `type: file` form
+        fields, `tsv`, query-only collection formats elsewhere, nested arrays, and
+        body plus formData together. **Story 13.3 must read that list** and treat a
+        non-empty one as unsupported. Calling the converter at import time is
+        Story 13.4's wiring.
 
 **Story 13.3 — Operation-to-tool mapping (pure)**
 

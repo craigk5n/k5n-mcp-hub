@@ -1,0 +1,117 @@
+{
+  "swagger": "2.0",
+  "info": {"title": "Kitchen sink", "version": "1.0.0"},
+  "host": "api.example.com",
+  "basePath": "/v2",
+  "schemes": ["https", "http"],
+  "consumes": ["application/json"],
+  "produces": ["application/json"],
+  "tags": [{"name": "pets", "description": "Pet operations"}],
+  "securityDefinitions": {
+    "basicAuth": {"type": "basic"},
+    "apiKey": {"type": "apiKey", "name": "X-API-Key", "in": "header"},
+    "oauth": {
+      "type": "oauth2",
+      "flow": "accessCode",
+      "authorizationUrl": "https://auth.example.com/authorize",
+      "tokenUrl": "https://auth.example.com/token",
+      "scopes": {"pets:read": "Read pets"}
+    }
+  },
+  "security": [{"apiKey": []}],
+  "parameters": {
+    "limitParam": {"name": "limit", "in": "query", "type": "integer", "maximum": 100}
+  },
+  "responses": {
+    "NotFound": {"description": "Not found", "schema": {"$ref": "#/definitions/Error"}}
+  },
+  "paths": {
+    "/pets": {
+      "parameters": [{"name": "X-Trace", "in": "header", "type": "string"}],
+      "get": {
+        "operationId": "listPets",
+        "summary": "List pets",
+        "tags": ["pets"],
+        "x-internal-owner": "team-pets",
+        "parameters": [
+          {"$ref": "#/parameters/limitParam"},
+          {"name": "tags", "in": "query", "type": "array", "items": {"type": "string"}, "collectionFormat": "multi"},
+          {"name": "ids", "in": "query", "type": "array", "items": {"type": "integer"}}
+        ],
+        "responses": {
+          "200": {
+            "description": "A page of pets",
+            "schema": {"type": "array", "items": {"$ref": "#/definitions/Pet"}},
+            "headers": {"X-Rate-Limit": {"type": "integer", "description": "Calls left"}}
+          }
+        }
+      },
+      "post": {
+        "operationId": "createPet",
+        "parameters": [
+          {"name": "pet", "in": "body", "description": "The pet", "required": true, "schema": {"$ref": "#/definitions/NewPet"}}
+        ],
+        "responses": {
+          "201": {"description": "Created", "schema": {"$ref": "#/definitions/Pet"}},
+          "default": {"$ref": "#/responses/NotFound"}
+        }
+      }
+    },
+    "/pets/{petId}": {
+      "get": {
+        "operationId": "getPet",
+        "produces": ["application/json", "application/xml"],
+        "parameters": [{"name": "petId", "in": "path", "required": true, "type": "string"}],
+        "responses": {
+          "200": {"description": "The pet", "schema": {"$ref": "#/definitions/Pet"}},
+          "404": {"$ref": "#/responses/NotFound"}
+        }
+      },
+      "post": {
+        "operationId": "updatePetForm",
+        "consumes": ["application/x-www-form-urlencoded"],
+        "parameters": [
+          {"name": "petId", "in": "path", "required": true, "type": "string"},
+          {"name": "name", "in": "formData", "required": true, "type": "string"},
+          {"name": "status", "in": "formData", "type": "string", "enum": ["available", "sold"]}
+        ],
+        "responses": {"200": {"description": "Updated"}}
+      }
+    },
+    "/pets/{petId}/photo": {
+      "post": {
+        "operationId": "uploadPhoto",
+        "consumes": ["multipart/form-data"],
+        "parameters": [
+          {"name": "petId", "in": "path", "required": true, "type": "string"},
+          {"name": "file", "in": "formData", "required": true, "type": "file"}
+        ],
+        "responses": {"200": {"description": "Uploaded"}}
+      }
+    }
+  },
+  "definitions": {
+    "NewPet": {
+      "type": "object",
+      "required": ["name"],
+      "properties": {"name": {"type": "string"}, "tag": {"type": "string", "x-nullable": true}}
+    },
+    "Pet": {
+      "allOf": [
+        {"$ref": "#/definitions/NewPet"},
+        {"type": "object", "required": ["id"], "properties": {"id": {"type": "integer", "format": "int64"}}}
+      ]
+    },
+    "Animal": {
+      "type": "object",
+      "discriminator": "petType",
+      "required": ["petType"],
+      "properties": {"petType": {"type": "string"}}
+    },
+    "Error": {
+      "type": "object",
+      "required": ["code", "message"],
+      "properties": {"code": {"type": "integer"}, "message": {"type": "string"}}
+    }
+  }
+}
