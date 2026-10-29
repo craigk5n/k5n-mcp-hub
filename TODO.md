@@ -1691,19 +1691,38 @@ wrap.
 **Story 13.7 — Refresh, diff and approval**
 
 - TDD: `tests/test_openapi_revisions.py` first.
+- Module `openapi/revision.py` (pure: `diff_revision`, `accept_revision`). Routes
+  under `/v1/openapi/servers/{id}`, all admin-only:
+  - `POST .../refresh` returns 202 and a job. It re-fetches from the stored
+    `source_url`; an uploaded spec gets 400 pointing at re-upload.
+  - `GET .../revision` returns the accepted and pending summaries plus the diff,
+    or 404 when nothing is pending.
+  - `POST .../revision/accept` and `.../revision/reject` take `{sha256}`, the
+    revision the admin reviewed. A different pending SHA-256 gets 409, so a newer
+    revision is never accepted unread.
 - Acceptance criteria:
-  - [ ] Re-fetching or re-uploading creates a pending revision only when the
-        SHA-256 differs. Live tools keep serving from the accepted snapshot.
-  - [ ] The diff lists operations added and removed, input or output schema changes,
-        description changes, `servers[]` changes, and orphaned selections and
-        overrides.
-  - [ ] When a revision is accepted: selections carry over by `(METHOD, path
-        template)`, new operations start disabled, and orphaned selections are
-        dropped and reported.
-  - [ ] Rejecting a revision discards it.
-  - [ ] Detection is **manual only**: an admin "check for updates" action (re-fetch
-        from the stored URL) or a new upload. No background task re-fetches specs,
-        and a test asserts that.
+  - [x] Re-fetching or re-uploading creates a pending revision only when the
+        SHA-256 differs, and a reformatted spec is not a change. Live tools keep
+        serving from the accepted snapshot until it is accepted.
+  - [x] The diff lists:
+        - operations added and removed;
+        - per-operation changes to the tool name, input schema, output schema
+          and description, compared *before* overrides so a spec change shows
+          under a rename;
+        - operations that are now unsupported or now supported;
+        - `servers[]` changes (`host`/`basePath`/`schemes` for 2.0);
+        - orphaned selections, overrides and health probe;
+        - `problems` that would block accepting.
+  - [x] Accepting carries the choices over by `(METHOD, path template)`. New
+        operations start disabled. Selections, overrides and a probe with no
+        servable operation are dropped and reported (`dropped` in the response).
+        The result is validated whole, and one that cannot be served (e.g. a new
+        tool-name collision) is refused with `problems`, with nothing changed. An
+        override fixes it.
+  - [x] Rejecting discards the pending revision and leaves the accepted one.
+  - [x] Detection is manual only: refresh or a new upload. A test runs the
+        discovery poll and the health checker with every spec-loading function
+        made to fail, and both complete.
 
 **Story 13.8 — Admin UI**
 

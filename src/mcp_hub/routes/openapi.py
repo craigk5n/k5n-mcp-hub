@@ -24,6 +24,7 @@ from mcp_hub.models.server import RegisteredServer
 from mcp_hub.openapi.importer import OpenAPIImportRequest, apply_choices, run_import
 from mcp_hub.openapi.jobs import ImportJobStore, JobQueueFull
 from mcp_hub.openapi.model import MappedOperation, MappingError
+from mcp_hub.openapi.revision import accept_revision, diff_revision
 from mcp_hub.openapi.server_tools import openapi_preview
 from mcp_hub.utils import is_url_safe_for_discovery
 
@@ -35,6 +36,8 @@ router = APIRouter(prefix="/v1/openapi", tags=["openapi"])
 _ENVELOPE_BYTES = 64 * 1024
 # A selection plus overrides for every operation of a large spec fits well inside.
 _TOOLS_BODY_BYTES = 1024 * 1024
+# {"sha256": "<64 hex>"} and nothing else.
+_CHOICE_BODY_BYTES = 1024
 
 
 async def _read_capped(request: Request, limit: int) -> bytes | None:
@@ -222,3 +225,173 @@ async def put_tools(
         await request.app.state.discovery_service.discover_immediately(updated)
     stored = await request.app.state.registry.get(server_id)
     return JSONResponse(content={"tools": [tool["name"] for tool in (stored.tools or [])]})
+
+
+# --------------------------------------------------------------------------- revisions
+# A changed spec is stored as the pending revision and waits for an admin (ADR 0011
+# §2, Story 13.7). Detection is manual: this refresh route, or a new upload through
+# /imports. Nothing re-fetches on a timer.
+
+
+def _snapshot_json(snapshot: Any) -> dict[str, Any] | None:
+    if snapshot is None:
+        return None
+    return {
+        "sha256": snapshot.sha256,
+        "dialect": snapshot.dialect,
+        "source_url": snapshot.source_url,
+        "loaded_at": snapshot.loaded_at.isoformat() if snapshot.loaded_at else None,
+    }
+
+
+@router.post("/servers/{server_id}/refresh", status_code=202, response_model=None)
+async def refresh(
+    server_id: str, request: Request, _: None = Depends(auth_dependency)
+) -> JSONResponse:
+    """Check for updates: re-fetch the spec from the URL it was imported from."""
+    require_admin(request)
+    server = await _openapi_server(request, server_id)
+    if server is None:
+        return _error(404, "no such OpenAPI server")
+    source = next(
+        (
+            s.source_url
+            for s in (server.openapi_pending, server.openapi_snapshot)
+            if s and s.source_url
+        ),
+        "",
+    )
+    if not source:
+        return _error(
+            400,
+            "this server's spec was uploaded, not fetched; upload a new one through "
+            "POST /v1/openapi/imports",
+        )
+    settings = request.app.state.settings
+    safe, _reason, _ips = await is_url_safe_for_discovery(
+        source, False, settings.security.allow_private_networks
+    )
+    if not safe:
+        return _error(400, "URL validation failed")
+    # Only the id and the URL: every other field is omitted, so the import keeps the
+    # stored credentials, base URL and choices, and stores a changed spec as pending.
+    refetch = OpenAPIImportRequest(id=server_id, spec_url=source)
+
+    async def work() -> str:
+        return await run_import(
+            refetch,
+            registry=request.app.state.registry,
+            discovery_service=request.app.state.discovery_service,
+            settings=settings,
+            locks=request.app.state.openapi_locks,
+        )
+
+    try:
+        job = _jobs(request).submit(server_id, work)
+    except JobQueueFull as exc:
+        return _error(429, str(exc))
+    location = f"/v1/openapi/imports/{job.id}"
+    return JSONResponse(
+        status_code=202,
+        content={**job.to_json(), "status_url": location},
+        headers={"Location": location},
+    )
+
+
+@router.get("/servers/{server_id}/revision", response_model=None)
+async def get_revision(
+    server_id: str, request: Request, _: None = Depends(auth_dependency)
+) -> JSONResponse:
+    require_admin(request)
+    server = await _openapi_server(request, server_id)
+    if server is None or server.openapi_pending is None:
+        return _error(404, "no pending revision")
+    limit = request.app.state.settings.openapi.max_description_chars
+    diff = await asyncio.to_thread(diff_revision, server, description_limit=limit)
+    return JSONResponse(
+        content={
+            "accepted": _snapshot_json(server.openapi_snapshot),
+            "pending": _snapshot_json(server.openapi_pending),
+            "diff": diff.to_json(),
+        }
+    )
+
+
+class RevisionChoice(BaseModel):
+    """The revision being accepted or rejected, by hash: the one the admin reviewed,
+    not whatever has been stored since."""
+
+    sha256: str
+
+
+async def _reviewed_revision(
+    request: Request, server_id: str
+) -> tuple[RegisteredServer | None, JSONResponse | None]:
+    raw = await _read_capped(request, _CHOICE_BODY_BYTES)
+    if raw is None:
+        return None, _error(413, "request too large")
+    try:
+        choice = RevisionChoice.model_validate(json.loads(raw or b"{}"))
+    except (json.JSONDecodeError, ValidationError):
+        return None, _error(400, 'send {"sha256": <the pending revision\'s sha256>}')
+    server = await _openapi_server(request, server_id)
+    if server is None or server.openapi_pending is None:
+        return None, _error(404, "no pending revision")
+    if server.openapi_pending.sha256 != choice.sha256:
+        return None, _error(
+            409,
+            "the pending revision has changed since it was reviewed; read it again",
+            pending=_snapshot_json(server.openapi_pending),
+        )
+    return server, None
+
+
+@router.post("/servers/{server_id}/revision/accept", response_model=None)
+async def accept(
+    server_id: str, request: Request, _: None = Depends(auth_dependency)
+) -> JSONResponse:
+    require_admin(request)
+    limit = request.app.state.settings.openapi.max_description_chars
+    async with request.app.state.openapi_locks(server_id):
+        server, refusal = await _reviewed_revision(request, server_id)
+        if refusal is not None:
+            return refusal
+        assert server is not None
+        try:
+            updated, report = await asyncio.to_thread(
+                accept_revision, server, description_limit=limit
+            )
+        except MappingError as exc:
+            return _error(
+                400,
+                "the revision cannot be served with the current choices; fix them "
+                "(for example with an override) and accept again",
+                problems=list(exc.problems),
+            )
+        await request.app.state.registry.register(updated)
+        await request.app.state.discovery_service.discover_immediately(updated)
+    stored = await request.app.state.registry.get(server_id)
+    return JSONResponse(
+        content={
+            "accepted": _snapshot_json(stored.openapi_snapshot),
+            "tools": [tool["name"] for tool in (stored.tools or [])],
+            "dropped": report.to_json(),
+        }
+    )
+
+
+@router.post("/servers/{server_id}/revision/reject", response_model=None)
+async def reject(
+    server_id: str, request: Request, _: None = Depends(auth_dependency)
+) -> JSONResponse:
+    require_admin(request)
+    async with request.app.state.openapi_locks(server_id):
+        server, refusal = await _reviewed_revision(request, server_id)
+        if refusal is not None:
+            return refusal
+        assert server is not None and server.openapi_pending is not None
+        rejected = server.openapi_pending.sha256
+        await request.app.state.registry.register(
+            server.model_copy(update={"openapi_pending": None})
+        )
+    return JSONResponse(content={"rejected": rejected})
