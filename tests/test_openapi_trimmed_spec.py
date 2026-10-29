@@ -108,3 +108,107 @@ class TestTrimmedSpec:
         trimmed = trimmed_spec(doc, "3.1", frozenset({OperationKey("GET", "/shared")}))
         assert trimmed["paths"]["/shared"]["get"]["responses"]["200"]["description"] == "ok"
         assert "x-items" not in trimmed
+
+
+class TestReviewFixes:
+    """Security review of Story 13.6, finding 1: what the docstring promised."""
+
+    def _leaky(self) -> dict:
+        return {
+            "openapi": "3.0.3",
+            "info": {
+                "title": "t",
+                "version": "1",
+                "description": "see http://intranet.corp/wiki",
+                "contact": {"email": "ops@corp"},
+                "x-internal": 1,
+            },
+            "paths": {
+                "/a": {
+                    "get": {
+                        "operationId": "getA",
+                        "servers": [{"url": "http://internal.corp:8443"}],
+                        "x-owner": "bob",
+                        "security": [{"hidden": []}],
+                        "callbacks": {
+                            "cb": {
+                                "{$request.body#/url}": {
+                                    "post": {"responses": {"200": {"description": "ok"}}}
+                                }
+                            }
+                        },
+                        "responses": {
+                            "200": {
+                                "description": "ok",
+                                "links": {
+                                    "l": {
+                                        "operationRef": "#/paths/~1admin/delete",
+                                        "operationId": "deleteAdmin",
+                                    }
+                                },
+                                "content": {
+                                    "application/json": {
+                                        "schema": {"$ref": "#/components/schemas/A"}
+                                    }
+                                },
+                            }
+                        },
+                    }
+                },
+                "/admin": {
+                    "delete": {
+                        "operationId": "deleteAdmin",
+                        "responses": {"200": {"description": "ok"}},
+                    }
+                },
+            },
+            "components": {
+                "schemas": {
+                    "A": {
+                        "type": "object",
+                        "x-ext": "secret",
+                        "properties": {
+                            "x-header-name": {"type": "string"},
+                            "next": {"$ref": "#/paths/~1admin/delete"},
+                        },
+                    }
+                }
+            },
+        }
+
+    def test_nothing_the_docstring_removes_survives(self):
+        out = json.dumps(trimmed_spec(self._leaky(), "3.0", frozenset({OperationKey("GET", "/a")})))
+        for leak in [
+            "internal.corp",
+            "x-owner",
+            "hidden",
+            "deleteAdmin",
+            "/admin",
+            "intranet",
+            "ops@corp",
+            "x-internal",
+            "x-ext",
+            "callbacks",
+            "$request",
+        ]:
+            assert leak not in out, leak
+
+    def test_what_mapping_needs_is_kept(self):
+        out = trimmed_spec(self._leaky(), "3.0", frozenset({OperationKey("GET", "/a")}))
+        op = out["paths"]["/a"]["get"]
+        assert op["operationId"] == "getA"
+        assert op["responses"]["200"]["content"]["application/json"]["schema"] == {
+            "$ref": "#/components/schemas/A"
+        }
+        assert out["info"] == {"title": "t", "version": "1"}
+        # A property *named* x-header-name is a name, not an extension.
+        assert "x-header-name" in out["components"]["schemas"]["A"]["properties"]
+
+    def test_swagger_2_operation_fields(self):
+        doc = json.loads((FIXTURES / "swagger2-kitchen-sink.json").read_text())
+        doc["paths"]["/pets"]["get"]["schemes"] = ["http"]
+        doc["paths"]["/pets"]["get"]["security"] = [{"oauth": []}]
+        out = trimmed_spec(doc, "2.0", frozenset({OperationKey("GET", "/pets")}))
+        op = out["paths"]["/pets"]["get"]
+        assert "schemes" not in op and "security" not in op and "x-internal-owner" not in op
+        assert op["operationId"] == "listPets"

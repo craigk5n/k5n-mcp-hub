@@ -43,6 +43,9 @@ async def serve_openapi(
     subject, incoming url, verbose flag, captured request headers and body."""
     settings = request.app.state.settings
     verbose: bool = trace["verbose"]
+    if request.method != "POST":
+        # No SSE stream to offer on GET (a body on a GET must not run a tool call).
+        return Response(status_code=405, headers={"Allow": "POST"})
     upstream: list[UpstreamExchange] = []
     context = CallContext(
         server=server,
@@ -68,7 +71,7 @@ async def serve_openapi(
                 operation="openapi_call",
                 http_method=exchange.method,
                 url=trace["incoming_url"],
-                outbound_url=exchange.url,
+                outbound_url=exchange.url if verbose else exchange.url_template,
                 status=exchange.status,
                 duration_ms=exchange.duration_ms,
                 error=exchange.error,

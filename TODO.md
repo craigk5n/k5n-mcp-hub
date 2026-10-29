@@ -1665,6 +1665,28 @@ wrap.
   - [x] Tool lists are cached by spec SHA-256 plus choices plus the description
         limit (bounded LRU, thread-safe), so tools/list and tools/call do not
         re-map a large spec on every request.
+  - [x] **Security review follow-up** (1 HIGH, 1 MEDIUM, 5 LOW; the HIGH and
+        MEDIUM were reproduced before fixing):
+        - The spec resource leaked operation `servers`, `security`, `callbacks`,
+          response `links` naming disabled operations, `x-*` extensions, `info`
+          contact details, and `$ref`s to disabled paths. It is now built from
+          allowlists: operation fields mapping reads, response
+          description/content/headers/schema, and `info` title/version/summary.
+          `x-*` keys are stripped except where keys are names, and any `$ref` not
+          resolving inside the trimmed document is removed.
+        - A non-string `_meta` protocol version raised out of the handler (500).
+          It is now refused, and a catch-all turns any unexpected failure into
+          JSON-RPC -32603.
+        - NaN, Infinity and `1e999` are parse errors, `id` must be a string, an
+          integer or null, a falsy non-object `params` is invalid, and output is
+          `allow_nan=False`.
+        - Non-verbose traces record the base URL plus the path template, not
+          argument values.
+        - `resources/read` is cached by (spec SHA-256, selection), and mapping
+          failures are cached like successes (the result is a pure function of the
+          key).
+        - `serverInfo.version` must be a string and is capped at 64 characters.
+        - A non-POST request to an OpenAPI server gets 405.
 
 **Story 13.7 — Refresh, diff and approval**
 

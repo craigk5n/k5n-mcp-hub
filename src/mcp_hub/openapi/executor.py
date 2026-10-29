@@ -68,6 +68,9 @@ class UpstreamExchange:
     response_headers: dict[str, str]
     request_body: bytes
     error: str = ""
+    # The base URL plus the operation's path template: what a non-verbose trace
+    # records, because the expanded URL carries the caller's argument values.
+    url_template: str = ""
 
 
 ExchangeObserver = Callable[[UpstreamExchange], None]
@@ -225,7 +228,17 @@ async def _send(
         try:
             response = await client.send(request, stream=True)
         except httpx.HTTPError as exc:
-            _observe(on_exchange, server, request, auth_params, started, 0, {}, type(exc).__name__)
+            _observe(
+                on_exchange,
+                server,
+                request,
+                auth_params,
+                started,
+                0,
+                {},
+                type(exc).__name__,
+                template=tool.plan.path,
+            )
             raise
         _observe(
             on_exchange,
@@ -235,6 +248,7 @@ async def _send(
             started,
             response.status_code,
             dict(response.headers),
+            template=tool.plan.path,
         )
         try:
             location = response.headers.get("location")
@@ -276,6 +290,8 @@ def _observe(
     status: int,
     response_headers: dict[str, str],
     error: str = "",
+    *,
+    template: str = "",
 ) -> None:
     if on_exchange is None:
         return
@@ -290,6 +306,7 @@ def _observe(
             response_headers=sanitize_trace_headers(response_headers),
             request_body=request.content,
             error=error,
+            url_template=server.openapi_base_url.rstrip("/") + template,
         )
     )
 

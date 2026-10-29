@@ -22,6 +22,8 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import math
+from collections import OrderedDict
 from dataclasses import dataclass
 from typing import Any
 from urllib.parse import quote
@@ -31,6 +33,7 @@ import httpx
 from mcp_hub.auth.caller import CallerIdentity
 from mcp_hub.mcp.constants import (
     BACKWARD_COMPAT_PROTOCOL_VERSION,
+    INTERNAL_ERROR,
     INVALID_PARAMS,
     INVALID_REQUEST,
     LEGACY_RESOURCE_NOT_FOUND,
@@ -57,6 +60,11 @@ _HANDSHAKE_VERSIONS = (PROTOCOL_VERSION, BACKWARD_COMPAT_PROTOCOL_VERSION)
 # changes the selection or accepts a revision, so a minute is plenty fresh.
 _LIST_TTL_MS = 60_000
 _CAPABILITIES = {"tools": {"listChanged": False}, "resources": {}}
+_MAX_VERSION_CHARS = 64
+# Trimmed spec text by (spec hash, selection): trimming and serializing a large spec
+# on every resources/read would make the resource a cheap way to load the hub.
+_SPEC_CACHE_SIZE = 16
+_spec_cache: OrderedDict[tuple[Any, ...], str] = OrderedDict()
 
 
 @dataclass(frozen=True)
@@ -95,10 +103,21 @@ def _no_duplicates(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
     return result
 
 
+def _not_json(token: str) -> Any:
+    raise ValueError(f"{token} is not a JSON number")
+
+
+def _finite(text: str) -> float:
+    value = float(text)
+    if not math.isfinite(value):  # 1e999 parses as infinity without ever being NaN
+        raise ValueError(f"{text} is not a finite number")
+    return value
+
+
 def _envelope(request_id: Any, *, result: Any = None, error: dict[str, Any] | None = None) -> bytes:
     payload: dict[str, Any] = {"jsonrpc": "2.0", "id": request_id}
     payload.update({"error": error} if error is not None else {"result": result})
-    return json.dumps(payload, ensure_ascii=False).encode()
+    return json.dumps(payload, ensure_ascii=False, allow_nan=False).encode()
 
 
 def _fail(status: int, request_id: Any, code: int, message: str, method: str = "") -> VirtualReply:
@@ -114,7 +133,12 @@ async def handle_request(
     body: bytes, *, context: CallContext, protocol_header: str = ""
 ) -> VirtualReply:
     try:
-        message = json.loads(body or b"null", object_pairs_hook=_no_duplicates)
+        message = json.loads(
+            body or b"null",
+            object_pairs_hook=_no_duplicates,
+            parse_constant=_not_json,
+            parse_float=_finite,
+        )
     except (ValueError, RecursionError) as exc:
         return _fail(400, None, PARSE_ERROR, f"invalid JSON: {exc}")
     if isinstance(message, list):
@@ -122,16 +146,23 @@ async def handle_request(
     if not isinstance(message, dict) or not isinstance(message.get("method"), str):
         return _fail(400, None, INVALID_REQUEST, "expected a JSON-RPC request object")
     method: str = message["method"]
-    params = message.get("params") or {}
+    params = message.get("params", {})
     if "id" not in message:
         return VirtualReply(b"", 202, method=method)  # a notification: nothing to say
     request_id = message["id"]
+    if request_id is not None and (
+        isinstance(request_id, bool) or not isinstance(request_id, (str, int))
+    ):
+        # JSON-RPC ids are strings, numbers or null; anything else is not echoed back.
+        return _fail(200, None, INVALID_REQUEST, "id must be a string, an integer or null", method)
     if not isinstance(params, dict):
         return _fail(200, request_id, INVALID_PARAMS, "params must be an object", method)
 
     meta = params.get("_meta") if isinstance(params.get("_meta"), dict) else {}
     meta_version = meta.get(META_PROTOCOL_VERSION) if isinstance(meta, dict) else None
-    if meta_version is not None and meta_version not in SUPPORTED_PROTOCOL_VERSIONS:
+    if meta_version is not None and (
+        not isinstance(meta_version, str) or meta_version not in SUPPORTED_PROTOCOL_VERSIONS
+    ):
         return _fail(
             200,
             request_id,
@@ -144,7 +175,13 @@ async def handle_request(
     handler = _HANDLERS.get(method)
     if handler is None or (stateless and method == "initialize"):
         return _fail(200, request_id, METHOD_NOT_FOUND, f"method not found: {method}", method)
-    return await handler(request_id, params, context, stateless)
+    try:
+        return await handler(request_id, params, context, stateless)
+    except Exception:
+        # Logged for the operator; the caller gets a JSON-RPC error, not a 500 with
+        # no trace entry and no span.
+        logger.exception("OpenAPI server %s failed on %s", context.server.id, method)
+        return _fail(200, request_id, INTERNAL_ERROR, "internal error", method)
 
 
 def _ok(
@@ -157,9 +194,11 @@ def _ok(
 
 def _server_info(server: RegisteredServer) -> dict[str, str]:
     info = server.openapi_snapshot.document.get("info", {}) if server.openapi_snapshot else {}
+    spec_version = info.get("version") if isinstance(info.get("version"), str) else ""
     return {
         "name": server.name or server.id,
-        "version": server.version or str(info.get("version", "")) or "0",
+        # From the spec, so bounded: it goes back to every client that connects.
+        "version": (server.version or spec_version or "0")[:_MAX_VERSION_CHARS],
     }
 
 
@@ -303,12 +342,19 @@ async def _resources_read(
         code = RESOURCE_NOT_FOUND if stateless else LEGACY_RESOURCE_NOT_FOUND
         return _fail(200, request_id, code, f"resource not found: {uri}", "resources/read")
     selection = frozenset(ref.key() for ref in ctx.server.openapi_selection)
-    document = await asyncio.to_thread(trimmed_spec, snapshot.document, snapshot.dialect, selection)
-    content = {
-        "uri": uri,
-        "mimeType": "application/json",
-        "text": json.dumps(document, ensure_ascii=False),
-    }
+    key = (snapshot.sha256, tuple(sorted((k.method, k.path) for k in selection)))
+    text = _spec_cache.get(key)
+    if text is None:
+        document = await asyncio.to_thread(
+            trimmed_spec, snapshot.document, snapshot.dialect, selection
+        )
+        text = json.dumps(document, ensure_ascii=False)
+        _spec_cache[key] = text
+        while len(_spec_cache) > _SPEC_CACHE_SIZE:
+            _spec_cache.popitem(last=False)
+    else:
+        _spec_cache.move_to_end(key)
+    content = {"uri": uri, "mimeType": "application/json", "text": text}
     return _ok(request_id, "resources/read", {"contents": [content]}, stateless)
 
 

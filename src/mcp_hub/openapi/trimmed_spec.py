@@ -1,15 +1,23 @@
 """The spec an OpenAPI server serves as its one MCP resource (ADR 0011 §9).
 
-Trimmed to the enabled operations, so a caller learns about what it can call and
-nothing else:
+Trimmed to what a caller can use, and built from **allowlists**, not by deleting
+known-bad keys: a spec is untrusted text, and whatever this does not name is left
+out.
 
-- Only selected operations remain, with their path-level parameters.
-- Only the components (3.x) or definitions/parameters/responses (2.0) that those
-  operations reach, transitively, through `$ref`.
-- Only the tags they use.
-- No `servers`, `host`, `basePath` or `schemes`: the REST API's own address is the
-  admin's business, and callers reach it through the hub.
-- No top-level extensions, `webhooks`, `externalDocs` or security definitions.
+- Only the selected operations, each holding only the fields mapping reads
+  (`_OPERATION_FIELDS`). Operation `servers`, `security`, `callbacks` and every
+  `x-*` extension are gone with everything else not listed.
+- Responses keep their description, content, headers and schema. `links`, which name
+  other operations, are dropped.
+- `info` is reduced to `title`, `version` and `summary`. Its description and contact
+  details often name intranet URLs or people.
+- Only the components (3.x) or definitions/parameters/responses (2.0) the kept
+  operations reach through `$ref`, transitively. A `$ref` that would point anywhere
+  else -- at a disabled path, say -- is removed rather than left naming its target.
+- `x-*` keys are stripped everywhere except where keys are names (`properties`,
+  `patternProperties`).
+- Only the tags in use. No `servers`, `host`, `basePath`, `schemes`, `webhooks`,
+  `externalDocs` or security definitions.
 
 Pure, and the input is never modified.
 """
@@ -24,10 +32,25 @@ from mcp_hub.openapi.model import OperationKey
 from mcp_hub.openapi.refs import decode_pointer, encode_pointer, resolve_local
 
 _METHODS = ("get", "put", "post", "delete", "options", "head", "patch", "trace")
+_OPERATION_FIELDS = (
+    "operationId",
+    "summary",
+    "description",
+    "tags",
+    "deprecated",
+    "parameters",
+    "requestBody",
+    "responses",
+    "consumes",  # 2.0
+    "produces",  # 2.0
+)
+_RESPONSE_FIELDS = ("description", "content", "headers", "schema", "examples", "$ref")
+_INFO_FIELDS = ("title", "version", "summary")
 # Swagger 2.0's top-level containers, kept only where something kept refers to them.
 # (3.x keeps the same rule for every `components` kind.)
 _CONTAINERS_20 = ("definitions", "parameters", "responses")
-_KEPT_TOP_LEVEL = ("openapi", "swagger", "info", "jsonSchemaDialect")
+# Maps whose keys are names chosen by the spec author, not keywords or extensions.
+_NAME_MAPS = ("properties", "patternProperties")
 
 
 def trimmed_spec(
@@ -40,7 +63,7 @@ def trimmed_spec(
         if isinstance(item.get("$ref"), str):
             item = resolve_local(document, item["$ref"])
         kept = {
-            method: item[method]
+            method: _operation(item[method])
             for method in _METHODS
             if isinstance(item.get(method), dict) and OperationKey(method, path) in selection
         }
@@ -49,20 +72,41 @@ def trimmed_spec(
                 kept = {"parameters": item["parameters"], **kept}
             paths[path] = kept
 
-    out: dict[str, Any] = {key: document[key] for key in _KEPT_TOP_LEVEL if key in document}
+    out: dict[str, Any] = {key: document[key] for key in ("openapi", "swagger") if key in document}
+    info = document.get("info", {})
+    out["info"] = {key: info[key] for key in _INFO_FIELDS if key in info}
     out["paths"] = paths
     out.update(_reachable_containers(document, dialect, paths))
     used_tags = {
         tag for item in paths.values() for op in _operations(item) for tag in op.get("tags", [])
     }
     tags = [
-        tag
+        {key: tag[key] for key in ("name", "description") if key in tag}
         for tag in document.get("tags", [])
         if isinstance(tag, dict) and tag.get("name") in used_tags
     ]
     if tags:
         out["tags"] = tags
-    return copy.deepcopy(out)
+    cleaned = _strip_extensions(copy.deepcopy(out))
+    _drop_dangling_refs(cleaned)
+    return cleaned
+
+
+def _operation(operation: dict[str, Any]) -> dict[str, Any]:
+    kept = {key: operation[key] for key in _OPERATION_FIELDS if key in operation}
+    if isinstance(kept.get("responses"), dict):
+        kept["responses"] = {
+            code: _response(response)
+            for code, response in kept["responses"].items()
+            if not code.startswith("x-")
+        }
+    return kept
+
+
+def _response(response: Any) -> Any:
+    if not isinstance(response, dict):
+        return response
+    return {key: response[key] for key in _RESPONSE_FIELDS if key in response}
 
 
 def _operations(item: dict[str, Any]) -> list[dict[str, Any]]:
@@ -93,7 +137,9 @@ def _reachable_containers(document: dict[str, Any], dialect: str, roots: Any) ->
             entry = _entry(ref) if isinstance(ref, str) else None
             if entry is not None and entry not in reached:
                 reached.add(entry)
-                stack.append(resolve_local(document, "#" + encode_pointer(entry)))
+                target = resolve_local(document, "#" + encode_pointer(entry))
+                # Responses reached through a ref are trimmed like inline ones.
+                stack.append(_response(target) if entry[-2] == "responses" else target)
             stack.extend(node.values())
         elif isinstance(node, list):
             stack.extend(node)
@@ -102,7 +148,7 @@ def _reachable_containers(document: dict[str, Any], dialect: str, roots: Any) ->
     if dialect == "2.0":
         for container in _CONTAINERS_20:
             entries = {
-                name: value
+                name: _response(value) if container == "responses" else value
                 for name, value in document.get(container, {}).items()
                 if (container, name) in reached
             }
@@ -114,10 +160,51 @@ def _reachable_containers(document: dict[str, Any], dialect: str, roots: Any) ->
         if not isinstance(entries, dict):
             continue
         kept = {
-            name: value for name, value in entries.items() if ("components", kind, name) in reached
+            name: _response(value) if kind == "responses" else value
+            for name, value in entries.items()
+            if ("components", kind, name) in reached
         }
         if kept:
             components[kind] = kept
     if components:
         out["components"] = components
     return out
+
+
+def _strip_extensions(node: Any, *, names: bool = False) -> Any:
+    """Drop `x-*` keys, except in maps whose keys are names (`names=True`)."""
+    if isinstance(node, list):
+        return [_strip_extensions(item) for item in node]
+    if not isinstance(node, dict):
+        return node
+    return {
+        key: _strip_extensions(value, names=key in _NAME_MAPS and not names)
+        for key, value in node.items()
+        if names or not key.startswith("x-")
+    }
+
+
+def _drop_dangling_refs(document: dict[str, Any]) -> None:
+    """Remove any `$ref` that does not resolve inside the trimmed document. It would
+    otherwise still name what it pointed at -- a disabled path, a dropped
+    component."""
+    stack: list[Any] = [document]
+    while stack:
+        node = stack.pop()
+        if isinstance(node, dict):
+            ref = node.get("$ref")
+            if isinstance(ref, str) and not _resolves(document, ref):
+                del node["$ref"]
+            stack.extend(node.values())
+        elif isinstance(node, list):
+            stack.extend(node)
+
+
+def _resolves(document: dict[str, Any], ref: str) -> bool:
+    if not ref.startswith("#/"):
+        return False
+    try:
+        resolve_local(document, ref)
+    except (KeyError, IndexError, ValueError, TypeError):
+        return False
+    return True

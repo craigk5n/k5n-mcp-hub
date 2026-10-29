@@ -564,3 +564,135 @@ class TestAuthenticationChallenge:
             executor_module.call_tool.__kwdefaults__["apply_auth"] = original
         assert response.status_code == 401
         assert response.headers["www-authenticate"].startswith("Bearer")
+
+
+class TestReviewFixes:
+    """Security review of Story 13.6, findings 2, 3, 4, 5, 6 and 7."""
+
+    @pytest.mark.parametrize("version", [[1], {}, 5, True])
+    async def test_a_non_string_meta_version_is_refused_not_a_500(self, hub, version):
+        app, _ = hub
+        response = await _rpc(
+            app, "ping", {"_meta": {"io.modelcontextprotocol/protocolVersion": version}}
+        )
+        assert response.status_code == 200
+        assert response.json()["error"]["code"] == UNSUPPORTED_PROTOCOL_VERSION
+
+    async def test_an_unexpected_failure_is_an_internal_error_not_a_500(self, hub, monkeypatch):
+        app, _ = hub
+
+        async def boom(*args: Any, **kwargs: Any) -> Any:
+            raise RuntimeError("internal detail")
+
+        monkeypatch.setitem(virtual_server._HANDLERS, "ping", boom)
+        response = await _rpc(app, "ping", {})
+        assert response.status_code == 200
+        assert response.json()["error"]["code"] == -32603
+        assert "internal detail" not in response.text
+
+    @pytest.mark.parametrize(
+        "raw",
+        [
+            b'{"jsonrpc": "2.0", "id": 1, "method": "ping", "params": {"x": NaN}}',
+            b'{"jsonrpc": "2.0", "id": 1e999, "method": "ping"}',
+        ],
+        ids=["nan", "infinite-id"],
+    )
+    async def test_non_finite_numbers_are_a_parse_error(self, hub, raw):
+        app, _ = hub
+        response = await _rpc(app, "ignored", raw=raw)
+        assert response.json()["error"]["code"] == PARSE_ERROR
+
+    @pytest.mark.parametrize("request_id", [{"a": 1}, [1], True])
+    async def test_id_must_be_a_string_number_or_null(self, hub, request_id):
+        app, _ = hub
+        response = await _rpc(app, "ping", {}, id=request_id)
+        assert response.json()["error"]["code"] == INVALID_REQUEST
+        assert response.json()["id"] is None
+
+    @pytest.mark.parametrize("params", [0, "", False])
+    async def test_falsy_non_object_params_are_invalid(self, hub, params):
+        app, _ = hub
+        assert (await _rpc(app, "ping", params)).json()["error"]["code"] == INVALID_PARAMS
+
+    async def test_untraced_argument_values_stay_out_of_traces(self, hub):
+        app, _ = hub
+        await app.state.registry.register(
+            _server(openapi_selection=[OpenAPIOperationRef(method="GET", path="/pets/{petId}")])
+        )
+        await _rpc(
+            app, "tools/call", {"name": "showPetById", "arguments": {"petId": "alice@example.com"}}
+        )
+        entry = next(
+            e for e in app.state.trace_recorder.list("pets") if e.operation == "openapi_call"
+        )
+        assert entry.outbound_url == "https://petstore.example.com/v1/pets/{petId}"
+
+    async def test_verbose_traces_keep_the_expanded_url(self, hub):
+        app, _ = hub
+        await app.state.registry.register(
+            _server(
+                trace_verbose=True,
+                openapi_selection=[OpenAPIOperationRef(method="GET", path="/pets/{petId}")],
+            )
+        )
+        await _rpc(app, "tools/call", {"name": "showPetById", "arguments": {"petId": "7"}})
+        entry = next(
+            e for e in app.state.trace_recorder.list("pets") if e.operation == "openapi_call"
+        )
+        assert entry.outbound_url == "https://petstore.example.com/v1/pets/7"
+
+    async def test_resources_read_is_cached(self, hub, monkeypatch):
+        app, _ = hub
+        calls: list[int] = []
+        real = virtual_server.trimmed_spec
+
+        def counting(*args: Any) -> Any:
+            calls.append(1)
+            return real(*args)
+
+        monkeypatch.setattr(virtual_server, "trimmed_spec", counting)
+        monkeypatch.setattr(virtual_server, "_spec_cache", virtual_server.OrderedDict())
+        uri = virtual_server.spec_uri(_server())
+        first = await _rpc(app, "resources/read", {"uri": uri})
+        second = await _rpc(app, "resources/read", {"uri": uri})
+        assert first.json()["result"] == second.json()["result"]
+        assert len(calls) == 1
+
+    def test_mapping_failures_are_cached_too(self, monkeypatch):
+        import mcp_hub.openapi.server_tools as server_tools
+        from mcp_hub.openapi.model import MappingError
+
+        monkeypatch.setattr(server_tools, "_cache", server_tools.OrderedDict())
+        calls: list[int] = []
+
+        def failing(*args: Any, **kwargs: Any) -> Any:
+            calls.append(1)
+            raise MappingError(["nope"])
+
+        monkeypatch.setattr(server_tools, "openapi_tools", failing)
+        for _ in range(3):
+            with pytest.raises(MappingError):
+                server_tools.cached_openapi_tools(_server(), description_limit=1024)
+        assert len(calls) == 1
+
+    async def test_server_version_from_the_spec_is_bounded(self, hub):
+        app, _ = hub
+        server = _server()
+        server.openapi_snapshot.document["info"]["version"] = "v" * 10_000
+        await app.state.registry.register(server)
+        result = (await _rpc(app, "initialize", {})).json()["result"]
+        assert len(result["serverInfo"]["version"]) <= 64
+
+    async def test_get_is_405(self, hub):
+        app, _ = hub
+        async with httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=app), base_url="http://test"
+        ) as client:
+            response = await client.request(
+                "GET",
+                "/mcp/session",
+                headers={"X-MCP-Target-Server": "pets"},
+                content=b'{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"listPets"}}',
+            )
+        assert response.status_code == 405

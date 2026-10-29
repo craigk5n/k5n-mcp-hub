@@ -14,7 +14,7 @@ from typing import Any
 from mcp_hub.models import RegisteredServer
 from mcp_hub.models.openapi import OpenAPISnapshot
 from mcp_hub.openapi.mapping import build_tools, preview
-from mcp_hub.openapi.model import MappedOperation, OperationKey, Override, Tool
+from mcp_hub.openapi.model import MappedOperation, MappingError, OperationKey, Override, Tool
 
 
 def _choices(
@@ -69,7 +69,9 @@ def openapi_preview(
 # the spec's content hash, the choices and the description limit. Bounded, and
 # guarded by a lock because mapping runs in worker threads.
 _CACHE_SIZE = 32
-_cache: OrderedDict[tuple[Any, ...], tuple[Tool, ...]] = OrderedDict()
+# A MappingError is cached too: it is a pure function of the same key, and a broken
+# selection would otherwise pay the full mapping cost on every request.
+_cache: OrderedDict[tuple[Any, ...], tuple[Tool, ...] | MappingError] = OrderedDict()
 _cache_lock = threading.Lock()
 
 
@@ -93,10 +95,15 @@ def cached_openapi_tools(server: RegisteredServer, *, description_limit: int) ->
         cached = _cache.get(key)
         if cached is not None:
             _cache.move_to_end(key)
-            return cached
-    tools = openapi_tools(server, description_limit=description_limit)
-    with _cache_lock:
-        _cache[key] = tools
-        while len(_cache) > _CACHE_SIZE:
-            _cache.popitem(last=False)
-    return tools
+    if cached is None:
+        try:
+            cached = openapi_tools(server, description_limit=description_limit)
+        except MappingError as exc:
+            cached = exc
+        with _cache_lock:
+            _cache[key] = cached
+            while len(_cache) > _CACHE_SIZE:
+                _cache.popitem(last=False)
+    if isinstance(cached, MappingError):
+        raise MappingError(list(cached.problems))
+    return cached
