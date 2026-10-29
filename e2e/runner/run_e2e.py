@@ -19,6 +19,7 @@ import httpx
 KEYCLOAK = os.environ.get("KEYCLOAK", "http://keycloak:8080").rstrip("/")
 HUB = os.environ.get("HUB", "http://hub:8080").rstrip("/")
 STUB = os.environ.get("STUB", "http://mcp-stub:9100").rstrip("/")
+REST_STUB = os.environ.get("REST_STUB", "http://rest-stub:9200").rstrip("/")
 
 REALM = "mcp-hub"
 
@@ -108,6 +109,127 @@ def call_tool(client: httpx.Client, token: str) -> httpx.Response:
             "method": "tools/call",
             "params": {"name": "whoami", "arguments": {}},
         },
+    )
+
+
+def mcp(
+    client: httpx.Client, token: str, server_id: str, method: str, params: dict
+) -> httpx.Response:
+    return client.post(
+        f"{HUB}/mcp",
+        headers={
+            "Authorization": f"Bearer {token}",
+            "X-MCP-Target-Server": server_id,
+            "Content-Type": "application/json",
+        },
+        json={"jsonrpc": "2.0", "id": 1, "method": method, "params": params},
+    )
+
+
+def openapi_checks(client: httpx.Client, admin: str, alice: str, bob: str, outsider: str) -> None:
+    """Epic 13: a plain REST API, imported from its OpenAPI document, reached on behalf
+    of the calling user. The REST API validates its own tokens, so a pass here means
+    the hub exchanged the caller's token for one bound to the API."""
+    print("\nan OpenAPI REST API, served as MCP tools on behalf of the user")
+    wait_for(client, f"{REST_STUB}/health", "rest-stub")
+    started = client.post(
+        f"{HUB}/v1/openapi/imports",
+        headers={"Authorization": f"Bearer {admin}"},
+        json={
+            "id": "pets",
+            "spec_url": f"{REST_STUB}/openapi.json",
+            "base_url": REST_STUB,
+            "auth_type": "obo",
+            "oauth_token_url": TOKEN_URL,
+            "oauth_client_id": "k5n-mcp-hub",
+            "oauth_client_secret": HUB_CLIENT_SECRET,
+            "obo_audience": "pets-api",
+            "required_scope": SERVER_SCOPE,
+            # Nothing is exposed until selected; enable one operation.
+            "selection": [{"method": "GET", "path": "/whoami"}],
+        },
+    )
+    check(
+        "the import is accepted as a background job", started.status_code == 202, started.text[:200]
+    )
+    if started.status_code != 202:
+        return
+    job: dict = {}
+    deadline = time.monotonic() + 120
+    while time.monotonic() < deadline:
+        job = client.get(
+            HUB + started.headers["location"], headers={"Authorization": f"Bearer {admin}"}
+        ).json()
+        if job.get("status") in ("succeeded", "failed"):
+            break
+        time.sleep(1)
+    check("the spec loads and the server is created", job.get("status") == "succeeded", str(job))
+
+    direct = client.get(f"{REST_STUB}/whoami", headers={"Authorization": f"Bearer {alice}"})
+    check(
+        "the REST API refuses a token minted for the hub",
+        direct.status_code == 401,
+        f"HTTP {direct.status_code}",
+    )
+
+    listed = mcp(client, alice, "pets", "tools/list", {})
+    names = (
+        [t.get("name") for t in listed.json().get("result", {}).get("tools", [])]
+        if listed.status_code == 200
+        else []
+    )
+    check(
+        "only the selected operation is a tool",
+        names == ["whoami"],
+        f"HTTP {listed.status_code}: {names}",
+    )
+
+    for username, token in (("alice", alice), ("bob", bob)):
+        response = mcp(client, token, "pets", "tools/call", {"name": "whoami", "arguments": {}})
+        result = response.json().get("result", {}) if response.status_code == 200 else {}
+        identity = result.get("structuredContent", {})
+        check(
+            f"{username}: the REST call succeeds through the hub",
+            response.status_code == 200 and result.get("isError") is False,
+            f"HTTP {response.status_code}: {response.text[:300]}",
+        )
+        check(
+            f"{username}: the REST API attributes the call to {username}",
+            identity.get("preferred_username") == username,
+            str(identity),
+        )
+        aud = identity.get("aud")
+        check(
+            f"{username}: the token is audience-bound to the REST API",
+            aud == "pets-api" or (isinstance(aud, list) and "pets-api" in aud),
+            str(aud),
+        )
+        check(
+            f"{username}: the hub brokered it (azp)",
+            identity.get("azp") == "k5n-mcp-hub",
+            str(identity),
+        )
+
+    hidden = mcp(
+        client, alice, "pets", "tools/call", {"name": "createPet", "arguments": {"name": "x"}}
+    )
+    check(
+        "an operation that was not selected is an unknown tool",
+        hidden.status_code == 200 and "Unknown tool" in hidden.text,
+        hidden.text[:200],
+    )
+    check(
+        "a caller without the server's scope is refused",
+        mcp(client, outsider, "pets", "tools/list", {}).status_code == 403,
+    )
+    check(
+        "importing without the admin scope is refused",
+        client.post(
+            f"{HUB}/v1/openapi/imports",
+            headers={"Authorization": f"Bearer {alice}"},
+            json={"id": "sneaky", "spec_url": f"{REST_STUB}/openapi.json"},
+        ).status_code
+        == 403,
     )
 
 
@@ -257,6 +379,8 @@ def main() -> int:
             no_token.status_code == 401,
             f"HTTP {no_token.status_code}",
         )
+
+        openapi_checks(client, admin, alice, bob, outsider)
 
     print(f"\n{checks - len(failures)}/{checks} checks passed")
     if failures:

@@ -1769,13 +1769,26 @@ wrap.
 **Story 13.9 — End-to-end and docs**
 
 - Acceptance criteria:
-  - [ ] `e2e/` gains a small REST service with an OpenAPI document that checks the
-        audience and subject of the token it receives. The demo shows the
-        Keycloak-issued user reaching it through OBO.
-  - [ ] README: import, select, base URL, the auth modes, and why nothing is enabled
-        by default. `tests/test_readme.py` is kept passing.
-  - [ ] The ADR 0011 row in `docs/adr/README.md` is moved to Accepted once the epic
-        ships.
+  - [x] `e2e/rest_stub/` is a plain FastAPI REST API that validates tokens for
+        audience `pets-api` and serves its generated OpenAPI 3.1 document. The
+        realm gains a `pets-api` client and a second audience mapper on the
+        hub's client. Following the documented process, `configure_realm.py`
+        was changed and run against a throwaway Keycloak, and only the two new
+        entries were taken from its export.
+        - The runner's new section imports the spec by URL as an OBO server and
+          enables only `whoami`. It then checks that the REST API refuses the
+          hub's own token, that only the selection is listed, and that alice and
+          bob each reach the REST API as themselves (`aud: pets-api`,
+          `azp: k5n-mcp-hub`). An unselected operation is "Unknown tool", and a
+          scope-less caller and a non-admin import are both refused.
+        - Verified 2026-10-29: **33/33 checks pass** on a freshly started stack.
+  - [x] README section "REST APIs as MCP servers (OpenAPI)" covers import, base
+        URL, selection, the auth modes, why nothing is enabled by default,
+        revisions, limits and what is not yet supported, plus an overview line.
+        `e2e/README.md` covers the new service, client and checks.
+        `tests/test_readme.py` passes.
+  - [ ] The ADR 0011 row in `docs/adr/README.md` is moved to Accepted when the
+        epic ships, i.e. after Story 13.10.
 
 **Story 13.10 — OpenAPI 3.2** *(after 13.3 and 13.5)*
 

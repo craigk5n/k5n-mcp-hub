@@ -48,6 +48,16 @@ services:
       RESOURCE_ID: http://mcp-stub:9100
     depends_on: [keycloak]
 
+  # The OpenAPI demo (Epic 13): a plain REST API that validates its own tokens. The
+  # hub imports its /openapi.json and serves the operations as MCP tools on behalf
+  # of the calling user.
+  rest-stub:
+    build: ./rest_stub
+    environment:
+      OIDC_ISSUER: http://keycloak:8080/realms/mcp-hub
+      OIDC_AUDIENCE: pets-api
+    depends_on: [keycloak]
+
   hub:
     build:
       context: ..
@@ -72,6 +82,7 @@ services:
       KEYCLOAK: http://keycloak:8080
       HUB: http://hub:8080
       STUB: http://mcp-stub:9100
+      REST_STUB: http://rest-stub:9200
       # The same values Keycloak imported, from the same place, so they can't drift.
       KC_HUB_CLIENT_SECRET: ${KC_HUB_CLIENT_SECRET:?set it in e2e/.env (copy e2e/.env.example)}
       KC_ALICE_PASSWORD: ${KC_ALICE_PASSWORD:?set it in e2e/.env (copy e2e/.env.example)}
@@ -79,4 +90,5 @@ services:
     depends_on:
       - hub
       - mcp-stub
+      - rest-stub
     profiles: ["test"]

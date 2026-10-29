@@ -46,6 +46,10 @@ AGENT_CLIENT = "mcp-client"
 SERVER_SCOPE = "files:use"
 ADMIN_SCOPE = "mcp:admin"
 TARGET_CLIENT = "mcp-server-files"
+# The REST API behind the OpenAPI demo (Epic 13): a second audience the hub may
+# exchange for, so the backend can tell a token minted for it from one minted for
+# the MCP server.
+REST_TARGET_CLIENT = "pets-api"
 USERS = {
     "alice": required_env("KC_ALICE_PASSWORD"),
     "bob": required_env("KC_BOB_PASSWORD"),
@@ -151,6 +155,15 @@ def main() -> None:
                 "standardFlowEnabled": False,
                 "serviceAccountsEnabled": False,
             },
+            # The REST API the hub serves as an OpenAPI backend. Like the MCP server,
+            # it exists so its name resolves as an audience.
+            {
+                "clientId": REST_TARGET_CLIENT,
+                "enabled": True,
+                "publicClient": False,
+                "standardFlowEnabled": False,
+                "serviceAccountsEnabled": False,
+            },
             # The hub: confidential, and the client that performs the exchange.
             {
                 "clientId": HUB_CLIENT,
@@ -164,7 +177,10 @@ def main() -> None:
                 # set on the *requesting* client. No fine-grained admin permissions
                 # are needed for it.
                 "attributes": {"standard.token.exchange.enabled": "true"},
-                "protocolMappers": [audience_mapper(TARGET_CLIENT)],
+                "protocolMappers": [
+                    audience_mapper(TARGET_CLIENT),
+                    audience_mapper(REST_TARGET_CLIENT),
+                ],
             },
             # The AI agent. Public + PKCE in the real world; direct access grants are
             # enabled here so the e2e script can log in without a browser.

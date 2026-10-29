@@ -24,6 +24,10 @@ can apply that user's permissions and log who actually asked. Tokens are audienc
 and never passed through, which is what the MCP authorization spec requires of a
 gateway. See [On-behalf-of](#on-behalf-of-rfc-8693-token-exchange).
 
+The same holds for plain REST APIs: import one's OpenAPI document and the hub serves
+the operations you choose as MCP tools, calling the API as the user who asked. See
+[REST APIs as MCP servers](#rest-apis-as-mcp-servers-openapi).
+
 ### The rest
 
 Around the gateway sits a management plane: server discovery, health monitoring,
@@ -360,6 +364,66 @@ switch to `auth.type: jwt` before doing that.
 
 Design reasoning is in
 [ADR 0007](docs/adr/0007-stdio-servers-are-opt-in-and-service-identity-only.md).
+
+## REST APIs as MCP servers (OpenAPI)
+
+Import a REST API's OpenAPI document (Swagger 2.0, OpenAPI 3.0 or 3.1) and the hub
+serves the operations you choose as MCP tools. It *is* the MCP server for these: it
+answers `tools/list` and `tools/call` itself and makes the REST calls, with the same
+access checks, tracing, fault injection and per-user identity as any other backend.
+
+**From the admin UI** (**/ui/openapi**, or **Import OpenAPI** on the servers page):
+import by URL, paste or file, then on the server's page confirm the base URL, set the
+credential, and pick the operations to expose. The same is available over the API:
+
+```bash
+# Import (a background job: validation takes about 19 s per MB of spec).
+curl -s -X POST http://localhost:8080/v1/openapi/imports -H 'Content-Type: application/json' \
+  -d '{"id": "pets", "spec_url": "https://api.example.com/openapi.json"}'
+curl -s http://localhost:8080/v1/openapi/imports/<job_id>          # poll until done
+
+# Confirm the base URL (the spec's servers[] are only suggestions) and the credential.
+curl -s -X PATCH http://localhost:8080/v1/openapi/servers/pets/settings \
+  -H 'Content-Type: application/json' \
+  -d '{"base_url": "https://api.example.com/v1", "auth_type": "bearer", "bearer_token": "..."}'
+
+# Review the operations and enable some.
+curl -s http://localhost:8080/v1/openapi/servers/pets/operations | jq '.operations[] | {method, path, tool, unsupported}'
+curl -s -X PUT http://localhost:8080/v1/openapi/servers/pets/tools -H 'Content-Type: application/json' \
+  -d '{"selection": [{"method": "GET", "path": "/pets"}]}'
+```
+
+Clients then reach it like any server: `POST /mcp` with `X-MCP-Target-Server: pets`.
+
+**Nothing is enabled by default.** A spec is someone else's document: its operation
+descriptions become text a model reads, and a delete endpoint looks just like a list
+one. The preview shows each tool's description exactly as the model will see it, and
+which operations the hub cannot represent (and why), so you read before you expose.
+For the same reason a changed spec never takes effect on its own: **Check for
+updates** (or a new upload) stores it as a pending revision with a diff, and the live
+tools keep serving the accepted one until you accept it. Nothing re-fetches on a
+timer.
+
+**The base URL is yours, not the spec's.** `servers[]` can point anywhere, including
+internal hosts, so it only pre-fills the form; an import without a base URL is a
+draft with nothing exposed until you confirm one. Every request goes through the
+SSRF-pinned client, and redirects are followed only within the base URL's origin.
+
+**Credentials.** Bearer, basic, OAuth client credentials (`oauth_token_url` set
+explicitly), a static API key in a header or query parameter, and — the point of
+doing this in the hub — **on-behalf-of** and **enterprise-managed** authorization, so
+the REST API sees the calling user. The spec's security schemes are offered as
+suggestions only. Credentials are applied after the arguments, so no tool argument
+can override them, and header parameters such as `Authorization` or `Cookie` are
+never taken from a model.
+
+Limits are under `openapi:` in `config.yaml`: spec size, fetch and validation
+timeouts, the validation process's memory, description length, and per-call timeout,
+response size and redirect count. Specs are parsed and validated in a separate,
+killable process. Not yet supported: OpenAPI 3.2, multipart/file bodies, external
+`$ref`s, and query styles other than `form`. Design reasoning is in
+[ADR 0011](docs/adr/0011-openapi-backends-are-virtual-servers-in-the-hub.md), and
+`e2e/` demonstrates on-behalf-of against a real Keycloak.
 
 ## Fault Injection
 

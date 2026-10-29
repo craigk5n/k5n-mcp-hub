@@ -18,6 +18,10 @@ involved, and it exists to demonstrate the things only a real IdP can:
 - the downstream server **attributes the call to the calling user**, not to the hub,
 - and a token minted for the hub is **refused** downstream (no passthrough).
 
+It also covers the OpenAPI backends of Epic 13: the hub imports a plain REST API's
+OpenAPI document and serves its operations as MCP tools, and the REST API sees the
+calling user exactly as the MCP server does.
+
 ## Running it
 
 ```bash
@@ -74,11 +78,23 @@ values.
 | `keycloak` | Real IdP, realm imported from `keycloak/realm-mcp-hub.json` |
 | `hub` | This project, built from the repo `Dockerfile`, running `auth.type: jwt` |
 | `mcp-stub` | Downstream MCP server that **validates JWTs** and echoes the identity it saw |
+| `rest-stub` | A plain REST API (FastAPI) that **validates JWTs** for audience `pets-api`; its generated `/openapi.json` is what the hub imports |
 | `e2e` | The assertions (`profiles: ["test"]`, so it doesn't start with the others) |
 
 The stub is the load-bearing piece. A downstream that accepted anything would let
 the test pass whether or not an exchange happened, so it rejects a wrong `aud` with
 `401` plus a `WWW-Authenticate` challenge, and reports back `sub`, `azp`, and `act`.
+`rest-stub` plays the same role for the OpenAPI path: its `whoami` operation refuses
+any token not minted for `pets-api` and returns the identity it saw.
+
+The OpenAPI checks import `rest-stub`'s spec by URL as an on-behalf-of server with
+`obo_audience: pets-api`, enable only `GET /whoami`, and then assert:
+- the REST API refuses a token minted for the hub;
+- `tools/list` exposes only the selected operation;
+- alice's and bob's calls each reach the REST API as themselves, with a token bound
+  to `pets-api` and the hub as `azp`;
+- an operation that was not selected answers "Unknown tool";
+- a caller without the server's scope gets 403, and so does a non-admin import.
 
 ## Authorization
 
@@ -97,7 +113,7 @@ the IdP's policy engine.
 
 ## The realm
 
-Three clients, two users:
+Four clients, two users:
 
 - **`mcp-client`** — the AI agent. Public, PKCE in the real world; direct access
   grants are enabled here so the runner can log in without a browser. An audience
@@ -108,6 +124,9 @@ Three clients, two users:
   needed.
 - **`mcp-server-files`** — the downstream server. Exists purely so that name resolves
   as an audience; nothing ever authenticates as it.
+- **`pets-api`** — the REST API behind the OpenAPI demo. Like `mcp-server-files`, it
+  exists so the name resolves as an audience; the hub's client carries a second
+  audience mapper for it, which is what allows exchanging for it.
 - **`alice` / `bob`** — two users, so cross-user token-cache isolation is exercised
   with real tokens rather than stubs.
 
