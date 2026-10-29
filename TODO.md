@@ -1602,6 +1602,22 @@ wrap.
         called, and `needs_authentication` is carried for 13.6 to answer 401 as
         the proxy does. The identity provider's text stays in the server's
         `obo_error`, not in the result.
+  - [x] **Security review follow-up** (1 HIGH, 2 MEDIUM, 5 LOW; each verified
+        before fixing):
+        - The HIGH (a path without a leading `/` changing the host) is already
+          refused by the loader in every dialect. It is now also guarded twice:
+          mapping marks such a path unsupported, and the executor refuses a URL
+          whose origin is not the base URL's.
+        - A literal `%` or `\` in a path template makes the operation unsupported,
+          and the builder no longer passes `%` through. Before this, `/%2e%2e/admin`
+          loaded and was sent as is.
+        - An unknown response charset falls back to UTF-8 instead of raising.
+        - A redirect target carrying userinfo is refused.
+        - The header deny list gains `X-Original-URL`, `X-Rewrite-URL`, the
+          method-override headers, `X-Real-IP`, `Via` and `Origin`.
+        - Upstream error bodies have the server's own secrets redacted.
+        - The query-credential dedupe is case-insensitive.
+        - Calls send `Accept-Encoding: identity`.
 
 **Story 13.6 — The virtual MCP server**
 

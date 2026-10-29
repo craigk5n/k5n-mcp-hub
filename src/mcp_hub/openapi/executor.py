@@ -47,6 +47,9 @@ _ERROR_BODY_CHARS = 2000
 _DEFAULT_PORTS = {"http": 80, "https": 443}
 _TEXT_MEDIA = ("application/xml", "application/x-www-form-urlencoded", "application/javascript")
 _ACCEPT = "application/json, text/plain;q=0.9, */*;q=0.8"
+# Decompression happens a chunk at a time before the size cap sees it; asking for
+# none keeps that from mattering with any server that honours it.
+_ACCEPT_ENCODING = "identity"
 AuthApplier = Callable[..., Awaitable[None]]
 
 
@@ -114,7 +117,9 @@ async def call_tool(
         timeout=limits.timeout_seconds, allow_private_networks=limits.allow_private_networks
     )
     try:
-        headers = httpx.Headers({"Accept": _ACCEPT, "User-Agent": "k5n-mcp-hub"})
+        headers = httpx.Headers(
+            {"Accept": _ACCEPT, "Accept-Encoding": _ACCEPT_ENCODING, "User-Agent": "k5n-mcp-hub"}
+        )
         for name, value in prepared.headers:
             headers[name] = value
         if prepared.content_type:
@@ -159,7 +164,10 @@ def _with_auth_params(url: httpx.URL, auth_params: dict[str, str]) -> httpx.URL:
     arguments or a redirect's Location replaced, never added alongside."""
     if not auth_params:
         return url
-    kept = [(k, v) for k, v in url.params.multi_items() if k not in auth_params]
+    # Case-insensitively: an upstream that reads `ApiKey` and `apikey` alike must not
+    # see an argument's value next to the credential.
+    taken = {name.lower() for name in auth_params}
+    kept = [(k, v) for k, v in url.params.multi_items() if k.lower() not in taken]
     return url.copy_with(params=[*kept, *auth_params.items()])
 
 
@@ -173,7 +181,11 @@ async def _send(
     limits: CallLimits,
 ) -> CallResult:
     first = httpx.URL(server.openapi_base_url.rstrip("/") + prepared.path)
-    origin = _origin(first)
+    origin = _origin(httpx.URL(server.openapi_base_url))
+    if _origin(first) != origin:
+        # Mapping refuses path templates that could do this; checked again here because
+        # a request on the wrong host would carry the credential there.
+        return _failure("The request URL is not on the base URL's origin, so it was not sent")
     url = _with_auth_params(first.copy_with(params=list(prepared.query)), auth_params)
     method, body = prepared.method, prepared.body
     for hop in range(limits.max_redirects + 1):
@@ -191,6 +203,12 @@ async def _send(
             if not (300 <= response.status_code < 400 and location):
                 return await _result(response, tool, server, limits)
             target = url.join(location)
+            if target.userinfo:
+                # httpx would turn userinfo into its own Authorization header, replacing
+                # the server's credential with an identity the upstream chose.
+                return _failure(
+                    "The upstream API redirected to a URL with credentials in it; not followed"
+                )
             if _origin(target) != origin:
                 shown = redact_query_params(str(target), auth_params)
                 return _failure(
@@ -224,7 +242,20 @@ async def _read_capped(response: httpx.Response, limit: int) -> bytes | None:
 
 
 def _decode(body: bytes, response: httpx.Response) -> str:
-    return body.decode(response.charset_encoding or "utf-8", errors="replace")
+    # The charset is the upstream's to name; an unknown or broken one falls back to
+    # UTF-8 rather than failing the call.
+    try:
+        return body.decode(response.charset_encoding or "utf-8", errors="replace")
+    except (LookupError, ValueError):
+        return body.decode("utf-8", errors="replace")
+
+
+def _redact_secrets(text: str, server: RegisteredServer) -> str:
+    """Upstream error bodies often echo the request, query string and all."""
+    for secret in (server.api_key_value, server.bearer_token, server.basic_password):
+        if secret and secret.strip():
+            text = text.replace(secret.strip(), "****")
+    return text
 
 
 async def _result(
@@ -238,7 +269,7 @@ async def _result(
         )
     plan = tool.plan
     if not response.is_success:
-        detail = _decode(body, response)[:_ERROR_BODY_CHARS]
+        detail = _redact_secrets(_decode(body, response), server)[:_ERROR_BODY_CHARS]
         summary = (
             f"The upstream API returned HTTP {response.status_code} for {plan.method} {plan.path}"
         )

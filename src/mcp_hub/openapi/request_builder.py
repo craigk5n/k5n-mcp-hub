@@ -27,7 +27,8 @@ from mcp_hub.openapi.model import ParameterPlan, RequestPlan
 
 _PATH_VARIABLE = re.compile(r"\{([^}]+)\}")
 # Characters a spec's literal path text may keep as is (RFC 3986 pchar plus "/").
-_LITERAL_SAFE = "/:@!$&'()*+,;=-._~%"
+# Not "%": a literal "%2e%2e" would otherwise reach the upstream as a dot segment.
+_LITERAL_SAFE = "/:@!$&'()*+,;=-._~"
 
 
 class ArgumentProblem(Exception):

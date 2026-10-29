@@ -1016,3 +1016,32 @@ class TestStory135Additions:
     def test_checkable_patterns_are_not_noted(self):
         op = _op(parameters=[_param("q", schema={"type": "string", "pattern": "^[a-z]+$"})])
         assert _one(op).notes == ()
+
+
+class TestStory135ReviewFixes:
+    @pytest.mark.parametrize("path", ["@evil.example.com/x", "x/y"])
+    def test_a_path_must_start_with_a_slash(self, path):
+        mapped = _one(_op(), path=path, method="get")
+        assert any("start with '/'" in r for r in mapped.unsupported)
+
+    @pytest.mark.parametrize("path", ["/%2e%2e/admin", "/a%2Fb", "/a\\..\\b", "/x%20y"])
+    def test_percent_encoding_or_backslash_in_a_template_is_unsupported(self, path):
+        mapped = _one(_op(), path=path, method="get")
+        assert mapped.tool is None
+
+    @pytest.mark.parametrize(
+        "name",
+        [
+            "X-Original-URL",
+            "X-Rewrite-URL",
+            "X-HTTP-Method-Override",
+            "X-HTTP-Method",
+            "X-Method-Override",
+            "X-Real-IP",
+            "Via",
+            "Origin",
+        ],
+    )
+    def test_routing_and_override_headers_are_dropped(self, name):
+        mapped = _one(_op(parameters=[_param(name, "header")]))
+        assert name not in _schema(mapped)["properties"]

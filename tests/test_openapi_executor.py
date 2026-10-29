@@ -723,3 +723,69 @@ class TestCoverageGaps:
             max_redirects=5,
             allow_private_networks=True,
         )
+
+
+class TestReviewFixes:
+    """Security review of Story 13.5."""
+
+    async def test_a_built_url_on_another_origin_is_refused(self):
+        # Specs that pass loading always start paths with "/", so this is defence in
+        # depth: if a template ever changed the host, the credential must not follow.
+        doc_tool = _query_tool()
+        from dataclasses import replace
+
+        hostile = replace(doc_tool, plan=replace(doc_tool.plan, path="@evil.example.com/x"))
+        server = _server(
+            openapi_base_url="https://api.example.com", auth_type="bearer", bearer_token="tok"
+        )
+        result = await _call(hostile, {}, _never, server=server)
+        assert result.is_error and "origin" in _text(result)
+
+    @pytest.mark.parametrize("charset", ["rot13", "nope", "utf-8\\x00"])
+    async def test_unknown_response_charset_falls_back(self, charset):
+        for status in (200, 500):
+            response = httpx.Response(
+                status, content=b"hi", headers={"Content-Type": f"text/plain; charset={charset}"}
+            )
+            result = await _call(_get_tool(), {}, Upstream(response))
+            assert "hi" in _text(result)
+
+    async def test_redirect_with_userinfo_is_refused(self):
+        upstream = Upstream(_redirect("https://u:p@api.example.com/v1/x"))
+        result = await _call(
+            _query_tool(), {}, upstream, server=_server(auth_type="bearer", bearer_token="tok")
+        )
+        assert result.is_error and len(upstream.requests) == 1
+
+    @pytest.mark.parametrize(
+        "server_fields, secret",
+        [
+            (
+                {
+                    "auth_type": "api_key",
+                    "api_key_name": "key",
+                    "api_key_in": "query",
+                    "api_key_value": "s3cret-key",
+                },
+                "s3cret-key",
+            ),
+            ({"auth_type": "bearer", "bearer_token": "s3cret-token"}, "s3cret-token"),
+        ],
+    )
+    async def test_error_body_echoing_the_credential_is_redacted(self, server_fields, secret):
+        response = httpx.Response(401, text=f"bad credential {secret} for /t?key={secret}")
+        result = await _call(_get_tool(), {}, Upstream(response), server=_server(**server_fields))
+        assert result.is_error and secret not in _text(result)
+
+    async def test_query_key_dedupe_is_case_insensitive(self):
+        upstream = Upstream()
+        server = _server(
+            auth_type="api_key", api_key_name="apikey", api_key_in="query", api_key_value="s3cret"
+        )
+        await _call(_query_tool(_param("ApiKey")), {"ApiKey": "attacker"}, upstream, server=server)
+        assert upstream.requests[0].url.query.decode() == "apikey=s3cret"
+
+    async def test_asks_for_an_uncompressed_response(self):
+        upstream = Upstream()
+        await _call(_get_tool(), {}, upstream)
+        assert upstream.requests[0].headers["accept-encoding"] == "identity"

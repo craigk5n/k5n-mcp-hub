@@ -42,6 +42,16 @@ DROPPED_HEADERS = frozenset(
         "Upgrade",
         "Proxy-Connection",
         "Forwarded",
+        # Reverse-proxy routing and method-override headers: set by a model, they can
+        # turn a call to one operation into a call to another.
+        "X-Original-URL",
+        "X-Rewrite-URL",
+        "X-HTTP-Method-Override",
+        "X-HTTP-Method",
+        "X-Method-Override",
+        "X-Real-IP",
+        "Via",
+        "Origin",
     )
 )
 _DEFAULT_STYLE = {"query": "form", "path": "simple", "header": "simple"}
@@ -80,9 +90,17 @@ def operation_arguments(
     args = Arguments()
     for param in _merged_parameters(document, path_item, operation):
         _add_parameter(document, bundler, args, param)
+    if not path.startswith("/"):
+        # Specs that load always start paths with "/"; anything else, appended to a
+        # base URL with no path, could change the host the request goes to.
+        args.unsupported.append(f"path {path!r} does not start with '/'")
     if any(segment in (".", "..") for segment in path.split("/")):
         # Appended to the base URL, a dot segment would climb out of its path.
         args.unsupported.append(f"path {path!r} contains a '.' or '..' segment")
+    if "%" in path or "\\" in path:
+        # Percent-encoding (`%2e%2e`, `%2f`) or a backslash in the spec's literal
+        # path text is a dot segment or separator to any upstream that decodes it.
+        args.unsupported.append(f"path {path!r} contains percent-encoding or a backslash")
     declared = {p.name for p in args.parameters if p.location == "path"}
     for variable in _PATH_VARIABLE.findall(path):
         if variable not in declared:
