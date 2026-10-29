@@ -152,7 +152,23 @@
                                     {% endif %}
                                 </label>
                                 <div class="flex items-center gap-2">
-                                    {% if prop.type == 'object' or prop.type == 'array' %}
+                                    {% if prop.enum is defined and prop.enum is sequence and prop.enum is not string and prop.enum %}
+                                    {# A fixed set of values: pick one rather than type it. The option's
+                                       text is what would have been typed, so the handler reads it the
+                                       same way; an empty choice omits an optional argument. #}
+                                    {% set required = tool.inputSchema.required if tool.inputSchema.required is sequence else [] %}
+                                    <select id="{{ prop_name }}"
+                                            name="{{ prop_name }}"
+                                            class="flex-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm border px-3 py-2 bg-white">
+                                        {% if prop_name not in required %}
+                                        <option value=""{% if prop.default is not defined %} selected{% endif %}>(not set)</option>
+                                        {% endif %}
+                                        {% for value in prop.enum if value is not none %}
+                                        {% set text = value if value is string else value | tojson %}
+                                        <option value="{{ text }}"{% if prop.default is defined and value == prop.default %} selected{% endif %}>{{ text }}</option>
+                                        {% endfor %}
+                                    </select>
+                                    {% elif prop.type == 'object' or prop.type == 'array' %}
                                     <input type="text"
                                            id="{{ prop_name }}"
                                            name="{{ prop_name }}"
