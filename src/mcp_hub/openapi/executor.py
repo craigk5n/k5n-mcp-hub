@@ -23,6 +23,7 @@ import asyncio
 import base64
 import json
 import logging
+import time
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from typing import Any
@@ -37,7 +38,7 @@ from mcp_hub.openapi.arguments import is_json_media
 from mcp_hub.openapi.model import Tool
 from mcp_hub.openapi.request_builder import ArgumentProblem, PreparedRequest, build_request
 from mcp_hub.openapi.validation import argument_error
-from mcp_hub.trace.recorder import redact_query_params
+from mcp_hub.trace.recorder import redact_query_params, sanitize_trace_headers
 from mcp_hub.utils import resolve_pinned_ip, safe_http_client_factory
 
 logger = logging.getLogger(__name__)
@@ -51,6 +52,25 @@ _ACCEPT = "application/json, text/plain;q=0.9, */*;q=0.8"
 # none keeps that from mattering with any server that honours it.
 _ACCEPT_ENCODING = "identity"
 AuthApplier = Callable[..., Awaitable[None]]
+
+
+@dataclass(frozen=True)
+class UpstreamExchange:
+    """One HTTP request to the REST API, for the trace recorder. Sanitized here,
+    where the server's credentials are known: the URL has a query API key redacted,
+    and the headers have Authorization and the API key header redacted."""
+
+    method: str
+    url: str
+    status: int
+    duration_ms: float
+    request_headers: dict[str, str]
+    response_headers: dict[str, str]
+    request_body: bytes
+    error: str = ""
+
+
+ExchangeObserver = Callable[[UpstreamExchange], None]
 
 
 @dataclass(frozen=True)
@@ -104,6 +124,7 @@ async def call_tool(
     limits: CallLimits,
     http_client: httpx.AsyncClient | None = None,
     apply_auth: AuthApplier = apply_server_auth,
+    on_exchange: ExchangeObserver | None = None,
 ) -> CallResult:
     problem = argument_error(tool.definition.input_schema, arguments)
     if problem is not None:
@@ -142,7 +163,9 @@ async def call_tool(
                 needs_authentication=exc.needs_authentication,
             )
         async with asyncio.timeout(limits.timeout_seconds):
-            return await _send(client, tool, server, prepared, headers, auth_params, limits)
+            return await _send(
+                client, tool, server, prepared, headers, auth_params, limits, on_exchange
+            )
     except (TimeoutError, httpx.TimeoutException):
         return _failure(f"The upstream API timed out after {limits.timeout_seconds:g}s")
     except httpx.HTTPError as exc:
@@ -179,6 +202,7 @@ async def _send(
     headers: httpx.Headers,
     auth_params: dict[str, str],
     limits: CallLimits,
+    on_exchange: ExchangeObserver | None,
 ) -> CallResult:
     first = httpx.URL(server.openapi_base_url.rstrip("/") + prepared.path)
     origin = _origin(httpx.URL(server.openapi_base_url))
@@ -197,7 +221,21 @@ async def _send(
                 f"The upstream host {url.host!r} failed SSRF validation, so it was not called"
             )
         request = client.build_request(method, url, headers=headers, content=body)
-        response = await client.send(request, stream=True)
+        started = time.perf_counter()
+        try:
+            response = await client.send(request, stream=True)
+        except httpx.HTTPError as exc:
+            _observe(on_exchange, server, request, auth_params, started, 0, {}, type(exc).__name__)
+            raise
+        _observe(
+            on_exchange,
+            server,
+            request,
+            auth_params,
+            started,
+            response.status_code,
+            dict(response.headers),
+        )
         try:
             location = response.headers.get("location")
             if not (300 <= response.status_code < 400 and location):
@@ -227,6 +265,33 @@ async def _send(
         finally:
             await response.aclose()
     raise AssertionError("unreachable: the loop returns on its last hop")
+
+
+def _observe(
+    on_exchange: ExchangeObserver | None,
+    server: RegisteredServer,
+    request: httpx.Request,
+    auth_params: dict[str, str],
+    started: float,
+    status: int,
+    response_headers: dict[str, str],
+    error: str = "",
+) -> None:
+    if on_exchange is None:
+        return
+    extra = [server.api_key_name] if server.api_key_name else []
+    on_exchange(
+        UpstreamExchange(
+            method=request.method,
+            url=redact_query_params(str(request.url), auth_params),
+            status=status,
+            duration_ms=(time.perf_counter() - started) * 1000,
+            request_headers=sanitize_trace_headers(dict(request.headers), extra_sensitive=extra),
+            response_headers=sanitize_trace_headers(response_headers),
+            request_body=request.content,
+            error=error,
+        )
+    )
 
 
 async def _read_capped(response: httpx.Response, limit: int) -> bytes | None:

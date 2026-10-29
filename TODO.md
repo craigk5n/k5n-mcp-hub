@@ -1621,23 +1621,50 @@ wrap.
 
 **Story 13.6 — The virtual MCP server**
 
-- TDD: `tests/test_openapi_virtual_server.py` first. Use the real `mcp` SDK client
-  for the handshake revisions and `mcp/stateless.py` for 2026-07-28.
+- TDD: `tests/test_openapi_virtual_server.py` (plus `test_openapi_trimmed_spec.py`).
+  Uses the real `mcp` SDK client for the handshake revisions and
+  `StatelessMCPClient` for 2026-07-28.
+- Modules: `openapi/virtual_server.py` (JSON-RPC), `openapi/trimmed_spec.py`, and
+  `proxy/openapi_proxy.py` (traces, span, metric).
 - Acceptance criteria:
-  - [ ] `proxy/handler.py` branches on `transport_kind == "openapi"` next to the
-        stdio branch. The same proxy route, server access check (`required_scope`)
-        and request id apply.
-  - [ ] It answers `initialize` (the handshake revisions in `mcp/constants.py`),
-        `server/discover` (stateless), `tools/list`, `tools/call`, `resources/list`
-        and `resources/read`, and returns method-not-found for anything else.
-  - [ ] The one resource is the spec, trimmed to the enabled operations. A test
-        asserts that a disabled operation's path appears nowhere in it.
-  - [ ] All `tools/call` traffic goes through **one** function, documented as the
-        point where Epic 12's `tool_permitted` check will wrap.
-  - [ ] Fault injection, the trace recorder (MCP exchange plus the upstream REST
-        request, sanitized) and `/metrics` work as they do for proxied servers.
-  - [ ] OTel spans and metric labels use the path template, never the expanded path
-        (ADR 0009, ADR 0011 §13).
+  - [x] `proxy/handler.py` branches on `is_openapi` right after the stdio branch.
+        The same route, `require_server_access` (tested under `jwt` with
+        `required_scope`), denial trace, body capture and fault injection apply.
+  - [x] It answers `initialize` with version negotiation over the handshake
+        revisions, `ping`, `server/discover`, `tools/list`, `tools/call`,
+        `resources/list` and `resources/read`, and method-not-found for anything
+        else.
+        - Stateless requests (header or `_meta`) get `resultType`, plus
+          `ttlMs`/`cacheScope` on lists. They refuse `initialize`, and an
+          unsupported `_meta` version gets -32022.
+        - Parsing is strict: duplicate keys are a parse error, and batches and
+          non-objects are invalid.
+        - A notification gets 202.
+        - An unselected tool and a missing one both answer `Unknown tool: <name>`.
+        - Bad arguments come back as a tool error (`isError`), not a protocol
+          error.
+        - On-behalf-of needing a user returns 401, with the bearer challenge
+          under `jwt`.
+  - [x] The one resource is the spec trimmed to the enabled operations
+        (`openapi://<id>/spec`). It keeps only the components and tags they
+        reach, and drops servers/host/basePath, webhooks, extensions and
+        security schemes. Tests assert a disabled operation's path and
+        operationId appear nowhere.
+  - [x] Every tools/call goes through `virtual_server.dispatch_tool_call`,
+        documented as Epic 12's `tool_permitted` seam. A spy test asserts it is
+        the only path.
+  - [x] Fault injection applies as for any backend. Traces record the MCP
+        exchange (`operation: proxy`) plus one `openapi_call` entry per upstream
+        hop, sanitized in the executor via the 13.4 helpers (no query API key, no
+        Authorization or key header). `/metrics` counts the calls through the
+        middleware.
+  - [x] The span and per-server metric carry `http.route` = `METHOD
+        /path/{template}` and `mcp.tool.name`, never the expanded path (tested
+        with an identifying path value). `record_proxy_request` gained a `route`
+        attribute.
+  - [x] Tool lists are cached by spec SHA-256 plus choices plus the description
+        limit (bounded LRU, thread-safe), so tools/list and tools/call do not
+        re-map a large spec on every request.
 
 **Story 13.7 — Refresh, diff and approval**
 

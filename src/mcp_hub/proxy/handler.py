@@ -18,6 +18,7 @@ from mcp_hub.mcp.constants import STATELESS_PROTOCOL_VERSION, resolve_protocol_v
 from mcp_hub.models.server import RegisteredServer
 from mcp_hub.proxy.fault_injection import apply_fault_injection
 from mcp_hub.observability.otel import SPAN_REQUEST_ID, record_error
+from mcp_hub.proxy.openapi_proxy import serve_openapi
 from mcp_hub.proxy.stdio_proxy import forward_to_stdio
 from mcp_hub.proxy.url import compose_backend_url
 from mcp_hub.registry.service import Registry
@@ -343,6 +344,30 @@ async def proxy_request(
             content=stdio_result.body,
             status_code=stdio_result.status_code,
             media_type="application/json" if stdio_result.body else None,
+        )
+
+    if srv.is_openapi:
+        # The hub is this backend's MCP server (ADR 0011): no MCP upstream to forward
+        # to. Authorization, the denial trace, body capture and fault injection above
+        # apply unchanged, as for stdio.
+        return await serve_openapi(
+            request,
+            srv,
+            caller=caller,
+            request_body=request_body,
+            trace_recorder=trace_recorder,
+            trace_settings=settings,
+            trace={
+                "timestamp": request_start_timestamp,
+                "subject": trace_subject,
+                "incoming_url": incoming_url,
+                "verbose": verbose,
+                "request_headers": request_headers,
+                "request_body": captured_request_body,
+            },
+            otel=otel,
+            span_attributes=span_attributes,
+            start_time=start_time,
         )
 
     outbound_url = compose_backend_url(

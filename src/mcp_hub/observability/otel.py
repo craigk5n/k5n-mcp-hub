@@ -225,8 +225,12 @@ class OtelProvider:
         outcome: str = "ok",
         transport: str = "",
         error: bool = False,
+        route: str = "",
     ) -> None:
         """Count and time one proxied call.
+
+        `route` is an OpenAPI operation as ``METHOD /path/{template}``: the template,
+        never the expanded path, which would carry identifiers and be unbounded.
 
         Attributes are kept deliberately small. A metric attribute is not a span
         attribute: every distinct value is a separate time series, so a caller subject
@@ -240,6 +244,8 @@ class OtelProvider:
         attributes: dict[str, Any] = {"mcp.server.id": server_id, "mcp.outcome": outcome}
         if transport:
             attributes["mcp.transport"] = transport
+        if route:
+            attributes["http.route"] = route
 
         try:
             self._counter(METRIC_PROXY_REQUESTS, "Proxied MCP calls.").add(1, attributes)
