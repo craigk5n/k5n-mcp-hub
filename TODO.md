@@ -1152,6 +1152,160 @@ Note the naming: `trace.*` stays request/response capture. OpenTelemetry lives u
 - [ ] Shipping a collector or a dashboard. The hub emits OTLP; where it goes is the
       operator's decision.
 
+## Tool governance
+
+### Epic 12 — Per-server and per-user tool policy, and rate limits
+
+Authorization stops at the server today. `require_server_access` decides whether a
+caller may reach a backend, and after that the proxy forwards the body unread, so
+anyone who may reach a server may call every tool on it. Under `auth.type: jwt` the
+hub already knows who is calling and what scopes they hold. Using that per tool
+extends on-behalf-of: a shared-credential gateway has no per-user identity to apply
+this kind of policy to.
+
+**See [ADR 0010](docs/adr/0010-tool-policy-is-enforced-on-the-call.md).** The
+headline rule is that **the `tools/call` check is the security boundary and
+`tools/list` filtering is a courtesy**. Hiding a tool does not stop a client from
+calling it by name.
+
+This is the first feature that makes the proxy read MCP messages. Every story keeps
+servers **without** a policy byte-for-byte unchanged: no parsing, no rewriting, same
+tests.
+
+**Story 12.1 — Policy model, storage and registration**
+
+- TDD: `tests/test_tool_policy_model.py` first.
+- Acceptance criteria:
+  - [ ] `ToolPolicy` (`allow`, `deny`, `scopes`) on `RegisteredServer` and
+        `RegisterRequest`, matched with `fnmatch.fnmatchcase`. Deny overrides allow,
+        and an empty `allow` means every tool. A single pure function,
+        `tool_permitted(policy, tool, principal, auth) -> Decision`, owns the
+        semantics, so the proxy, the list filter and the UI cannot disagree.
+  - [ ] The on-disk shape is additive. A stored server with no `tool_policy` loads
+        as "no policy" and behaves exactly as it does today.
+  - [ ] **Omitting `tool_policy` on re-registration keeps the existing policy**, and
+        an explicit empty policy clears it (ADR 0010 §8). Test: register with a deny
+        list, re-register without the field, and the deny list is still enforced.
+        Re-registration replaces `required_scope`, so following that precedent here
+        would let a script quietly erase a deny list.
+  - [ ] Setting or changing a policy requires `auth.jwt.admin_scope` under `jwt`.
+  - [ ] `registry_export` omits the policy, as it omits `required_scope`, and registry
+        import never sets one.
+
+**Story 12.2 — Strict parsing and call enforcement**
+
+- TDD: `tests/test_tool_policy_enforcement.py` first, including the bypass cases
+  below as named tests.
+- Acceptance criteria:
+  - [ ] For a server with a non-empty policy, the request body is parsed strictly
+        before fault injection and before any backend contact, on both the HTTP and
+        stdio paths. Strictly means valid JSON, **duplicate keys rejected**, and a
+        string `params.name` on `tools/call`. Anything else is refused (ADR 0010 §3).
+  - [ ] A denied `tools/call` gets a JSON-RPC error (`-32602`, `Unknown tool: <name>`)
+        echoing the request id, and the backend is never contacted. The response is
+        not a 403, because a hidden tool should not confirm it exists.
+  - [ ] JSON-RPC batches are checked element by element, and the whole batch is
+        refused if any element is denied.
+  - [ ] Bypass tests: duplicate `name` keys, duplicate `method` keys, a non-string
+        name, a non-JSON body, a batch hiding one denied call among permitted ones,
+        a case variant of a denied name (`Delete_Repo` vs `delete_repo`, which must be
+        treated as distinct since matching is case-sensitive, and the test documents
+        that).
+  - [ ] The denial is recorded in the trace with subject, tool name and outcome
+        `tool_denied`. The OTel span gets `mcp.outcome=tool_denied` and the tool name,
+        and never the arguments (ADR 0009 §5).
+  - [ ] A server with no policy is unchanged: its body is never parsed by this code
+        path (asserted, not assumed).
+
+**Story 12.3 — Per-tool scopes**
+
+- Acceptance criteria:
+  - [ ] `scopes` entries are checked against `Principal.scopes` under `auth.type: jwt`.
+        Admins satisfy them, matching `may_call_server`. Admins do **not** bypass
+        `allow`/`deny` (ADR 0010 §6).
+  - [ ] Under any other `auth.type`, a tool with a scope requirement is unavailable
+        (fail closed, ADR 0010 §7), and the admin UI explains why rather than just
+        showing it missing.
+  - [ ] Where a scope requirement is the only reason a call fails, the trace records
+        the missing scope. The caller still sees "unknown tool".
+
+**Story 12.4 — `tools/list` filtering**
+
+- TDD: fixtures for a JSON response, a single-event SSE response, a multi-event SSE
+  stream where the list is not the first event, and a resumed GET stream.
+- Acceptance criteria:
+  - [ ] On a POST, the response matching the `tools/list` request id is filtered for
+        both `application/json` and SSE bodies. On an SSE stream only that event is
+        rewritten. Every other event passes through unchanged and **is not delayed**:
+        a long-lived stream must still flow.
+  - [ ] On a GET or `Last-Event-ID` resumed stream, a result that is unambiguously a
+        tool list (`result.tools` is a list of objects with string `name`s) is
+        filtered. Anything else passes through.
+  - [ ] Pagination (`nextCursor`) is preserved. A page that filters down to empty
+        still returns its cursor.
+  - [ ] If the 2026-07-28 `server/discover` response inlines tools, it is filtered by
+        the same function. Check this against the spec before building it.
+  - [ ] A malformed response from the backend is forwarded unchanged rather than
+        "fixed". Call enforcement does not depend on this story, so a parse miss
+        here leaks names and never grants access.
+
+**Story 12.5 — Admin UI, drift and downloads**
+
+- Acceptance criteria:
+  - [ ] Server detail page: view and edit the policy, and show each discovered tool
+        as exposed, hidden (with the rule that hid it) or scope-gated (with the
+        scope).
+  - [ ] Drift warnings: a deny pattern that matches no discovered tool (likely
+        stale, possibly a rename that now leaves the tool exposed), and a discovered
+        tool that no allow pattern matches (hidden, possibly not on purpose).
+  - [ ] The tool download scripts (`ui_downloads.py`) are not offered for tools the
+        requesting caller cannot call.
+  - [ ] The registry API returns the full tool list with policy annotations to admins.
+        Discovery still runs as the service identity (ADR 0004) and keeps seeing
+        everything, which is what drift detection needs.
+
+**Story 12.6 — Rate limits and concurrency**
+
+- TDD: `tests/test_rate_limit.py`, using an injected clock, not sleeps.
+- Acceptance criteria:
+  - [ ] Optional per-server `rate_limit` (requests per minute, with a burst) keyed on
+        `(server, subject)`, falling back to `(server)` when there is no subject. An
+        optional per-server `max_concurrent` caps in-flight requests.
+  - [ ] Checked after authorization and tool policy, so a refused caller does not use
+        up anyone's budget, and before fault injection and backend contact.
+  - [ ] Over the limit: HTTP 429 with `Retry-After`, a trace entry, and an OTel
+        outcome `rate_limited`.
+  - [ ] In-memory and per-process, **documented as such**. Two hub replicas give each
+        caller twice the budget. A shared store would contradict the single-node
+        positioning, and it can be added later behind the same interface.
+  - [ ] A long-lived SSE stream holds its concurrency slot until it closes. This is
+        documented, because a client holding open subscriptions will see it.
+  - [ ] Bounded memory: idle `(server, subject)` buckets are evicted, and the test
+        checks that a flood of distinct subjects cannot grow the table without limit.
+
+**Story 12.7 — Docs**
+
+- Acceptance criteria:
+  - [ ] README section: "hidden" vs. "refused", allow-list vs. deny-list and which
+        way each fails when a backend renames a tool, and that hub policy is a second
+        layer that does not replace authorization in the backend (with OBO the backend
+        sees the real user and can enforce it too).
+  - [ ] Operator guide: a worked example. A GitHub-style server with
+        `deny: ["delete_*"]`, `scopes: {"merge_*": "repo:write"}`, and a Keycloak
+        client scope that grants `repo:write` to one group.
+  - [ ] `config.production.example.yaml` shows a rate limit.
+
+**Deliberately out of scope**
+
+- [ ] Policy over arbitrary claims (groups, ABAC, CEL/OPA). Scopes cover the common
+      case and add no trust surface (ADR 0010 §10).
+- [ ] `prompts/get` and `resources/read` policy. ADR 0010 is written so they extend
+      it without a new decision. Do them once tools have shipped.
+- [ ] Cross-backend virtual catalogs and aggregating several servers behind one
+      endpoint. That is a separate epic: the hub becomes the MCP server, which is a
+      bigger change than this.
+- [ ] Distributed rate limiting (see 12.6).
+
 ## Product / usefulness follow-ups (from AUDIT_local.md §3)
 
 - [ ] Interop with the official MCP registry API — scoped as **Epic 10** above (import only; see ADR 0008).

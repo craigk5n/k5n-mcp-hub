@@ -18,6 +18,7 @@ Format: `NNNN-short-title.md`, with `Status`, `Context`, `Decision`,
 | [0007](0007-stdio-servers-are-opt-in-and-service-identity-only.md) | stdio servers are opt-in, allowlisted, and service-identity only | Accepted |
 | [0008](0008-registry-import-yes-publish-no.md) | The hub imports from the MCP registry but never publishes to it | Accepted |
 | [0009](0009-opentelemetry-is-optional-and-redacted.md) | OpenTelemetry is optional, off by default, and redacted | Accepted |
+| [0010](0010-tool-policy-is-enforced-on-the-call.md) | Tool policy is enforced on the call, and hiding is only a courtesy | Proposed |
 
 ADRs 0001–0004 together specify on-behalf-of (OBO) token exchange, tracked as
 Epics 5–7 in [`TODO.md`](../../TODO.md). ADRs 0005–0006 cover Enterprise-Managed
@@ -25,3 +26,6 @@ Authorization (ID-JAG), tracked as Epic 8. ADR 0007 covers stdio transport,
 tracked as Epic 9, ADR 0008 registry interop, tracked as Epic 10, and ADR 0009
 OpenTelemetry, tracked as Epic 11. All three epics are built, so these describe what
 the code does rather than designs under review.
+
+ADR 0010 covers tool governance, tracked as Epic 12. It is Proposed: the epic is not
+built yet, so it is still a design under review.
