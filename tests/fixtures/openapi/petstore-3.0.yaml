@@ -1,0 +1,40 @@
+# Written the way hand-maintained YAML specs often are: unquoted status codes, an
+# unquoted date as the version, and words YAML 1.1 would turn into booleans.
+openapi: 3.0.3
+info:
+  title: Petstore
+  version: 2024-01-01
+servers:
+  - url: https://petstore.example.com/v1
+paths:
+  /pets/{petId}:
+    get:
+      operationId: showPetById
+      parameters:
+        - name: petId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        200:
+          description: The pet
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Pet'
+components:
+  schemas:
+    Pet:
+      type: object
+      properties:
+        name:
+          type: string
+        tag:
+          type: string
+          nullable: true
+        vaccinated:
+          type: string
+          enum: [yes, no, on, off]
+        on:
+          type: boolean

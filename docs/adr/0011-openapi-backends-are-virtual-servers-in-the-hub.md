@@ -173,11 +173,19 @@ tools are ordinary tools of an ordinary server for policy purposes. The Epic 12
 stories must name this path explicitly so the check covers both kinds of backend.
 
 **11. Parsing uses a library; mapping is ours.**
-- `openapi-spec-validator` validates Swagger 2.0, OpenAPI 3.0 and 3.1. It resolves
-  only local refs by default, which is the posture wanted here. Its
+- `openapi-spec-validator` validates Swagger 2.0, OpenAPI 3.0 and 3.1. Its
   `jsonschema`/`referencing` stack is already installed through `mcp`.
-- **External `$ref`s are rejected in v1.** Each one would be another
-  attacker-chosen fetch.
+- **The validator does not protect against external refs; the hub has to.** Probed
+  against 0.9.0, it resolves refs itself. For an `http://` ref it performs the fetch
+  outside the SSRF-pinned transport. For a `file://` ref it reads the local file and
+  echoes the contents in its error message.
+- **So external `$ref`s are rejected in v1, before validation.** Each one would be
+  another attacker-chosen fetch or file read. `mcp_hub.openapi.refs` admits only
+  local `#/...` pointers, and also refuses `$id`, `$dynamicRef` and
+  `$recursiveRef`, because `$id` re-bases relative refs beneath it.
+- The pre-check also refuses dangling refs and ref cycles that consume no structure
+  (`$ref`, `allOf`, `anyOf`, `oneOf`, `not`). The validator crashes on those with a
+  `RecursionError`.
 - A focused in-repo normalizer converts Swagger 2.0 to the 3.x model. It covers only
   what mapping needs: `body` and `formData` parameters, `consumes`/`produces`,
   `definitions`, `host`/`basePath`/`schemes`.

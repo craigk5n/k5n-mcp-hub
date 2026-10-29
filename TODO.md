@@ -1336,17 +1336,28 @@ wrap.
 - TDD: `tests/test_openapi_loader.py` first, with fixture specs for each dialect
   under `tests/fixtures/openapi/`.
 - Acceptance criteria:
-  - [ ] `mcp_hub/openapi/loader.py` loads JSON or YAML (`yaml.safe_load` only) from
-        bytes and validates it with `openapi-spec-validator`. The validation error
-        names the failing JSON pointer and is shown to the admin.
-  - [ ] Fetching from a URL uses the SSRF-pinned client, with a size cap and a
-        timeout taken from config. Upload and paste go through the same size cap.
-  - [ ] Local `$ref`s are resolved. **Any external `$ref` is rejected** with an error
-        naming it, and a test proves no network request is made while trying.
-  - [ ] Ref cycles and very large documents are bounded. Tests cover a recursive
-        schema and a "billion laughs"-style YAML alias bomb.
-  - [ ] `openapi-spec-validator` (and `jsonschema-path` if it is imported directly)
-        is added to `dependencies` with an upper bound, and `pip-audit` stays clean.
+  - [x] `mcp_hub/openapi/loader.py` loads JSON or YAML from bytes and validates it
+        with `openapi-spec-validator`. The YAML loader is a `SafeLoader` subclass
+        (`openapi/parse.py`): keys keep their source spelling (`200:`, `on:`), dates
+        stay strings, only `true`/`false` are booleans, and duplicate keys and non-JSON
+        types are refused. `SpecError.pointer` names the failing JSON pointer; showing
+        it to the admin is Story 13.8.
+  - [x] Fetching from a URL uses the SSRF-pinned client, with a size cap (checked on
+        `Content-Length` and while streaming) and a timeout on the whole fetch, both
+        from the new `openapi:` config section. Redirects are refused and the error
+        names the target. `load_spec` applies the same cap to uploads.
+  - [x] Local `$ref`s are checked to resolve and are left in place. **Any external
+        `$ref` is rejected**, as are `$id`/`$dynamicRef`/`$recursiveRef`, with an
+        error naming them. Tests prove no DNS lookup happens and that a `file://`
+        target is never read. This check is the boundary: the validator itself
+        fetches `http` refs and reads `file` ones (ADR 0011 §11).
+  - [x] Ref cycles and very large documents are bounded. Covered: recursive schemas
+        (accepted), pure `$ref` and `allOf`/`anyOf`/`oneOf`/`not` cycles, a
+        billion-laughs alias bomb, a self-containing YAML list, and deep nesting. The
+        expanded-size count is memoized per shared object, so a bomb is refused at
+        once rather than after walking the budget.
+  - [x] `openapi-spec-validator>=0.9,<0.10` is added to `dependencies` (and
+        `jsonschema-path` is not imported directly), and `pip-audit` is clean.
 
 **Story 13.2 — Swagger 2.0 normalizer**
 

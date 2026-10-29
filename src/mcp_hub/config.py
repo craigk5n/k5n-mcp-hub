@@ -12,6 +12,11 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 from mcp_hub.mcp.constants import MCP_DISCOVERY_INTERVAL_SECONDS
 from mcp_hub.mcp.registry_client import DEFAULT_REGISTRY_BASE_URL
 
+# Large public specs (GitHub's, Stripe's) run past this; raising it is a config
+# change, with the cost described on OpenAPIConfig.
+DEFAULT_OPENAPI_MAX_SPEC_BYTES = 5 * 1024 * 1024
+DEFAULT_OPENAPI_FETCH_TIMEOUT_SECONDS = 30
+
 # Bind addresses that cannot be reached from another host.
 LOOPBACK_HOSTS = frozenset({"127.0.0.1", "::1", "localhost"})
 
@@ -280,6 +285,29 @@ class RegistryConfig(BaseModel):
     base_url: str = DEFAULT_REGISTRY_BASE_URL
 
 
+class OpenAPIConfig(BaseModel):
+    """Importing OpenAPI documents as virtual MCP servers (ADR 0011, Epic 13).
+
+    `max_spec_bytes` bounds both a fetched and an uploaded spec. It is also what bounds
+    `mcp_servers.json`: the snapshot is stored inline on the server record (ADR 0011
+    §2), and a pending revision can double it. `fetch_timeout_seconds` bounds the
+    whole fetch, not each read.
+    """
+
+    max_spec_bytes: int = DEFAULT_OPENAPI_MAX_SPEC_BYTES
+    fetch_timeout_seconds: int = DEFAULT_OPENAPI_FETCH_TIMEOUT_SECONDS
+
+    @field_validator("max_spec_bytes", mode="before")
+    @classmethod
+    def validate_max_spec_bytes(cls, v: object) -> int:
+        return _coerce_positive_int(v, DEFAULT_OPENAPI_MAX_SPEC_BYTES)
+
+    @field_validator("fetch_timeout_seconds", mode="before")
+    @classmethod
+    def validate_fetch_timeout(cls, v: object) -> int:
+        return _coerce_positive_int(v, DEFAULT_OPENAPI_FETCH_TIMEOUT_SECONDS)
+
+
 class OtelConfig(BaseModel):
     """OpenTelemetry export. Off by default -- see ADR 0009.
 
@@ -335,6 +363,7 @@ class Settings(BaseSettings):
     discovery: DiscoveryConfig = Field(default_factory=DiscoveryConfig)
     stdio: StdioConfig = Field(default_factory=StdioConfig)
     registry: RegistryConfig = Field(default_factory=RegistryConfig)
+    openapi: OpenAPIConfig = Field(default_factory=OpenAPIConfig)
     otel: OtelConfig = Field(default_factory=OtelConfig)
     trace: TraceConfig = Field(default_factory=TraceConfig)
     security: SecurityConfig = Field(default_factory=SecurityConfig)
@@ -487,6 +516,10 @@ def load_settings(path: str | None = None) -> Settings:
         _deep_merge(defaults.registry.model_dump(), yaml_config.get("registry", {})),
         nested_env_vars.get("registry", {}),
     )
+    openapi_dict = _deep_merge(
+        _deep_merge(defaults.openapi.model_dump(), yaml_config.get("openapi", {})),
+        nested_env_vars.get("openapi", {}),
+    )
     otel_dict = _deep_merge(
         _deep_merge(defaults.otel.model_dump(), yaml_config.get("otel", {})),
         nested_env_vars.get("otel", {}),
@@ -508,6 +541,7 @@ def load_settings(path: str | None = None) -> Settings:
         discovery=DiscoveryConfig(**discovery_dict),
         stdio=StdioConfig(**stdio_dict),
         registry=RegistryConfig(**registry_dict),
+        openapi=OpenAPIConfig(**openapi_dict),
         otel=OtelConfig(**otel_dict),
         trace=TraceConfig(**trace_dict),
         security=SecurityConfig(**security_dict),

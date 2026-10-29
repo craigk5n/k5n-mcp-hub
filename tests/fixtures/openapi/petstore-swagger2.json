@@ -1,0 +1,28 @@
+{
+  "swagger": "2.0",
+  "info": {"title": "Petstore", "version": "1.0.0"},
+  "host": "petstore.example.com",
+  "basePath": "/v1",
+  "schemes": ["https"],
+  "consumes": ["application/json"],
+  "produces": ["application/json"],
+  "paths": {
+    "/pets": {
+      "post": {
+        "operationId": "createPet",
+        "parameters": [
+          {"name": "pet", "in": "body", "required": true, "schema": {"$ref": "#/definitions/NewPet"}}
+        ],
+        "responses": {"201": {"description": "Created", "schema": {"$ref": "#/definitions/Pet"}}}
+      }
+    }
+  },
+  "definitions": {
+    "NewPet": {"type": "object", "required": ["name"], "properties": {"name": {"type": "string"}}},
+    "Pet": {
+      "type": "object",
+      "required": ["id", "name"],
+      "properties": {"id": {"type": "integer"}, "name": {"type": "string"}}
+    }
+  }
+}

@@ -185,6 +185,22 @@ registry:
   # server.json you review and publish yourself with the official CLI.
   base_url: "https://registry.modelcontextprotocol.io"
 
+openapi:
+  # Importing a REST API's OpenAPI document (Swagger 2.0, OpenAPI 3.0 or 3.1) so the
+  # hub serves its operations as MCP tools. See
+  # docs/adr/0011-openapi-backends-are-virtual-servers-in-the-hub.md.
+  #
+  # max_spec_bytes: Largest spec accepted, fetched or uploaded. The accepted snapshot
+  # is stored inline on the server record -- in mcp_servers.json with storage.type
+  # json -- and a pending revision can double that, so this also bounds how much one
+  # server can grow the registry file. Large public specs (GitHub's, Stripe's) need
+  # this raised.
+  max_spec_bytes: 5242880
+
+  # fetch_timeout_seconds: Time allowed for the whole fetch of a spec URL, not per
+  # read, so a server dribbling bytes cannot hold an import open.
+  fetch_timeout_seconds: 30
+
 trace:
   # body_limit: Maximum number of body bytes to capture per request/response.
   body_limit: 10000

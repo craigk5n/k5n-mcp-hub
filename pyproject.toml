@@ -37,6 +37,11 @@ dependencies = [
     "fastapi>=0.110.0",
     "jinja2>=3.1.0",
     "aiohttp>=3.9.0",
+    # Validates imported OpenAPI documents (Swagger 2.0, 3.0, 3.1) for Epic 13. Capped
+    # below 0.10: it is pre-1.0 and its pinned jsonschema-path range moves between
+    # minors. It resolves external $refs itself -- network and file:// alike -- so
+    # mcp_hub.openapi.refs must reject them before anything reaches it (ADR 0011 §11).
+    "openapi-spec-validator>=0.9,<0.10",
 ]
 
 [project.optional-dependencies]
@@ -97,6 +102,10 @@ exclude = ["src/mcp_hub/static/", "src/mcp_hub/templates/"]
 # packages without stubs, and don't type-check the test suite.
 ignore_missing_imports = true
 explicit_package_bases = true
+# Match requires-python rather than whichever interpreter mypy happens to run on
+# (a bare `mypy` can be the system 3.10), which would reject 3.11 APIs such as
+# asyncio.timeout that the package is entitled to use.
+python_version = "3.11"
 mypy_path = "src"
 exclude = "(^|/)(tests|build|dist)/"
 

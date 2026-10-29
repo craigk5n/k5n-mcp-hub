@@ -6,6 +6,7 @@ import yaml
 
 from mcp_hub.config import (
     HealthCheckConfig,
+    OpenAPIConfig,
     Settings,
     load_settings,
 )
@@ -193,6 +194,37 @@ class TestHealthCheckConfigValidator:
         assert config.failure_threshold == 5
 
 
+class TestOpenAPIConfig:
+    """Story 13.1: spec size and fetch time are operator settings, not constants."""
+
+    def test_defaults(self):
+        config = Settings.from_defaults().openapi
+        assert config.max_spec_bytes == 5 * 1024 * 1024
+        assert config.fetch_timeout_seconds == 30
+
+    def test_env_override(self, monkeypatch: pytest.MonkeyPatch, tmp_path: pathlib.Path):
+        monkeypatch.chdir(tmp_path)
+        monkeypatch.setenv("MCPHUB_OPENAPI__MAX_SPEC_BYTES", "20971520")
+        monkeypatch.setenv("MCPHUB_OPENAPI__FETCH_TIMEOUT_SECONDS", "90")
+        config = load_settings().openapi
+        assert config.max_spec_bytes == 20 * 1024 * 1024
+        assert config.fetch_timeout_seconds == 90
+
+    def test_yaml_is_read(self, monkeypatch: pytest.MonkeyPatch, tmp_path: pathlib.Path):
+        # Each section is wired into load_settings by hand; a section left out there
+        # is silently ignored, and the shipped-config test cannot see that while the
+        # shipped values equal the defaults.
+        config_file = tmp_path / "config.yaml"
+        config_file.write_text(yaml.dump({"openapi": {"max_spec_bytes": 1234}}))
+        assert load_settings(path=str(config_file)).openapi.max_spec_bytes == 1234
+
+    @pytest.mark.parametrize("bad", [0, -1, "0", "abc", None])
+    def test_non_positive_and_garbage_fall_back_to_defaults(self, bad):
+        config = OpenAPIConfig(max_spec_bytes=bad, fetch_timeout_seconds=bad)
+        assert config.max_spec_bytes == 5 * 1024 * 1024
+        assert config.fetch_timeout_seconds == 30
+
+
 class TestShippedDefaultConfig:
     def test_shipped_config_is_noop(self, monkeypatch: pytest.MonkeyPatch, tmp_path: pathlib.Path):
         import pathlib
@@ -227,6 +259,8 @@ class TestShippedDefaultConfig:
         )
         assert result.trace.body_limit == defaults.trace.body_limit
         assert result.trace.capture_sse == defaults.trace.capture_sse
+        assert result.openapi.max_spec_bytes == defaults.openapi.max_spec_bytes
+        assert result.openapi.fetch_timeout_seconds == defaults.openapi.fetch_timeout_seconds
 
 
 class TestExposedWithoutAuthIsWarned:
