@@ -21,7 +21,12 @@ from mcp_hub.models import RegisteredServer
 from mcp_hub.models.openapi import OpenAPIOperationRef, OpenAPISnapshot
 from mcp_hub.openapi import executor
 from mcp_hub.routes import ui_servers
-from mcp_hub.routes.ui_invoke import keep_declared_strings
+from mcp_hub.routes.ui_invoke import (
+    build_tool_args,
+    fit_declared_arrays,
+    keep_declared_strings,
+    straighten_structured_quotes,
+)
 
 FIXTURES = pathlib.Path(__file__).parent / "fixtures" / "openapi"
 
@@ -220,3 +225,87 @@ class TestKeepDeclaredStrings:
         guessed = dict(self.GUESSED)
         keep_declared_strings(guessed, self.FORM, {"properties": {"id": {"type": "string"}}})
         assert guessed == self.GUESSED
+
+
+class TestArrayFields:
+    """What an iPad keyboard types into an array field: smart quotes, parentheses, or
+    just the values (the bug report: `[“tag1”]` and `(“tag1”)` were refused)."""
+
+    SCHEMA = {
+        "properties": {
+            "tags": {"type": "array", "items": {"type": "string"}},
+            "ids": {"type": "array", "items": {"type": "integer"}},
+            "note": {"type": "string"},
+        }
+    }
+
+    def _fit(self, field: str, text: str) -> Any:
+        form = straighten_structured_quotes({field: [text]}, self.SCHEMA)
+        args = build_tool_args(form)
+        args = keep_declared_strings(args, form, self.SCHEMA)
+        return fit_declared_arrays(args, form, self.SCHEMA)[field]
+
+    @pytest.mark.parametrize(
+        "text",
+        [
+            '["tag1", "tag2"]',
+            "[“tag1”, “tag2”]",
+            "(“tag1”, “tag2”)",
+            "tag1, tag2",
+            "[tag1,tag2]",
+            "'tag1', 'tag2'",
+        ],
+    )
+    def test_string_items(self, text):
+        assert self._fit("tags", text) == ["tag1", "tag2"]
+
+    def test_one_value(self):
+        assert self._fit("tags", "tag1") == ["tag1"]
+        assert self._fit("tags", "(“tag1”)") == ["tag1"]
+
+    def test_numeric_looking_string_items_stay_strings(self):
+        assert self._fit("tags", "1, 2") == ["1", "2"]
+
+    def test_integer_items(self):
+        assert self._fit("ids", "1, 2") == [1, 2]
+        assert self._fit("ids", "(1)") == [1]
+
+    def test_a_string_field_keeps_its_curly_quotes(self):
+        assert self._fit("note", "“hi”") == "“hi”"
+
+    def test_json_checkbox_with_smart_quotes(self):
+        form = straighten_structured_quotes(
+            {"tags": ["[“a”]"], "__json__tags": ["true"]}, self.SCHEMA
+        )
+        assert build_tool_args(form)["tags"] == ["a"]
+
+    async def test_through_the_invoke_route(self, hub):
+        app, client, upstream = hub
+        document = json.loads((FIXTURES / "petstore-3.1.json").read_text())
+        document["paths"]["/pets/findByTags"] = {
+            "get": {
+                "operationId": "findPetsByTags",
+                "parameters": [
+                    {
+                        "name": "tags",
+                        "in": "query",
+                        "required": True,
+                        "explode": True,
+                        "schema": {"type": "array", "items": {"type": "string"}},
+                    }
+                ],
+                "responses": {"200": {"description": "ok"}},
+            }
+        }
+        await app.state.registry.register(
+            _server(
+                openapi_snapshot=OpenAPISnapshot(document=document, dialect="3.1", sha256="c" * 64),
+                openapi_selection=[OpenAPIOperationRef(method="GET", path="/pets/findByTags")],
+            )
+        )
+        response = await client.post(
+            "/ui/invoke/pets/findPetsByTags", data={"tags": "(“tag1”, “tag2”)"}
+        )
+        assert "Invalid arguments" not in response.text, response.text
+        (request,) = upstream.requests
+        assert request.url.params.get_list("tags") == ["tag1", "tag2"]

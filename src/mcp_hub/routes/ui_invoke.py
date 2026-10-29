@@ -198,15 +198,18 @@ async def invoke_tool(
         if isinstance(v, str):
             form_dict.setdefault(k, []).append(v)
 
+    schema = _input_schema(request, srv, tool_name) if srv.is_openapi else {}
+    if srv.is_openapi:
+        form_dict = straighten_structured_quotes(form_dict, schema)
+
     try:
         tool_args = build_tool_args(form_dict)
     except ValueError as e:
         return HTMLResponse(content=_build_error_fragment(str(e)))
 
     if srv.is_openapi:
-        tool_args = keep_declared_strings(
-            tool_args, form_dict, _input_schema(request, srv, tool_name)
-        )
+        tool_args = keep_declared_strings(tool_args, form_dict, schema)
+        tool_args = fit_declared_arrays(tool_args, form_dict, schema)
         return await _invoke_openapi(request, srv, tool_name, tool_args)
 
     headers: dict[str, str] = {
@@ -450,6 +453,90 @@ def keep_declared_strings(
             if raw:
                 restored[name] = raw[0]
     return restored
+
+
+# What phone and tablet keyboards type for a quote ("smart quotes"), which JSON refuses.
+_SMART_QUOTES = str.maketrans(
+    {
+        "\u201c": '"',
+        "\u201d": '"',
+        "\u201e": '"',
+        "\u201f": '"',
+        "\u2018": "'",
+        "\u2019": "'",
+        "\u201a": "'",
+        "\u201b": "'",
+    }
+)
+
+
+def _declared_types(declared: Any) -> set[str]:
+    if not isinstance(declared, dict):
+        return set()
+    types = declared.get("type")
+    types = [types] if isinstance(types, str) else types
+    return {t for t in types if isinstance(t, str)} if isinstance(types, list) else set()
+
+
+def straighten_structured_quotes(
+    form: dict[str, list[str]], schema: dict[str, Any]
+) -> dict[str, list[str]]:
+    """`form` with smart quotes made straight in fields the schema declares as an array
+    or object, so JSON typed on a phone or tablet parses. Other fields keep their text:
+    a curly quote in a string value is the value."""
+    properties = schema.get("properties")
+    if not isinstance(properties, dict):
+        return form
+    return {
+        key: (
+            [v.translate(_SMART_QUOTES) for v in values]
+            if _declared_types(properties.get(key)) & {"array", "object"}
+            else values
+        )
+        for key, values in form.items()
+    }
+
+
+def fit_declared_arrays(
+    args: dict[str, Any], form: dict[str, list[str]], schema: dict[str, Any]
+) -> dict[str, Any]:
+    """`args` with a non-JSON value for an array property read as a list: `a`, `a, b`,
+    `[a, b]` or `(a, b)`, each item optionally quoted, and converted to the declared
+    item type where it is a number or boolean."""
+    properties = schema.get("properties")
+    if not isinstance(properties, dict):
+        return args
+    fitted = dict(args)
+    for name, value in args.items():
+        declared = properties.get(name)
+        raw = form.get(name)
+        if isinstance(value, list) or "array" not in _declared_types(declared) or not raw:
+            continue
+        text = raw[0].strip()
+        if len(text) >= 2 and (text[0], text[-1]) in (("[", "]"), ("(", ")")):
+            text = text[1:-1]
+        items = [item.strip().strip("\"'").strip() for item in text.split(",")]
+        item_types = _declared_types(declared.get("items") if isinstance(declared, dict) else None)
+        fitted[name] = [_as_item(item, item_types) for item in items if item]
+    return fitted
+
+
+def _as_item(text: str, types: set[str]) -> Any:
+    if "string" in types or not types:
+        return text
+    if "boolean" in types and text.lower() in ("true", "false"):
+        return text.lower() == "true"
+    if "integer" in types:
+        try:
+            return int(text)
+        except ValueError:
+            pass
+    if "number" in types:
+        try:
+            return float(text)
+        except ValueError:
+            pass
+    return text  # validation reports it against the schema
 
 
 def _input_schema(request: Request, srv: Any, tool_name: str) -> dict[str, Any]:
