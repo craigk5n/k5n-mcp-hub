@@ -1787,44 +1787,32 @@ wrap.
         revisions, limits and what is not yet supported, plus an overview line.
         `e2e/README.md` covers the new service, client and checks.
         `tests/test_readme.py` passes.
-  - [ ] The ADR 0011 row in `docs/adr/README.md` is moved to Accepted when the
-        epic ships, i.e. after Story 13.10.
+  - [x] ADR 0011 is Accepted, in the ADR and in `docs/adr/README.md`, now that the
+        epic has shipped with Story 13.10.
 
 **Story 13.10 — OpenAPI 3.2** *(after 13.3 and 13.5)*
 
-OpenAPI 3.2 (September 2025) is a minor release on 3.1's JSON Schema dialect, so most
-3.2 specs map exactly like 3.1. What it adds either does not fit the 13.3/13.5
-mapping (QUERY, custom methods, a whole-query-string parameter) or does not fit a
-single MCP tool result (streaming). This story accepts 3.2 and marks those features
-**unsupported per operation**, using the same marker as multipart bodies. Nothing is
-mapped silently wrong, and full support can follow if real APIs need it.
-
-- TDD: extend `tests/test_openapi_loader.py` and `tests/test_openapi_mapping.py`
-  with a `tests/fixtures/openapi/petstore-3.2.json` covering each feature below.
+- TDD: `tests/test_openapi_32.py` with `tests/fixtures/openapi/petstore-3.2.json`,
+  which uses every 3.2 addition named below and passes the 3.2 validator.
 - Acceptance criteria:
-  - [ ] The loader accepts `openapi: 3.2.x` as dialect `"3.2"` and validates it with
-        `OpenAPIV32SpecValidator` (already in `openapi-spec-validator` 0.9.0). 3.3
-        and later are still refused by name.
-  - [ ] `$self` does not move ref resolution off the document. This was probed
-        2026-10-29: with `$self` set to a remote URL or a `file://` path and only
-        `#/...` refs, the validator made no DNS lookup and read no file. The probe
-        becomes a test using the existing `no_network` fixture, and the existing ref
-        check still rejects every non-`#/` ref.
-  - [ ] Mapping treats 3.2 as 3.1. Schema conversion is the same, since there is no
-        3.0-style `nullable` to convert.
-  - [ ] These are marked unsupported, so they appear in the preview but cannot be
-        enabled, each with its reason:
-        - the `query` operation (HTTP QUERY: a safe method with a request body);
-        - any `additionalOperations` entry (custom method names; the executor's method
-          allowlist does not grow);
-        - any parameter `in: querystring`;
-        - any response whose media type uses `itemSchema` (streaming: SSE, JSON Lines
-          and similar).
-  - [ ] Fields 3.2 adds that the hub does not use are ignored without error: tag
-        `parent`/`kind`, `servers[].name`, the device-flow and `oauth2MetadataUrl`
-        security additions (still only hints, per ADR 0011 §8), examples'
-        `dataValue`/`serializedValue`, and response `summary`.
-  - [ ] ADR 0011 §11 and the README list 3.2 as supported, along with what is
+  - [x] `openapi: 3.2.x` loads as dialect `"3.2"` with `OpenAPIV32SpecValidator`,
+        through the isolated loader too, and is stored as such. 3.3 and later are
+        refused by name, with the supported list. The Story 13.1 test that refused
+        3.2 now refuses 3.3.
+  - [x] `$self` set to a remote URL, a link-local address or a `file://` path
+        causes no DNS lookup and no file read (tested with the `no_network` spy and
+        a marker file). Non-`#/` refs are still refused.
+  - [x] 3.2 maps as 3.1. Every fixture tool schema passes `Draft202012Validator`.
+  - [x] Marked unsupported with a reason the preview shows: the `query` operation
+        (`QUERY`), each `additionalOperations` entry (its own method), `in:
+        querystring` (a dedicated reason; the test pins it, because the generic
+        content-serialization reason would also refuse it), and any request or
+        response media with `itemSchema`. Selecting one is a `MappingError`.
+  - [x] Ignored without error: tag `parent`/`kind`, `servers[].name`, the
+        device-authorization flow and `oauth2MetadataUrl` (no auth suggestion),
+        examples' `dataValue`/`serializedValue`, and response `summary`. The
+        trimmed spec drops `$self` and the unselectable operations.
+  - [x] ADR 0011 §11 and the README list 3.2 as supported, along with what is
         marked unsupported.
 
 **Deliberately out of scope**

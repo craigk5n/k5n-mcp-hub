@@ -128,6 +128,10 @@ def _add_parameter(
     if location == "cookie":
         args.dropped.append(f"cookie parameter '{name}' (the hub never sends cookies)")
         return
+    if location not in _DEFAULT_STYLE:
+        # e.g. OpenAPI 3.2's `in: querystring`: the whole query string as one value.
+        args.unsupported.append(f"parameter '{name}' is in: {location}, which is not supported")
+        return
     if location == "header" and (
         name.lower() in DROPPED_HEADERS or name.lower().startswith("x-forwarded-")
     ):
@@ -307,3 +311,25 @@ def resolve_media_schema(document: dict[str, Any], response: Any) -> Any:
     content = resolved.get("content", {}) if isinstance(resolved, dict) else {}
     media = next((m for m in content if is_json_media(m)), None)
     return content[media].get("schema") if media else None
+
+
+def streaming_media(document: dict[str, Any], operation: dict[str, Any]) -> list[str]:
+    """Reasons an operation streams: OpenAPI 3.2's `itemSchema` describes each item of a
+    sequential body (SSE, JSON Lines), and one MCP tool result cannot carry a stream."""
+    reasons: list[str] = []
+    if "requestBody" in operation:
+        body = deref(document, operation["requestBody"])
+        for media, value in (body.get("content", {}) if isinstance(body, dict) else {}).items():
+            if isinstance(value, dict) and "itemSchema" in value:
+                reasons.append(
+                    f"the {media} request body streams (itemSchema), which is not supported"
+                )
+    for code, response in operation.get("responses", {}).items():
+        resolved = deref(document, response)
+        content = resolved.get("content", {}) if isinstance(resolved, dict) else {}
+        for media, value in content.items():
+            if isinstance(value, dict) and "itemSchema" in value:
+                reasons.append(
+                    f"the {code} {media} response streams (itemSchema), which is not supported"
+                )
+    return reasons

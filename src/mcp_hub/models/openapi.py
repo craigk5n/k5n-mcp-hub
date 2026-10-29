@@ -46,7 +46,7 @@ class OpenAPISnapshot(BaseModel):
     """
 
     document: dict[str, Any]
-    dialect: Literal["2.0", "3.0", "3.1"]
+    dialect: Literal["2.0", "3.0", "3.1", "3.2"]
     sha256: str
     source_url: str = ""
     loaded_at: datetime | None = None

@@ -100,10 +100,11 @@ class TestDialects:
         assert spec.dialect == "2.0"
         assert spec.document["swagger"] == "2.0"
 
-    def test_openapi_32_is_refused_by_name(self):
-        err = _error({**_spec_31(), "openapi": "3.2.0"})
-        assert "3.2" in err.message
-        assert "3.1" in err.message  # says what *is* supported
+    def test_openapi_33_is_refused_by_name(self):
+        # 3.2 is supported since Story 13.10; the next minor is not.
+        err = _error({**_spec_31(), "openapi": "3.3.0"})
+        assert "3.3" in err.message
+        assert "3.2" in err.message  # says what *is* supported
 
     @pytest.mark.parametrize(
         "doc",

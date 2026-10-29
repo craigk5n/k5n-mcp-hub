@@ -1,0 +1,75 @@
+{
+  "openapi": "3.2.0",
+  "$self": "https://specs.example.com/petstore-3.2.json",
+  "info": {"title": "Petstore 3.2", "version": "1.0.0"},
+  "servers": [{"url": "https://petstore.example.com/v1", "name": "production"}],
+  "tags": [
+    {"name": "pets", "summary": "Pets", "kind": "nav"},
+    {"name": "dogs", "parent": "pets", "kind": "nav"}
+  ],
+  "paths": {
+    "/pets": {
+      "get": {
+        "operationId": "listPets",
+        "tags": ["dogs"],
+        "parameters": [
+          {"name": "limit", "in": "query", "schema": {"type": "integer"},
+           "examples": {"ten": {"dataValue": 10, "serializedValue": "10"}}}
+        ],
+        "responses": {
+          "200": {
+            "summary": "A page of pets",
+            "description": "A page of pets",
+            "content": {"application/json": {"schema": {"type": "array", "items": {"$ref": "#/components/schemas/Pet"}}}}
+          }
+        }
+      },
+      "query": {
+        "operationId": "searchPets",
+        "requestBody": {"content": {"application/json": {"schema": {"type": "object"}}}},
+        "responses": {"200": {"description": "Matching pets"}}
+      },
+      "additionalOperations": {
+        "COPY": {"operationId": "copyPets", "responses": {"200": {"description": "Copied"}}}
+      }
+    },
+    "/pets/search": {
+      "get": {
+        "operationId": "searchByQueryString",
+        "parameters": [
+          {"name": "q", "in": "querystring", "content": {"application/x-www-form-urlencoded": {"schema": {"type": "object"}}}}
+        ],
+        "responses": {"200": {"description": "ok"}}
+      }
+    },
+    "/pets/events": {
+      "get": {
+        "operationId": "petEvents",
+        "responses": {
+          "200": {
+            "description": "A stream of pet events",
+            "content": {"text/event-stream": {"itemSchema": {"type": "object", "properties": {"data": {"type": "string"}}}}}
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "Pet": {"type": "object", "required": ["id"], "properties": {"id": {"type": "integer"}, "name": {"type": "string"}}}
+    },
+    "securitySchemes": {
+      "oauth": {
+        "type": "oauth2",
+        "oauth2MetadataUrl": "https://auth.example.com/.well-known/oauth-authorization-server",
+        "flows": {
+          "deviceAuthorization": {
+            "deviceAuthorizationUrl": "https://auth.example.com/device",
+            "tokenUrl": "https://auth.example.com/token",
+            "scopes": {"pets:read": "Read pets"}
+          }
+        }
+      }
+    }
+  }
+}

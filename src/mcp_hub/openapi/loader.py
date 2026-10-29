@@ -25,6 +25,7 @@ from openapi_spec_validator import (
     OpenAPIV2SpecValidator,
     OpenAPIV30SpecValidator,
     OpenAPIV31SpecValidator,
+    OpenAPIV32SpecValidator,
 )
 
 from mcp_hub.openapi.errors import SpecError
@@ -32,14 +33,18 @@ from mcp_hub.openapi.parse import parse_document
 from mcp_hub.openapi.refs import check_refs, encode_pointer
 from mcp_hub.utils import safe_http_client_factory
 
-Dialect = Literal["2.0", "3.0", "3.1"]
+Dialect = Literal["2.0", "3.0", "3.1", "3.2"]
 
-SUPPORTED = "supported versions are Swagger 2.0, OpenAPI 3.0 and OpenAPI 3.1"
+SUPPORTED = "supported versions are Swagger 2.0 and OpenAPI 3.0, 3.1 and 3.2"
 
+# OpenAPI 3.x minor version -> dialect. 3.2 maps as 3.1 (same JSON Schema dialect);
+# what it adds that one tool call cannot represent is marked unsupported by mapping.
+_MINOR_DIALECTS: dict[str, Dialect] = {"0": "3.0", "1": "3.1", "2": "3.2"}
 _VALIDATORS: dict[str, Any] = {
     "2.0": OpenAPIV2SpecValidator,
     "3.0": OpenAPIV30SpecValidator,
     "3.1": OpenAPIV31SpecValidator,
+    "3.2": OpenAPIV32SpecValidator,
 }
 _OPENAPI_VERSION = re.compile(r"3\.(\d+)\.\d+(?:-[0-9A-Za-z.-]+)?")
 _ACCEPT = "application/json, application/yaml, application/x-yaml;q=0.9, text/yaml;q=0.9, */*;q=0.5"
@@ -92,9 +97,9 @@ def _detect_dialect(document: dict[str, Any]) -> tuple[dict[str, Any], Dialect]:
             pointer="/openapi",
         )
     minor = match.group(1)
-    if minor not in ("0", "1"):
+    if minor not in _MINOR_DIALECTS:
         raise SpecError(f"Unsupported OpenAPI version {version!r}: {SUPPORTED}", pointer="/openapi")
-    return document, "3.0" if minor == "0" else "3.1"
+    return document, _MINOR_DIALECTS[minor]
 
 
 def _validate(document: dict[str, Any], dialect: Dialect) -> None:

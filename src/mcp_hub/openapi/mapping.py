@@ -18,7 +18,11 @@ import re
 from collections.abc import Iterator, Mapping
 from typing import Any, Literal
 
-from mcp_hub.openapi.arguments import operation_arguments, resolve_media_schema
+from mcp_hub.openapi.arguments import (
+    operation_arguments,
+    resolve_media_schema,
+    streaming_media,
+)
 from mcp_hub.openapi.model import (
     MappedOperation,
     MappingError,
@@ -59,9 +63,9 @@ def preview(
         document, dialect = swagger2_to_openapi3(document), "3.0"
     mapped = [
         _map_operation(
-            document, dialect, key, item, op, overrides.get(key), description_limit, selection
+            document, dialect, key, item, op, overrides.get(key), description_limit, selection, why
         )
-        for key, item, op in _operations(document)
+        for key, item, op, why in _operations(document)
     ]
     return tuple(_with_conflicts(mapped))
 
@@ -108,7 +112,11 @@ def build_tools(
 
 def _operations(
     document: dict[str, Any],
-) -> Iterator[tuple[OperationKey, dict[str, Any], dict[str, Any]]]:
+) -> Iterator[tuple[OperationKey, dict[str, Any], dict[str, Any], str]]:
+    """Every operation, with a reason it cannot be a tool ("" when there is none yet).
+
+    OpenAPI 3.2's `query` operation and `additionalOperations` (custom methods) are
+    listed so the preview shows them, with the reason, rather than hiding them."""
     for path, item in document.get("paths", {}).items():
         if path.startswith("x-") or not isinstance(item, dict):
             continue
@@ -116,7 +124,25 @@ def _operations(
             item = resolve_local(document, item["$ref"])
         for method in _METHODS:
             if isinstance(item.get(method), dict):
-                yield OperationKey(method, path), item, item[method]
+                yield OperationKey(method, path), item, item[method], ""
+        if isinstance(item.get("query"), dict):
+            yield (
+                OperationKey("QUERY", path),
+                item,
+                item["query"],
+                "the QUERY method (OpenAPI 3.2: a safe method with a request body) is not supported",
+            )
+        extra = item.get("additionalOperations")
+        if isinstance(extra, dict):
+            for method, operation in extra.items():
+                if isinstance(method, str) and isinstance(operation, dict):
+                    yield (
+                        OperationKey(method, path),
+                        item,
+                        operation,
+                        f"{method.upper()} is a custom method (additionalOperations); only the "
+                        "standard methods are called",
+                    )
 
 
 def _map_operation(
@@ -128,10 +154,18 @@ def _map_operation(
     override: Override | None,
     description_limit: int,
     selection: frozenset[OperationKey],
+    why: str = "",
 ) -> MappedOperation:
+    if why:
+        # Not mapped at all: its parameters and body follow rules the hub doesn't call.
+        return MappedOperation(key, None, None, (why,), (), key in selection)
     input_bundle = SchemaBundler(document, dialect)
     args = operation_arguments(document, input_bundle, key.path, item, operation)
-    unsupported = [*operation.get(UNSUPPORTED, []), *args.unsupported]
+    unsupported = [
+        *operation.get(UNSUPPORTED, []),
+        *args.unsupported,
+        *streaming_media(document, operation),
+    ]
     if key.method == "TRACE":
         unsupported.insert(
             0,

@@ -367,7 +367,7 @@ Design reasoning is in
 
 ## REST APIs as MCP servers (OpenAPI)
 
-Import a REST API's OpenAPI document (Swagger 2.0, OpenAPI 3.0 or 3.1) and the hub
+Import a REST API's OpenAPI document (Swagger 2.0, or OpenAPI 3.0, 3.1 or 3.2) and the hub
 serves the operations you choose as MCP tools. It *is* the MCP server for these: it
 answers `tools/list` and `tools/call` itself and makes the REST calls, with the same
 access checks, tracing, fault injection and per-user identity as any other backend.
@@ -420,8 +420,9 @@ never taken from a model.
 Limits are under `openapi:` in `config.yaml`: spec size, fetch and validation
 timeouts, the validation process's memory, description length, and per-call timeout,
 response size and redirect count. Specs are parsed and validated in a separate,
-killable process. Not yet supported: OpenAPI 3.2, multipart/file bodies, external
-`$ref`s, and query styles other than `form`. Design reasoning is in
+killable process. Not supported, and shown as such in the preview: multipart/file
+bodies, external `$ref`s, query styles other than `form`, and OpenAPI 3.2's QUERY
+method, custom methods, `in: querystring` and streaming (`itemSchema`) bodies. Design reasoning is in
 [ADR 0011](docs/adr/0011-openapi-backends-are-virtual-servers-in-the-hub.md), and
 `e2e/` demonstrates on-behalf-of against a real Keycloak.
 
