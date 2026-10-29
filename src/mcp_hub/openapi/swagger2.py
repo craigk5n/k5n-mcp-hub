@@ -24,9 +24,8 @@ from __future__ import annotations
 import copy
 from dataclasses import dataclass
 from typing import Any
-from urllib.parse import unquote
 
-from mcp_hub.openapi.refs import decode_pointer
+from mcp_hub.openapi.refs import resolve_local
 
 UNSUPPORTED = "x-mcp-hub-unsupported"
 OPENAPI_VERSION = "3.0.3"
@@ -89,10 +88,7 @@ class _Context:
     produces: tuple[str, ...]
 
     def resolve(self, ref: str) -> Any:
-        node: Any = self.document
-        for part in decode_pointer(unquote(ref[1:])):
-            node = node[int(part)] if isinstance(node, list) else node[part]
-        return copy.deepcopy(node)
+        return copy.deepcopy(resolve_local(self.document, ref))
 
     def parameter(self, param: dict[str, Any]) -> dict[str, Any]:
         return self.resolve(param["$ref"]) if "$ref" in param else param

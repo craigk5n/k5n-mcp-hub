@@ -209,6 +209,11 @@ openapi:
   validate_timeout_seconds: 120
   validate_memory_mb: 1024
 
+  # max_description_chars: Longest tool description taken from a spec (summary plus
+  # description) or an override. Spec text is untrusted and a model reads it, so it
+  # is capped, and the admin preview shows it exactly as the model will see it.
+  max_description_chars: 1024
+
 trace:
   # body_limit: Maximum number of body bytes to capture per request/response.
   body_limit: 10000

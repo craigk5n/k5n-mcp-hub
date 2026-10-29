@@ -51,6 +51,15 @@ def decode_pointer(pointer: str) -> list[str]:
     return [part.replace("~1", "/").replace("~0", "~") for part in pointer[1:].split("/")]
 
 
+def resolve_local(document: dict[str, Any], ref: str) -> Any:
+    """The value a local `#/...` ref names. For documents that passed `check_refs`,
+    where every ref is known to be local and to resolve."""
+    node: Any = document
+    for part in decode_pointer(unquote(ref[1:])):
+        node = node[int(part)] if isinstance(node, list) else node[part]
+    return node
+
+
 def check_refs(document: dict[str, Any]) -> None:
     """Raise `SpecError` unless every ref is local, resolvable, and cycle-free."""
     sites = _collect_ref_sites(document)

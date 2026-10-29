@@ -21,6 +21,9 @@ DEFAULT_OPENAPI_FETCH_TIMEOUT_SECONDS = 30
 DEFAULT_OPENAPI_VALIDATE_TIMEOUT_SECONDS = 120
 # The validating child needs about 70 MB before it reads a byte of spec.
 DEFAULT_OPENAPI_VALIDATE_MEMORY_MB = 1024
+# Tool descriptions are spec text a model reads, and a spec is untrusted, so they are
+# capped (ADR 0011 §5). Room for a real summary plus a paragraph.
+DEFAULT_OPENAPI_MAX_DESCRIPTION_CHARS = 1024
 
 # Bind addresses that cannot be reached from another host.
 LOOPBACK_HOSTS = frozenset({"127.0.0.1", "::1", "localhost"})
@@ -308,6 +311,7 @@ class OpenAPIConfig(BaseModel):
     fetch_timeout_seconds: int = DEFAULT_OPENAPI_FETCH_TIMEOUT_SECONDS
     validate_timeout_seconds: int = DEFAULT_OPENAPI_VALIDATE_TIMEOUT_SECONDS
     validate_memory_mb: int = DEFAULT_OPENAPI_VALIDATE_MEMORY_MB
+    max_description_chars: int = DEFAULT_OPENAPI_MAX_DESCRIPTION_CHARS
 
     @field_validator("max_spec_bytes", mode="before")
     @classmethod
@@ -328,6 +332,11 @@ class OpenAPIConfig(BaseModel):
     @classmethod
     def validate_validate_memory(cls, v: object) -> int:
         return _coerce_positive_int(v, DEFAULT_OPENAPI_VALIDATE_MEMORY_MB)
+
+    @field_validator("max_description_chars", mode="before")
+    @classmethod
+    def validate_max_description_chars(cls, v: object) -> int:
+        return _coerce_positive_int(v, DEFAULT_OPENAPI_MAX_DESCRIPTION_CHARS)
 
 
 class OtelConfig(BaseModel):

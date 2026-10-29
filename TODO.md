@@ -1409,31 +1409,57 @@ wrap.
 - TDD: `tests/test_openapi_mapping.py` first. These are pure functions, so they get
   table-driven tests with no I/O.
 - Acceptance criteria:
-  - [ ] One function maps `(snapshot, selection, overrides) -> list[ToolDef]`, plus
-        an internal record per tool of how to build its request. The UI, tools/list
-        and tools/call all use it.
-  - [ ] Naming: `operationId`, falling back to `<method>_<path>`, normalized to
-        MCP's tool-name character set. A collision after normalization is an import
-        error that names both operations. Overrides win.
-  - [ ] Descriptions are `summary` + `description`, capped at a configured length.
-  - [ ] `inputSchema`: path, query and header parameters, with an object body's
-        properties **merged** into the top level and the required flags merged too
-        (ADR 0011 §6). Parameters keep their names and a colliding body property
-        becomes `body_<name>`; if that also collides, the operation is an import
-        error. Arrays, primitives, `oneOf`/`anyOf` bodies and bodies that allow
-        `additionalProperties` go under a single `body` property instead. There is
-        a table-driven test for each case, including a double collision.
-  - [ ] OpenAPI 3.0 schemas are converted to 2020-12 (`nullable`, the boolean form of
-        `exclusiveMinimum`/`exclusiveMaximum`, `example` → `examples`), and the
-        existing `schema_refs.py` behavior is reused where it fits.
-  - [ ] `outputSchema` comes from the 2xx JSON response schema, wrapped as
-        `{"result": ...}` when it is not an object (ADR 0011 §7).
-  - [ ] Annotations: `readOnlyHint` for GET/HEAD, `destructiveHint` for DELETE,
-        `idempotentHint` for PUT.
-  - [ ] Header parameters on the ADR 0011 §6 deny list (`Authorization`, `Cookie`,
-        `Host`, …) are dropped from the tool and reported in the preview.
-  - [ ] An operation whose only body type is something other than JSON or
-        form-urlencoded is marked unsupported.
+  - [x] One mapping, two entry points (`openapi/mapping.py`). `preview(...)`
+        describes **every** operation for the UI (tool or unsupported reasons,
+        dropped parameters, name problems) and never raises.
+        `build_tools(..., selection, overrides)` returns the selected operations as
+        `Tool(key, definition, plan)` for tools/list and tools/call. It raises
+        `MappingError` listing every problem when a selected operation is
+        unsupported, has an invalid override name, or shares a name with another
+        *selected* tool. A clash with an unselected operation only shows as a
+        warning in the preview. Selections naming operations no longer in the spec
+        are skipped (reported by 13.7). Swagger 2.0 input is normalized
+        internally. The types are in `openapi/model.py`, with `RequestPlan` as the
+        record 13.5 executes.
+  - [x] Naming: `operationId`, falling back to `<method>_<path>`, normalized to
+        `[A-Za-z0-9_.-]{1,128}`. Collisions name both operations. Overrides win, and
+        an invalid override name is a problem, never silently normalized.
+  - [x] Descriptions are `summary` + `description`, falling back to `METHOD /path`,
+        capped at the new `openapi.max_description_chars` (1024). Overrides are
+        capped too.
+  - [x] `inputSchema` merges parameters and an object body exactly as specified,
+        including `body_<name>` and the double-collision rule. `allOf` of objects
+        counts as an object. Absent `additionalProperties` counts as closed. Merged
+        fields are required only when the body is. The root has
+        `additionalProperties: false`. Two parameters sharing a name across
+        locations are unsupported.
+  - [x] 3.0 schemas convert to 2020-12 (`openapi/schema_convert.py`): `nullable`,
+        boolean exclusive bounds, `example`, and `$ref` siblings dropped, while 3.1
+        keeps them. OpenAPI-only keywords and `x-*` are dropped. Every referenced
+        schema is **bundled into the tool's own `$defs`**, so tool schemas stand
+        alone and recursive types terminate. The existing
+        `mcp.schema_refs.resolve_tool_schema_refs` works on them, which is the
+        reuse. Every fixture's tool schemas pass `Draft202012Validator.check_schema`.
+  - [x] `outputSchema` comes from the lowest 2xx response, explicit codes before
+        `2XX`, when it has a JSON body. It is wrapped as `{"result": ...}` unless
+        it is an object, and a nullable object is wrapped as well. A `$ref` to an
+        object gets an explicit `type: object` root.
+  - [x] Annotations by method as specified, and omitted from the MCP shape when
+        empty.
+  - [x] Header deny list: the ADR 0011 §6 headers plus `Content-Type`,
+        hop-by-hop headers, `Forwarded`/`X-Forwarded-*` and `in: cookie`
+        parameters. All are dropped and reported, case-insensitively.
+  - [x] Only JSON (including `+json` types) and form-urlencoded bodies; anything
+        else is unsupported with the offered types named. Also unsupported:
+        **TRACE** (it echoes the hub-injected credential back to the model),
+        parameters with `content`, query styles other than `form`, object or
+        nested-array parameter values, non-`simple` path or header styles, and
+        undeclared path variables. These are exactly what 13.5 does not serialize.
+  - [ ] Follow-up, not in this story: `readOnly` properties (server-assigned
+        fields such as `id`) are still offered as input on a merged body, and
+        `writeOnly` ones stay in `outputSchema`. Dropping them means resolving
+        through `$ref`/`allOf` per property. Do it when an e2e run shows a model
+        tripping over one.
 
 **Story 13.4 — Model, storage and registration**
 

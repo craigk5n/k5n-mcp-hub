@@ -203,6 +203,7 @@ class TestOpenAPIConfig:
         assert config.fetch_timeout_seconds == 30
         assert config.validate_timeout_seconds == 120
         assert config.validate_memory_mb == 1024
+        assert config.max_description_chars == 1024
 
     def test_env_override(self, monkeypatch: pytest.MonkeyPatch, tmp_path: pathlib.Path):
         monkeypatch.chdir(tmp_path)
@@ -227,11 +228,13 @@ class TestOpenAPIConfig:
             fetch_timeout_seconds=bad,
             validate_timeout_seconds=bad,
             validate_memory_mb=bad,
+            max_description_chars=bad,
         )
         assert config.max_spec_bytes == 5 * 1024 * 1024
         assert config.fetch_timeout_seconds == 30
         assert config.validate_timeout_seconds == 120
         assert config.validate_memory_mb == 1024
+        assert config.max_description_chars == 1024
 
 
 class TestShippedDefaultConfig:
@@ -272,6 +275,7 @@ class TestShippedDefaultConfig:
         assert result.openapi.fetch_timeout_seconds == defaults.openapi.fetch_timeout_seconds
         assert result.openapi.validate_timeout_seconds == defaults.openapi.validate_timeout_seconds
         assert result.openapi.validate_memory_mb == defaults.openapi.validate_memory_mb
+        assert result.openapi.max_description_chars == defaults.openapi.max_description_chars
 
 
 class TestExposedWithoutAuthIsWarned:
