@@ -17,7 +17,9 @@ from __future__ import annotations
 import asyncio
 import json
 import multiprocessing
+import os
 import pathlib
+import signal
 import time
 from typing import Any
 
@@ -25,11 +27,19 @@ import httpx
 import pytest
 
 from mcp_hub.config import OpenAPIConfig
+from mcp_hub.openapi import isolation
 from mcp_hub.openapi.errors import SpecError
 from mcp_hub.openapi.isolation import SpecLimits, load_spec, load_spec_from_url
 from mcp_hub.openapi.loader import load_spec_unsandboxed
 
 FIXTURES = pathlib.Path(__file__).parent / "fixtures" / "openapi"
+
+
+def _segfault(*_: Any) -> None:
+    """A stand-in for the child's entry point that dies the way a C parser would."""
+    os.kill(os.getpid(), signal.SIGSEGV)
+
+
 HEADER = b"openapi: 3.1.0\ninfo: {title: t, version: '1'}\npaths: {}\n"
 
 
@@ -125,12 +135,24 @@ class TestIsolatedLoad:
         await _error(_redos_spec(), validate_timeout_seconds=1)
         assert multiprocessing.active_children() == []
 
-    async def test_a_crashing_parser_is_a_spec_error(self):
-        # 30,000 levels of flow mappings overflow the C YAML parser's stack: a
-        # segfault in-process, which would take the hub down with it.
+    async def test_deeply_nested_yaml_is_refused(self):
+        # 30,000 levels of flow mappings can overflow the C YAML parser's stack: a
+        # segfault in-process, which would take the hub down with it. Whether it does
+        # depends on the machine's stack size (it does not on GitHub's runners, where
+        # the depth limit refuses it instead), so either refusal passes.
         deep = b"x-a: " + b"{a: " * 30_000 + b"1" + b"}" * 30_000 + b"\n"
         err = await _error(HEADER + deep)
+        message = err.message.lower()
+        assert "crashed" in message or "nested too deeply" in message, err.message
+
+    async def test_a_crashing_parser_is_a_spec_error(self, monkeypatch):
+        # Spawn sends the target by reference, so the child imports this module and
+        # runs the stand-in: a real segfault, on every machine.
+        monkeypatch.setattr(isolation, "_child_main", _segfault)
+        err = await _error(HEADER)
         assert "crashed" in err.message.lower()
+        assert f"signal {int(signal.SIGSEGV)}" in err.message
+        assert multiprocessing.active_children() == []
 
     async def test_memory_limit(self):
         # A 40 MB string needs well over 100 MB to parse, check and hash.
