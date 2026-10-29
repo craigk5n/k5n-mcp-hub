@@ -388,6 +388,7 @@ def _mount_routers(app: FastAPI) -> None:
     from mcp_hub.routes import ui_initialize
     from mcp_hub.routes import ui_invoke
     from mcp_hub.routes import ui_downloads
+    from mcp_hub.routes import ui_openapi
     from mcp_hub.routes import ui_faults
 
     app.include_router(system.router)
@@ -410,6 +411,7 @@ def _mount_routers(app: FastAPI) -> None:
     app.include_router(ui_initialize.router)
     app.include_router(ui_invoke.router)
     app.include_router(ui_downloads.router)
+    app.include_router(ui_openapi.router)
     app.include_router(ui_faults.router)
 
 

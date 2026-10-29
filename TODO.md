@@ -1726,23 +1726,45 @@ wrap.
 
 **Story 13.8 — Admin UI**
 
+- Decided 2026-10-29: import is **spec-first**. Importing without a base URL creates a
+  draft with nothing exposed. The admin then confirms a base URL pre-filled from
+  `servers[]` through the new `PATCH /v1/openapi/servers/{id}/settings` (base URL,
+  credentials, name, description, scope). That endpoint uses the same validators
+  and keep-if-omitted rules as an import (`OpenAPIServerSettings`), the SSRF check,
+  the per-server lock, and refuses unknown fields. Tools and a probe cannot be
+  enabled without a base URL, and the executor refuses to call a draft.
+- Pages live under `/ui/openapi` (`routes/ui_openapi.py`, `openapi*.html`,
+  `_openapi_job.html`), behind `auth_dependency` plus `require_admin`. The
+  servers page links to them ("Import OpenAPI", and "Manage OpenAPI" in place of
+  "Edit" for OpenAPI servers).
 - Acceptance criteria:
-  - [ ] Import from a URL or by upload/paste. It shows progress while the
-        background job from 13.4 runs, and validation errors are shown with their
-        JSON pointer.
-  - [ ] The base URL form is pre-filled from `servers[]` (with server variables)
-        and has to be confirmed.
-  - [ ] Auth form, with any `securitySchemes` shown as a suggestion only.
-  - [ ] An operation picker, grouped by tag, with method, path, unsupported and
-        dropped-header markers. For each operation it shows the description **as the
-        model will see it**, and offers name/description overrides.
-  - [ ] A "check for updates" button and a revision review page: diff view with
-        accept and reject.
-  - [ ] Health probe picker that lists only eligible GET operations, with "none" as
-        the default.
-  - [ ] Templates use the existing async Jinja2 environment and filters, and all
-        spec text is autoescaped. A test feeds a spec with HTML/script in
-        `description`.
+  - [x] Import by URL, paste or file. The job partial polls every second until the
+        job finishes, then links to the server, or shows the error with its JSON
+        pointer and problems.
+  - [x] The base URL form is pre-filled from `servers[]` (`openapi/hints.py`):
+        variables at their defaults, relative URLs resolved against the spec's
+        URL, Swagger 2.0 via host/basePath/schemes. A draft shows a banner and a
+        "Confirm base URL" button.
+  - [x] Auth form, with the spec's security schemes as one-click suggestions mapped
+        to the hub's fields. A scheme the hub cannot use (cookie keys) says so. The
+        stored secret is never rendered; an empty field keeps it.
+  - [x] Operation picker grouped by first tag ("Untagged" otherwise). Each row has
+        method, path, tool name, the description **as the model sees it**, the
+        argument list, unsupported reasons, dropped headers, problems, notes, and
+        name/description overrides.
+  - [x] "Check for updates" (only for specs imported from a URL; an uploaded one
+        points at re-import) and a revision page with the diff and
+        accept/reject, carrying the reviewed SHA-256.
+  - [x] Health probe picker listing only supported GETs with no required
+        arguments, with "None" as the default.
+  - [x] The async Jinja2 environment with autoescape. The scripts never put
+        server-supplied text in through `innerHTML`, and JSON in attributes goes
+        through `|tojson`. A test feeds markup through the title, summary,
+        description, tags, parameter description, a server URL and a security
+        scheme name, and checks all three pages. A `|safe` mutant fails it.
+  - [x] Verified in headless Chromium against a throwaway in-memory hub: import,
+        draft banner and suggestion, confirm base URL, select with override and
+        probe, re-import, review the diff, accept. No console errors.
 
 **Story 13.9 — End-to-end and docs**
 

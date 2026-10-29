@@ -1,0 +1,111 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Revision - {{ server.id }} - k5n-mcp-hub</title>
+    <link rel="icon" type="image/svg+xml" href="/static/images/icon.svg">
+    <script src="/static/vendor/tailwind.js"></script>
+</head>
+<body class="bg-gray-50 min-h-screen" data-server-id="{{ server.id }}" data-pending="{{ server.pending_sha256 }}">
+    <header class="bg-white shadow">
+        <div class="container mx-auto px-4 py-4 flex items-center gap-6">
+            <a href="/ui/servers" class="inline-flex items-center gap-3 hover:opacity-80">
+                <img src="/static/images/icon.svg" alt="k5n-mcp-hub logo" width="36" height="36" class="rounded-lg">
+                <span class="text-xl font-semibold text-gray-800">k5n-mcp-hub</span>
+            </a>
+            <a href="/ui/openapi" class="text-sm text-blue-700 hover:underline">OpenAPI</a>
+            <a href="/ui/openapi/{{ server.id | path_encode }}" class="text-sm text-blue-700 hover:underline">{{ server.id }}</a>
+        </div>
+    </header>
+
+    <main class="container mx-auto px-4 py-8 space-y-6 max-w-5xl">
+        <h1 class="text-3xl font-bold text-gray-800">Revision for {{ server.id }}</h1>
+        <p class="text-sm text-gray-600">
+            Accepted spec <span class="font-mono">{{ server.sha256[:12] }}</span> → pending
+            <span class="font-mono">{{ server.pending_sha256[:12] }}</span>. Until you accept, the tools keep serving the accepted spec.
+        </p>
+
+        <section class="bg-white rounded-lg shadow p-6 space-y-5 text-sm">
+            {% if diff.added %}
+            <div>
+                <h2 class="font-semibold text-gray-800 mb-1">Added (will start disabled)</h2>
+                <ul class="list-disc pl-5">
+                    {% for op in diff.added %}<li><span class="font-mono">{{ op.method }} {{ op.path }}</span>{% if op.tool %} → <span class="font-mono">{{ op.tool }}</span>{% endif %}{% for reason in op.unsupported %} <span class="text-red-700">(unsupported: {{ reason }})</span>{% endfor %}</li>{% endfor %}
+                </ul>
+            </div>
+            {% endif %}
+            {% if diff.removed %}
+            <div>
+                <h2 class="font-semibold text-gray-800 mb-1">Removed</h2>
+                <ul class="list-disc pl-5">{% for op in diff.removed %}<li class="font-mono">{{ op.method }} {{ op.path }}</li>{% endfor %}</ul>
+            </div>
+            {% endif %}
+            {% if diff.changed %}
+            <div>
+                <h2 class="font-semibold text-gray-800 mb-1">Changed</h2>
+                <ul class="list-disc pl-5">{% for op in diff.changed %}<li><span class="font-mono">{{ op.method }} {{ op.path }}</span>: {{ op.changes | join(", ") }}</li>{% endfor %}</ul>
+            </div>
+            {% endif %}
+            {% if diff.servers %}
+            <div>
+                <h2 class="font-semibold text-gray-800 mb-1">Servers</h2>
+                <p>Before: {{ diff.servers.before | join(", ") or "none" }}</p>
+                <p>After: {{ diff.servers.after | join(", ") or "none" }}</p>
+                <p class="text-gray-500">The base URL is yours and does not change; review it if the API moved.</p>
+            </div>
+            {% endif %}
+            {% if diff.orphaned_selection or diff.orphaned_overrides or diff.orphaned_health_probe %}
+            <div>
+                <h2 class="font-semibold text-amber-800 mb-1">Dropped on accept</h2>
+                <ul class="list-disc pl-5 text-amber-800">
+                    {% for ref in diff.orphaned_selection %}<li>Selected tool <span class="font-mono">{{ ref.method }} {{ ref.path }}</span></li>{% endfor %}
+                    {% for ref in diff.orphaned_overrides %}<li>Override for <span class="font-mono">{{ ref.method }} {{ ref.path }}</span></li>{% endfor %}
+                    {% if diff.orphaned_health_probe %}<li>Health probe <span class="font-mono">{{ diff.orphaned_health_probe.method }} {{ diff.orphaned_health_probe.path }}</span></li>{% endif %}
+                </ul>
+            </div>
+            {% endif %}
+            {% if not (diff.added or diff.removed or diff.changed or diff.servers) %}
+            <p class="text-gray-600">No operation, schema, description or server changed; other parts of the document did.</p>
+            {% endif %}
+            {% if diff.problems %}
+            <div class="rounded border border-red-200 bg-red-50 p-3">
+                <h2 class="font-semibold text-red-800 mb-1">Accepting would fail</h2>
+                <ul class="list-disc pl-5 text-red-700">{% for problem in diff.problems %}<li>{{ problem }}</li>{% endfor %}</ul>
+                <p class="mt-1 text-red-700">Fix these on the <a class="underline" href="/ui/openapi/{{ server.id | path_encode }}">server page</a> (an override usually does), then accept.</p>
+            </div>
+            {% endif %}
+        </section>
+
+        <div class="flex gap-3">
+            <button type="button" id="openapi-accept" class="text-white bg-blue-700 hover:bg-blue-800 font-medium rounded-lg text-sm px-5 py-2.5">Accept revision</button>
+            <button type="button" id="openapi-reject" class="text-white bg-gray-600 hover:bg-gray-700 font-medium rounded-lg text-sm px-5 py-2.5">Reject revision</button>
+        </div>
+        <ul id="openapi-revision-error" class="text-sm text-red-700 list-disc pl-5"></ul>
+    </main>
+
+    <script>
+    (function () {
+        const serverId = document.body.dataset.serverId;
+        const sha256 = document.body.dataset.pending;
+        const base = "/v1/openapi/servers/" + encodeURIComponent(serverId) + "/revision/";
+        async function decide(action) {
+            const errors = document.getElementById("openapi-revision-error");
+            errors.replaceChildren();
+            const response = await fetch(base + action, {
+                method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ sha256: sha256 }),
+            });
+            if (response.ok) { window.location.href = "/ui/openapi/" + encodeURIComponent(serverId); return; }
+            const data = await response.json().catch(function () { return {}; });
+            [data.error].concat(data.problems || []).filter(Boolean).forEach(function (text) {
+                const item = document.createElement("li");
+                item.textContent = text;
+                errors.appendChild(item);
+            });
+        }
+        document.getElementById("openapi-accept").addEventListener("click", function () { decide("accept"); });
+        document.getElementById("openapi-reject").addEventListener("click", function () { decide("reject"); });
+    })();
+    </script>
+</body>
+</html>

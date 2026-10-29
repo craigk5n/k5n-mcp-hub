@@ -163,7 +163,6 @@ class TestRequestValidation:
         [
             ({"spec": PETSTORE, "spec_url": "http://127.0.0.1:9/spec.json"}, "exactly one"),
             ({}, "exactly one"),
-            ({"spec": PETSTORE, "base_url": ""}, "base_url"),
             ({"spec": PETSTORE, "base_url": "ftp://127.0.0.1/x"}, "base_url"),
             ({"spec": PETSTORE, "auth_type": "api_key", "api_key_in": "header"}, "api_key_name"),
             (
@@ -551,13 +550,14 @@ class TestJobTimeRechecks:
         with pytest.raises(ImportRejected, match="non-OpenAPI"):
             await self._run(registry, base_url=BASE_URL)
 
-    async def test_new_server_without_a_base_url(self):
-        from mcp_hub.openapi.importer import ImportRejected
+    async def test_new_server_without_a_base_url_is_a_draft(self):
+        # Story 13.8: spec first, base URL confirmed afterwards from servers[].
         from mcp_hub.registry.service import Registry
         from mcp_hub.storage.memory import InMemoryStorage
 
-        with pytest.raises(ImportRejected, match="base_url"):
-            await self._run(Registry(InMemoryStorage()))
+        registry = Registry(InMemoryStorage())
+        assert await self._run(registry) == "created"
+        assert (await registry.get("pets")).openapi_base_url == ""
 
 
 class TestReviewFixes:

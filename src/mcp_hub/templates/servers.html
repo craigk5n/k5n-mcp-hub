@@ -33,6 +33,11 @@
     <div class="container mx-auto px-4 py-8">
         <div class="flex items-center justify-between mb-8">
             <h1 class="text-3xl font-bold text-gray-800">Servers</h1>
+            <div class="flex items-center gap-3">
+            <a href="/ui/openapi"
+               class="inline-flex items-center gap-2 text-blue-700 bg-white border border-blue-700 hover:bg-blue-50 font-medium rounded-lg text-sm px-5 py-2.5">
+                Import OpenAPI
+            </a>
             <button type="button"
                     class="inline-flex items-center gap-2 text-white bg-blue-700 hover:bg-blue-800 font-medium rounded-lg text-sm px-5 py-2.5"
                     _="on click call openAddServerDialog()">
@@ -41,6 +46,7 @@
                 </svg>
                 Add Server
             </button>
+            </div>
         </div>
 
         <dialog id="add-server-dialog"
@@ -245,6 +251,13 @@
                     </button>
                     <div id="menu-{{ server.id | dom_id }}" role="menu"
                          class="hidden absolute right-0 mt-1 w-44 bg-white rounded-md shadow-lg border border-gray-200 py-1">
+                        {% if server.transport_kind == "openapi" %}
+                        {# Edited on its own page: /v1/register refuses OpenAPI servers. #}
+                        <a role="menuitem" href="/ui/openapi/{{ server.id | path_encode }}"
+                           class="flex items-center gap-2 w-full text-left px-3 py-2 text-sm text-gray-700 hover:bg-gray-50">
+                            Manage OpenAPI
+                        </a>
+                        {% else %}
                         <button type="button" role="menuitem"
                                 class="flex items-center gap-2 w-full text-left px-3 py-2 text-sm text-gray-700 hover:bg-gray-50"
                                 _="on click add .hidden to #menu-{{ server.id | dom_id }} then call openEditServerDialog(closest <[data-server-card]/>)">
@@ -253,6 +266,7 @@
                             </svg>
                             Edit
                         </button>
+                        {% endif %}
                         <button type="button" role="menuitem"
                                 class="flex items-center gap-2 w-full text-left px-3 py-2 text-sm text-red-600 hover:bg-red-50"
                                 _="on click add .hidden to #menu-{{ server.id | dom_id }} then call openDeleteServerDialog(closest <[data-server-card]/>)">

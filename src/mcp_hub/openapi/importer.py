@@ -20,7 +20,7 @@ from typing import Any, Literal
 
 from urllib.parse import urlsplit
 
-from pydantic import BaseModel, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, field_validator, model_validator
 
 from mcp_hub.config import Settings
 from mcp_hub.models.openapi import OpenAPIOperationRef, OpenAPIOverride, OpenAPISnapshot
@@ -66,12 +66,14 @@ class ImportRejected(Exception):
         self.problems = problems
 
 
-class OpenAPIImportRequest(BaseModel):
-    """`POST /v1/openapi/imports`. Credential fields mirror `/v1/register`'s names."""
+class OpenAPIServerSettings(BaseModel):
+    """A server's settings: `PATCH /v1/openapi/servers/{id}/settings`, and the part
+    of an import that is not the spec. Credential fields mirror `/v1/register`'s
+    names. Unknown fields are refused, so a settings call cannot smuggle in a spec or
+    a selection."""
 
-    id: str
-    spec: str = ""
-    spec_url: str = ""
+    model_config = ConfigDict(extra="forbid")
+
     base_url: str = ""
     name: str = ""
     description: str = ""
@@ -97,26 +99,14 @@ class OpenAPIImportRequest(BaseModel):
     api_key_name: str = ""
     api_key_in: str = ""
     api_key_value: str = ""
-    selection: list[OpenAPIOperationRef] | None = None
-    overrides: list[OpenAPIOverride] | None = None
-    health_probe: OpenAPIOperationRef | None = None
 
-    @field_validator("id", "base_url", "spec_url", mode="before")
+    @field_validator("base_url", mode="before")
     @classmethod
-    def strip(cls, value: Any) -> Any:
+    def strip_base_url(cls, value: Any) -> Any:
         return value.strip() if isinstance(value, str) else value
 
-    @field_validator("id")
-    @classmethod
-    def id_required(cls, value: str) -> str:
-        if not value:
-            raise ValueError("id is required")
-        return value
-
     @model_validator(mode="after")
-    def validate_shape(self) -> OpenAPIImportRequest:
-        if bool(self.spec) == bool(self.spec_url):
-            raise ValueError("send exactly one of spec (the document) or spec_url")
+    def validate_settings(self) -> OpenAPIServerSettings:
         if self.base_url:
             _validate_base_url(self.base_url)
         if self.auth_type == "api_key" or self.api_key_name or self.api_key_in:
@@ -131,6 +121,39 @@ class OpenAPIImportRequest(BaseModel):
         return field in self.model_fields_set
 
 
+class OpenAPIImportRequest(OpenAPIServerSettings):
+    """`POST /v1/openapi/imports`: the settings plus the spec and, optionally, the
+    choices. Without a base URL a new server is a draft: imported, with nothing
+    exposed, until the admin confirms one (Story 13.8)."""
+
+    model_config = ConfigDict(extra="ignore")
+
+    id: str
+    spec: str = ""
+    spec_url: str = ""
+    selection: list[OpenAPIOperationRef] | None = None
+    overrides: list[OpenAPIOverride] | None = None
+    health_probe: OpenAPIOperationRef | None = None
+
+    @field_validator("id", "spec_url", mode="before")
+    @classmethod
+    def strip(cls, value: Any) -> Any:
+        return value.strip() if isinstance(value, str) else value
+
+    @field_validator("id")
+    @classmethod
+    def id_required(cls, value: str) -> str:
+        if not value:
+            raise ValueError("id is required")
+        return value
+
+    @model_validator(mode="after")
+    def validate_spec_source(self) -> OpenAPIImportRequest:
+        if bool(self.spec) == bool(self.spec_url):
+            raise ValueError("send exactly one of spec (the document) or spec_url")
+        return self
+
+
 def _validate_base_url(url: str) -> None:
     parts = urlsplit(url)
     if parts.scheme not in ("http", "https") or not parts.hostname:
@@ -143,7 +166,7 @@ def _validate_base_url(url: str) -> None:
         raise ValueError("base_url must not have a query or fragment")
 
 
-def _validate_api_key(request: OpenAPIImportRequest) -> None:
+def _validate_api_key(request: OpenAPIServerSettings) -> None:
     if not request.api_key_name:
         raise ValueError("auth_type api_key needs api_key_name")
     if request.api_key_in not in ("header", "query"):
@@ -208,8 +231,6 @@ async def run_import(
 
 
 def _new_server(request: OpenAPIImportRequest, snapshot: OpenAPISnapshot) -> RegisteredServer:
-    if not request.base_url:
-        raise ImportRejected("base_url is required for a new OpenAPI server")
     fields = {name: getattr(request, name) for name in _CREDENTIAL_FIELDS}
     return RegisteredServer(
         id=request.id,
@@ -256,9 +277,9 @@ _CREDENTIAL_FIELDS = (
 )
 
 
-def _updated_server(
-    existing: RegisteredServer, request: OpenAPIImportRequest, snapshot: OpenAPISnapshot
-) -> tuple[RegisteredServer, str]:
+def _settings_update(existing: RegisteredServer, request: OpenAPIServerSettings) -> dict[str, Any]:
+    """The fields `request` changes on `existing`. A field sent empty keeps the stored
+    value (`KEPT_ON_REREGISTRATION` and the importer's own), as on `/v1/register`."""
     incoming = {name: getattr(request, name) for name in _CREDENTIAL_FIELDS}
     incoming.update(
         openapi_base_url=request.base_url, name=request.name, description=request.description
@@ -271,6 +292,23 @@ def _updated_server(
     }
     if request.tags is not None:
         update["tags"] = request.tags
+    return update
+
+
+def apply_settings(
+    existing: RegisteredServer, request: OpenAPIServerSettings, *, description_limit: int
+) -> RegisteredServer:
+    """`PATCH .../settings`: the server with new settings, checked. Raises
+    `MappingError` if the result cannot serve its current choices."""
+    candidate = existing.model_copy(update=_settings_update(existing, request))
+    check_choices(candidate, description_limit=description_limit)
+    return candidate
+
+
+def _updated_server(
+    existing: RegisteredServer, request: OpenAPIImportRequest, snapshot: OpenAPISnapshot
+) -> tuple[RegisteredServer, str]:
+    update = _settings_update(existing, request)
     if request.sent("selection"):
         update["openapi_selection"] = request.selection or []
     if request.sent("overrides"):
@@ -295,6 +333,11 @@ def check_choices(server: RegisteredServer, *, description_limit: int) -> None:
     """Raise `MappingError` unless the selection, overrides and probe can be served
     from the accepted snapshot."""
     problems: list[str] = []
+    if not server.openapi_base_url and (server.openapi_selection or server.openapi_health_probe):
+        problems.append(
+            "set a base URL (PATCH /v1/openapi/servers/{id}/settings) before enabling "
+            "tools or a health probe"
+        )
     try:
         openapi_tools(server, description_limit=description_limit)
     except MappingError as exc:

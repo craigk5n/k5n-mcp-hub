@@ -21,7 +21,14 @@ from pydantic import BaseModel, ValidationError
 from mcp_hub.auth.authorize import require_admin
 from mcp_hub.models.openapi import OpenAPIOperationRef, OpenAPIOverride
 from mcp_hub.models.server import RegisteredServer
-from mcp_hub.openapi.importer import OpenAPIImportRequest, apply_choices, run_import
+from mcp_hub.openapi.hints import operation_tags, security_scheme_hints, suggested_base_urls
+from mcp_hub.openapi.importer import (
+    OpenAPIImportRequest,
+    OpenAPIServerSettings,
+    apply_choices,
+    apply_settings,
+    run_import,
+)
 from mcp_hub.openapi.jobs import ImportJobStore, JobQueueFull
 from mcp_hub.openapi.model import MappedOperation, MappingError
 from mcp_hub.openapi.revision import accept_revision, diff_revision
@@ -87,8 +94,6 @@ async def start_import(request: Request, _: None = Depends(auth_dependency)) -> 
     existing = await request.app.state.registry.get(validated.id)
     if existing is not None and not existing.is_openapi:
         return _error(409, f"{validated.id!r} is already registered as a non-OpenAPI server")
-    if existing is None and not validated.base_url:
-        return _error(400, "base_url is required for a new OpenAPI server")
 
     allow_private = settings.security.allow_private_networks
     for url, require_reachability in ((validated.base_url, True), (validated.spec_url, False)):
@@ -150,6 +155,7 @@ async def get_operations(
     probe = server.openapi_health_probe
     # Mapping a large spec takes most of a second: off the event loop.
     operations = await asyncio.to_thread(openapi_preview, server, description_limit=limit)
+    tags = operation_tags(server.openapi_snapshot) if server.openapi_snapshot else {}
     return JSONResponse(
         content={
             "server_id": server.id,
@@ -164,15 +170,23 @@ async def get_operations(
                 else None
             ),
             "health_probe": probe.model_dump() if probe else None,
-            "operations": [_operation_json(m) for m in operations],
+            # Suggestions for the settings form; the admin confirms (ADR 0011 §4, §8).
+            "suggested_base_urls": suggested_base_urls(server.openapi_snapshot)
+            if server.openapi_snapshot
+            else [],
+            "security_schemes": security_scheme_hints(server.openapi_snapshot)
+            if server.openapi_snapshot
+            else [],
+            "operations": [_operation_json(m, tags.get(m.key, [])) for m in operations],
         }
     )
 
 
-def _operation_json(mapped: MappedOperation) -> dict[str, Any]:
+def _operation_json(mapped: MappedOperation, tags: list[str]) -> dict[str, Any]:
     return {
         "method": mapped.key.method,
         "path": mapped.key.path,
+        "tags": tags,
         "selected": mapped.selected,
         "tool": mapped.tool.to_mcp() if mapped.tool else None,
         "unsupported": list(mapped.unsupported),
@@ -395,3 +409,54 @@ async def reject(
             server.model_copy(update={"openapi_pending": None})
         )
     return JSONResponse(content={"rejected": rejected})
+
+
+@router.patch("/servers/{server_id}/settings", response_model=None)
+async def patch_settings(
+    server_id: str, request: Request, _: None = Depends(auth_dependency)
+) -> JSONResponse:
+    """Base URL, credentials, name, description, scope. Fields left out (or empty) keep
+    their stored value, as on re-import; this is how a draft's base URL is confirmed
+    after the spec has suggested one (Story 13.8)."""
+    require_admin(request)
+    raw = await _read_capped(request, _TOOLS_BODY_BYTES)
+    if raw is None:
+        return _error(413, "request too large")
+    try:
+        validated = OpenAPIServerSettings.model_validate(json.loads(raw or b"{}"))
+    except json.JSONDecodeError:
+        return _error(400, "invalid json")
+    except ValidationError as exc:
+        first = exc.errors()[0]
+        where = ".".join(str(part) for part in first.get("loc", ()))
+        return _error(400, f"{where + ': ' if where else ''}{first.get('msg', 'invalid value')}")
+    settings = request.app.state.settings
+    if validated.base_url:
+        safe, _reason, _ips = await is_url_safe_for_discovery(
+            validated.base_url, True, settings.security.allow_private_networks
+        )
+        if not safe:
+            return _error(400, "URL validation failed")
+    limit = settings.openapi.max_description_chars
+    async with request.app.state.openapi_locks(server_id):
+        server = await _openapi_server(request, server_id)
+        if server is None:
+            return _error(404, "no such OpenAPI server")
+        try:
+            updated = await asyncio.to_thread(
+                apply_settings, server, validated, description_limit=limit
+            )
+        except MappingError as exc:
+            return _error(
+                400, "these settings cannot serve the current choices", problems=list(exc.problems)
+            )
+        await request.app.state.registry.register(updated)
+        await request.app.state.discovery_service.discover_immediately(updated)
+    stored = await request.app.state.registry.get(server_id)
+    return JSONResponse(
+        content={
+            "server": stored.sanitize_for_api().model_dump(
+                mode="json", exclude={"openapi_snapshot", "openapi_pending"}
+            )
+        }
+    )

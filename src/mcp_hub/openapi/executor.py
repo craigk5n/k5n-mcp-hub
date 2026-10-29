@@ -129,6 +129,9 @@ async def call_tool(
     apply_auth: AuthApplier = apply_server_auth,
     on_exchange: ExchangeObserver | None = None,
 ) -> CallResult:
+    if not server.openapi_base_url:
+        # A draft (Story 13.8): imported, but no base URL confirmed yet.
+        return _failure("This server has no base URL yet, so the call was not sent")
     problem = argument_error(tool.definition.input_schema, arguments)
     if problem is not None:
         return _failure(f"Invalid arguments: {problem}")

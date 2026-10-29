@@ -1,0 +1,120 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>OpenAPI servers - k5n-mcp-hub</title>
+    <link rel="icon" type="image/svg+xml" href="/static/images/icon.svg">
+    <script src="/static/vendor/htmx.min.js"></script>
+    <script src="/static/vendor/tailwind.js"></script>
+</head>
+<body class="bg-gray-50 min-h-screen">
+    <header class="bg-white shadow">
+        <div class="container mx-auto px-4 py-4 flex items-center gap-6">
+            <a href="/ui/servers" class="inline-flex items-center gap-3 hover:opacity-80">
+                <img src="/static/images/icon.svg" alt="k5n-mcp-hub logo" width="36" height="36" class="rounded-lg">
+                <span class="text-xl font-semibold text-gray-800">k5n-mcp-hub</span>
+            </a>
+            <a href="/ui/servers" class="text-sm text-blue-700 hover:underline">Servers</a>
+            <span class="text-sm font-medium text-gray-800">OpenAPI</span>
+        </div>
+    </header>
+
+    <main class="container mx-auto px-4 py-8 space-y-8">
+        <h1 class="text-3xl font-bold text-gray-800">OpenAPI servers</h1>
+        <p class="text-gray-600 max-w-3xl">
+            Import a REST API's OpenAPI document (Swagger 2.0, OpenAPI 3.0 or 3.1) and the hub
+            serves the operations you choose as MCP tools. Nothing is exposed until you select it.
+        </p>
+
+        <section class="bg-white rounded-lg shadow p-6">
+            <h2 class="text-xl font-semibold mb-4">Servers</h2>
+            {% if servers %}
+            <table class="w-full text-sm">
+                <thead class="text-left text-gray-500">
+                    <tr><th class="py-2">Server</th><th>Spec</th><th>Base URL</th><th>Tools</th><th>Status</th></tr>
+                </thead>
+                <tbody>
+                {% for server in servers %}
+                    <tr class="border-t">
+                        <td class="py-2"><a class="text-blue-700 hover:underline" href="/ui/openapi/{{ server.id | path_encode }}">{{ server.id }}</a></td>
+                        <td>{{ server.title }} <span class="text-gray-400">({{ server.dialect }})</span></td>
+                        <td>{% if server.base_url %}{{ server.base_url }}{% else %}<span class="text-amber-700">not set (draft)</span>{% endif %}</td>
+                        <td>{{ server.selected }}</td>
+                        <td>{% if server.pending_sha256 %}<a class="text-amber-700 hover:underline" href="/ui/openapi/{{ server.id | path_encode }}/revision">revision waiting</a>{% else %}up to date{% endif %}</td>
+                    </tr>
+                {% endfor %}
+                </tbody>
+            </table>
+            {% else %}
+            <p class="text-gray-500">No OpenAPI servers yet.</p>
+            {% endif %}
+        </section>
+
+        <section class="bg-white rounded-lg shadow p-6">
+            <h2 class="text-xl font-semibold mb-4">Import</h2>
+            <form id="openapi-import-form" class="space-y-4 max-w-3xl">
+                <label class="block">
+                    <span class="text-sm font-medium text-gray-700">Server id</span>
+                    <input name="id" required class="mt-1 block w-full border rounded px-3 py-2" placeholder="pets">
+                </label>
+                <label class="block">
+                    <span class="text-sm font-medium text-gray-700">Spec URL</span>
+                    <input name="spec_url" class="mt-1 block w-full border rounded px-3 py-2" placeholder="https://api.example.com/openapi.json">
+                </label>
+                <p class="text-sm text-gray-500">or</p>
+                <label class="block">
+                    <span class="text-sm font-medium text-gray-700">Spec file</span>
+                    <input id="openapi-spec-file" type="file" accept=".json,.yaml,.yml" class="mt-1 block text-sm">
+                </label>
+                <label class="block">
+                    <span class="text-sm font-medium text-gray-700">Paste the spec (JSON or YAML)</span>
+                    <textarea name="spec" rows="6" class="mt-1 block w-full border rounded px-3 py-2 font-mono text-xs"></textarea>
+                </label>
+                <p class="text-sm text-gray-500">
+                    You'll confirm the base URL and credentials after the spec loads, with suggestions from the spec.
+                </p>
+                <button type="submit" class="text-white bg-blue-700 hover:bg-blue-800 font-medium rounded-lg text-sm px-5 py-2.5">Import</button>
+                <p id="openapi-import-error" class="text-sm text-red-700"></p>
+            </form>
+            <div id="openapi-job" class="mt-4"></div>
+        </section>
+    </main>
+
+    <script>
+    (function () {
+        const form = document.getElementById("openapi-import-form");
+        const error = document.getElementById("openapi-import-error");
+        document.getElementById("openapi-spec-file").addEventListener("change", function (event) {
+            const file = event.target.files[0];
+            if (!file) return;
+            const reader = new FileReader();
+            reader.onload = function () { form.elements.spec.value = reader.result; };
+            reader.readAsText(file);
+        });
+        form.addEventListener("submit", async function (event) {
+            event.preventDefault();
+            error.textContent = "";
+            const body = { id: form.elements.id.value.trim() };
+            if (form.elements.spec_url.value.trim()) body.spec_url = form.elements.spec_url.value.trim();
+            if (form.elements.spec.value.trim()) body.spec = form.elements.spec.value;
+            const response = await fetch("/v1/openapi/imports", {
+                method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body),
+            });
+            const data = await response.json().catch(function () { return {}; });
+            if (response.status !== 202) {
+                error.textContent = data.error || ("Import failed (HTTP " + response.status + ")");
+                return;
+            }
+            const progress = document.createElement("div");
+            progress.setAttribute("hx-get", "/ui/openapi/jobs/" + encodeURIComponent(data.job_id));
+            progress.setAttribute("hx-trigger", "load");
+            progress.setAttribute("hx-swap", "outerHTML");
+            const target = document.getElementById("openapi-job");
+            target.replaceChildren(progress);
+            htmx.process(progress);
+        });
+    })();
+    </script>
+</body>
+</html>
